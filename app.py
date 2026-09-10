@@ -39,7 +39,8 @@ def _background_init():
 threading.Thread(target=_background_init, daemon=True).start()
 
 import gradio as gr
-import uvicorn
+from starlette.requests import Request
+from starlette.responses import Response
 from server.app import app, DATA_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -50,7 +51,7 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
         """
         # 🎙️ Bol Studio Backend Engine
         
-        This Hugging Face Space powers **AI Hinglish speech transcription** and **video rendering** for [Bol Studio](https://vercel.com).
+        This Hugging Face Space powers **AI Hinglish speech transcription** and **video rendering** for [Bol Studio](https://bol-studio.vercel.app).
         
         ### 🟢 Status: Online & Active
         - **API Base URL**: `https://n3owise-bol-studio-backend.hf.space/api/`
@@ -60,11 +61,24 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
     )
     status_btn = gr.Button("GPU Check", visible=False)
     status_btn.click(fn=gpu_worker)
-    demo.load(fn=gpu_worker)
 
-# 2. Mount Gradio onto the FastAPI app (ssr_mode=False disables Node proxy)
-app = gr.mount_gradio_app(app, demo, path="/", ssr_mode=False)
+# 2. Add CORS headers to all responses so bol-studio.vercel.app can connect smoothly
+@demo.app.middleware("http")
+async def add_cors_header(request: Request, call_next):
+    if request.method == "OPTIONS":
+        response = Response(status_code=200)
+    else:
+        response = await call_next(request)
+    origin = request.headers.get("origin", "*")
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+# 3. Mount all /api routes from FastAPI directly onto demo.app
+demo.app.include_router(app.router)
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 7860))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # demo.launch() triggers spaces.zero startup report and starts the Uvicorn server on port 7860
+    demo.launch(_app=demo.app, server_name="0.0.0.0", server_port=port, ssr_mode=False)
