@@ -6,6 +6,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import spaces
+
+    @spaces.GPU(duration=120)
+    def gpu_worker():
+        """Satisfies Hugging Face ZeroGPU startup check."""
+        return True
+except ImportError:
+    pass
+
 # 1. Ensure the Roman-Hinglish model is downloaded
 MODEL_FILE = Path("data/models/hinglish-swift/hi-hinglish-swift/encoder.int8.onnx")
 if not MODEL_FILE.is_file():
