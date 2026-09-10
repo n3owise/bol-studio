@@ -2,7 +2,7 @@
 title: Bol Studio Backend
 emoji: 🎙️
 colorFrom: green
-colorTo: emerald
+colorTo: green
 sdk: gradio
 sdk_version: 6.26.0
 python_version: '3.12'
