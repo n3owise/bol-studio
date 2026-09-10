@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 0. ZeroGPU startup requirement
 try:
     import spaces
 
@@ -35,13 +36,12 @@ if not NODE_MODULES.is_dir():
         print(f"Warning: npm install failed: {e}")
 
 import gradio as gr
-from fastapi import APIRouter
-from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 from server.app import app, DATA_DIR
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# 3. Create the Gradio interface
+# 3. Create the Gradio status interface
 with gr.Blocks(title="Bol Studio API Engine") as demo:
     gr.Markdown(
         """
@@ -56,22 +56,9 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
         """
     )
 
-# 4. Mount all FastAPI /api routes onto demo.app using an APIRouter
-api_router = APIRouter()
-for r in app.routes:
-    if hasattr(r, "path") and r.path.startswith("/api"):
-        api_router.routes.append(r)
-
-demo.app.include_router(api_router)
-
-# 5. Enable universal CORS for Vercel
-demo.app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=False,
-)
+# 4. Mount Gradio onto the FastAPI app (with ssr_mode=False so Node proxy does not conflict with port 7860)
+app = gr.mount_gradio_app(app, demo, path="/", ssr_mode=False)
 
 if __name__ == "__main__":
-    demo.launch(ssr_mode=False)
+    port = int(os.getenv("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
