@@ -35,6 +35,7 @@ if not NODE_MODULES.is_dir():
         print(f"Warning: npm install failed: {e}")
 
 import gradio as gr
+from fastapi import APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from server.app import app, DATA_DIR
 
@@ -55,10 +56,13 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
         """
     )
 
-# 4. Mount all FastAPI /api routes onto demo.app
+# 4. Mount all FastAPI /api routes onto demo.app using an APIRouter
+api_router = APIRouter()
 for r in app.routes:
     if hasattr(r, "path") and r.path.startswith("/api"):
-        demo.app.routes.append(r)
+        api_router.routes.append(r)
+
+demo.app.include_router(api_router)
 
 # 5. Enable universal CORS for Vercel
 demo.app.add_middleware(
