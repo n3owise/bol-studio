@@ -55,6 +55,9 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
         - **Video Processing**: Native FFmpeg + Canvas Motion Renderer
         """
     )
+    status_btn = gr.Button("GPU Check", visible=False)
+    status_btn.click(fn=gpu_worker)
+    demo.load(fn=gpu_worker)
 
 # 4. Mount Gradio onto the FastAPI app (with ssr_mode=False so Node proxy does not conflict with port 7860)
 app = gr.mount_gradio_app(app, demo, path="/", ssr_mode=False)

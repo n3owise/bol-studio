@@ -665,3 +665,10 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str, pr
     return {"words": words, "waveform": waveform, "model": model, "detectedLanguage": detected_language,
             "emphasisMethod": EMPHASIS_METHOD,
             "timingMethod": "Whisper word alignment. Multiword ASR units are kept together; flagged adjustments are approximate."}
+
+
+try:
+    import spaces
+    transcribe = spaces.GPU(duration=180)(transcribe)
+except Exception:
+    pass
