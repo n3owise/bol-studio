@@ -60,4 +60,4 @@ demo.app.add_middleware(
 )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(ssr_mode=False)
