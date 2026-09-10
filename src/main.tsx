@@ -442,7 +442,7 @@ function App() {
     <header className="studio-navbar">
       <div className="navbar-left">
         <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
-          <img src="/bol.studio.png" alt="bol.studio" className="navbar-brand-logo" />
+          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo" />
         </button>
         <div className="nav-divider" />
         <div className="navbar-project">
