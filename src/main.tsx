@@ -87,7 +87,7 @@ function App() {
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
   const [resolution, setResolution] = useState(720);
   const [exporting, setExporting] = useState(false);
-  const [saveStatus, setSaveStatus] = useState('Saved locally');
+  const [saveStatus, setSaveStatus] = useState(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
   const [dirty, setDirty] = useState(0);
   const [history, setHistory] = useState<EditState[]>([]);
   const [future, setFuture] = useState<EditState[]>([]);
@@ -153,7 +153,7 @@ function App() {
       setSaveStatus('Saving…');
       try {
         const result = await request<Project>(`/projects/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ words: p.words, settings: p.settings, name: p.name, videoEnabled: p.videoEnabled }) });
-        if (projectRef.current?.id === p.id) { savedDirty.current = generation; setSaveStatus('Saved locally'); setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous); }
+        if (projectRef.current?.id === p.id) { savedDirty.current = generation; setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud'); setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous); }
       } catch (e) { setSaveStatus('Unsaved changes'); notify((e as Error).message); throw e; }
     });
     saveChain.current = action; return action;
@@ -468,7 +468,7 @@ function App() {
             <span className="pill-dot" />
             <span>{project.words.length} words</span>
             <span className="pill-dot" />
-            <span>{health?.engine === 'sherpa-hinglish' ? 'Hinglish Pro' : 'Local AI'}</span>
+            <span>{health?.engine === 'sherpa-hinglish' || (health as Record<string, unknown>)?.backend === 'sherpa-hinglish' ? 'Hinglish Pro' : (import.meta.env.DEV ? 'Local AI' : 'Cloud AI')}</span>
           </div>
         ) : (
           <div className="navbar-meta-pill">
@@ -1158,7 +1158,7 @@ function App() {
           </div>
         </section>
       </main>
-      <footer className="statusbar"><span><span className={health?'status-dot':'status-dot offline'}/>{health?'Local workspace':'Waiting for local worker'}<span className="status-separator">/</span>Hinglish, without the compromise.</span><button onClick={()=>setModal('help')}><Keyboard size={14}/>Studio guide</button></footer>
+      <footer className="statusbar"><span><span className={health?'status-dot':'status-dot offline'}/>{health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}<span className="status-separator">/</span>Hinglish, without the compromise.</span><button onClick={()=>setModal('help')}><Keyboard size={14}/>Studio guide</button></footer>
     </div>
 
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
