@@ -1,5 +1,7 @@
 import type { Project } from './types';
-export const API = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+
+const defaultBase = import.meta.env.DEV ? '' : 'https://n3owise-bol-studio-backend.hf.space';
+export const API = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API}/api${path}`, options);
   if (!response.ok) {
