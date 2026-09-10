@@ -4,7 +4,7 @@ if (!existsSync('.venv/bin/python')) {
   console.error('Set up the Python environment first. See README.md.'); process.exit(1);
 }
 const children = [
-  spawn('.venv/bin/python', ['-m', 'uvicorn', 'server.app:app', '--host', '127.0.0.1', '--port', '8765'], { stdio: 'inherit' }),
+  spawn('.venv/bin/python', ['-m', 'uvicorn', 'server.app:app', '--host', '::', '--port', '8765'], { stdio: 'inherit' }),
   spawn('npm', ['run', 'dev:web'], { stdio: 'inherit' }),
 ];
 let stopping = false;
