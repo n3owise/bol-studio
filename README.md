@@ -1,3 +1,16 @@
+---
+title: Bol Studio Backend
+emoji: 🎙️
+colorFrom: green
+colorTo: emerald
+sdk: gradio
+sdk_version: 6.26.0
+python_version: '3.12'
+app_file: app.py
+pinned: false
+license: apache-2.0
+---
+
 # Bol
 
 Bol is a local Hinglish caption studio. Drop in a video or audio file, review the timed transcript, correct Roman spelling, mark words for emphasis, choose a motion template, and export a captioned MP4, a silent green-screen overlay, or SRT/VTT/JSON timings.
