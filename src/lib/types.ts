@@ -1,0 +1,5 @@
+export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean };
+export type Settings = { template: string; accent: string; fontSize: number; position: number; wordsPerLine: number; uppercase: boolean; motion: number; aspect: 'original' | '9:16' | '1:1' | '16:9' };
+export type ExportJob = { id: string; mode: string; status: string; progress: number; message: string; filename?: string };
+export type Project = { id: string; name: string; filename: string; mediaType: string; videoEnabled?: boolean; duration: number; width: number; height: number; created: string; status: string; progress: number; message: string; words: Word[]; settings: Settings; waveform: number[]; exports: ExportJob[]; script: 'roman' | 'native'; language: 'hi' | 'en' | 'auto'; model?: string; revision: number };
+export const defaults: Settings = { template: 'welcome-stack', accent: '#9de52e', fontSize: 54, position: 70, wordsPerLine: 5, uppercase: false, motion: 1, aspect: 'original' };

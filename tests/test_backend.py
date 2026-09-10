@@ -1,0 +1,316 @@
+import copy
+import io
+import json
+import subprocess
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+from scipy.io import wavfile
+
+from server import app as backend
+from server.transcription import (_sherpa_tokens_to_words, merge_code_mixed_english, model_config,
+                                  normalize_words, refine_word_boundaries_with_vad, romanize_hinglish, suggest_emphasis, transcribe)
+
+
+class FakeQueue:
+    def __init__(self):
+        self.jobs = []
+
+    def submit(self, fn, *args):
+        self.jobs.append((fn, args))
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(backend, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(backend, "EXECUTOR", FakeQueue())
+    with TestClient(backend.app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def project(client):
+    value = {"id": str(uuid.uuid4()), "name": "My clip", "filename": "clip.wav", "mediaType": "audio", "duration": 3,
+             "width": 720, "height": 1280, "created": "2026-09-09T00:00:00Z", "status": "ready", "progress": 100,
+             "message": "Ready", "words": [word()], "settings": copy.deepcopy(backend.DEFAULT_SETTINGS), "waveform": [],
+             "exports": [], "script": "roman", "language": "hi", "revision": 1}
+    backend.write_project(value)
+    return value
+
+
+def word(**changes):
+    return {"id": "w1", "text": "hello", "original": "hello", "start": .1, "end": .7,
+            "confidence": .9, "emphasis": False, "emphasisScore": .5, **changes}
+
+
+def audio_bytes(silent=False):
+    rate = 16000
+    samples = np.zeros(rate, dtype=np.int16) if silent else (np.sin(2*np.pi*220*np.arange(rate)/rate)*8000).astype(np.int16)
+    buffer = io.BytesIO()
+    wavfile.write(buffer, rate, samples)
+    return buffer.getvalue()
+
+
+def test_upload_valid_audio_persists_and_queues_once(client):
+    response = client.post("/api/projects", files={"file": ("../my speech.wav", audio_bytes(), "audio/wav")}, data={"script": "roman", "language": "hi"})
+    assert response.status_code == 201, response.text
+    project = response.json()
+    assert project["filename"] == "my speech.wav"
+    assert project["mediaType"] == "audio"
+    assert project["duration"] == 1
+    assert project["status"] == "queued"
+    assert len(backend.EXECUTOR.jobs) == 1
+    assert backend.load_project(project["id"]) == project
+    assert client.get(f"/api/projects/{project['id']}/media").status_code == 409
+
+
+def test_upload_invalid_media_is_rejected_and_cleaned(client):
+    response = client.post("/api/projects", files={"file": ("fake.mp4", b"this is not media", "video/mp4")})
+    assert response.status_code == 422
+    assert list(backend.DATA_DIR.iterdir()) == []
+
+
+def test_empty_and_oversize_upload(client, monkeypatch):
+    assert client.post("/api/projects", files={"file": ("empty.wav", b"", "audio/wav")}).status_code == 422
+    monkeypatch.setattr(backend, "MAX_BYTES", 10)
+    assert client.post("/api/projects", files={"file": ("large.wav", audio_bytes(), "audio/wav")}).status_code == 413
+    assert list(backend.DATA_DIR.iterdir()) == []
+
+
+@pytest.mark.parametrize("words", [
+    [word(start=1, end=.5)], [word(end=3.1)], [word(start=-1)],
+    [word(), word(id="w2", start=.6, end=.9)],
+    [word(), word(start=1, end=2)], [word(text=" ")],
+    [word(start="0.1")], [word(emphasis="yes")], [word(confidence=2)],
+])
+def test_invalid_word_edits_are_rejected_without_mutation(client, project, words):
+    response = client.patch(f"/api/projects/{project['id']}", json={"words": words})
+    assert response.status_code == 422, response.text
+    assert backend.load_project(project["id"]) == project
+
+
+def test_revision_conflict_and_partial_settings(client, project):
+    url = f"/api/projects/{project['id']}"
+    response = client.patch(url, json={"revision": 1, "settings": {"accent": "#ff8800"}})
+    assert response.status_code == 200
+    assert response.json()["settings"]["fontSize"] == 54
+    assert response.json()["revision"] == 2
+    assert client.patch(url, json={"revision": 1, "name": "Stale"}).status_code == 409
+    assert backend.load_project(project["id"])["name"] == "My clip"
+
+
+def test_video_layer_can_be_removed_without_removing_audio(client, project):
+    video_project = copy.deepcopy(project)
+    video_project["mediaType"] = "video"
+    video_project["videoEnabled"] = True
+    backend.write_project(video_project)
+    url = f"/api/projects/{project['id']}"
+    response = client.patch(url, json={"videoEnabled": False})
+    assert response.status_code == 200
+    assert response.json()["videoEnabled"] is False
+    assert client.patch(url, json={"videoEnabled": True}).json()["videoEnabled"] is True
+
+
+@pytest.mark.parametrize("settings", [{"accent": "red"}, {"template": "unknown"}, {"fontSize": 999}, {"wordsPerLine": 0}, {"uppercase": "true"}, {"aspect": "12:4"}])
+def test_invalid_settings(client, project, settings):
+    assert client.patch(f"/api/projects/{project['id']}", json={"settings": settings}).status_code == 422
+
+
+def test_edit_and_retry_conflicts_during_transcription(client, project):
+    url = f"/api/projects/{project['id']}"
+    assert client.post(url + "/transcribe", json={"script": "native"}).status_code == 200
+    assert client.post(url + "/transcribe").status_code == 409
+    assert client.patch(url, json={"words": [word(text="edited")]}).status_code == 409
+    assert client.patch(url, json={"name": "Renamed"}).status_code == 200
+    assert backend.load_project(project["id"])["script"] == "native"
+
+
+def test_exports_snapshot_before_later_edits(client, project):
+    url = f"/api/projects/{project['id']}"
+    response = client.post(url + "/exports", json={"mode": "green", "resolution": 720})
+    assert response.status_code == 202
+    snapshot = backend.EXECUTOR.jobs[0][1][2]
+    assert client.patch(url, json={"words": [word(text="updated")]}).status_code == 200
+    assert snapshot["words"][0]["text"] == "hello"
+    assert client.post(url + "/exports", json={"mode": "burned", "resolution": 720}).status_code == 409
+    assert client.get(url + f"/exports/{response.json()['id']}/download").status_code == 409
+
+
+def test_concurrent_atomic_updates_keep_all_changes(client, project):
+    def increment(_):
+        backend.update_project(project["id"], lambda value: value.update(counter=value.get("counter", 0) + 1))
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        list(executor.map(increment, range(20)))
+    stored = backend.load_project(project["id"])
+    assert stored["counter"] == 20
+    assert stored["revision"] == 21
+    assert list(backend.project_dir(project["id"]).glob("*.tmp")) == []
+
+
+def test_restart_marks_interrupted_jobs_retryable(client, project):
+    backend.update_project(project["id"], lambda p: p.update(status="processing", exports=[{"id": str(uuid.uuid4()), "status": "queued"}]))
+    with TestClient(backend.app):
+        restored = backend.load_project(project["id"])
+    assert restored["status"] == "error"
+    assert "restart" in restored["message"]
+    assert restored["exports"][0]["status"] == "error"
+
+
+def test_alignment_preserves_real_multiword_units():
+    segments = [{"words": [{"word": " hello world", "start": .32, "end": 1.23, "probability": .8},
+                            {"word": " आज", "start": 1.3, "end": 1.7, "probability": .9}]}]
+    words = normalize_words(segments, 2, "roman")
+    assert len(words) == 2
+    assert words[0]["start"] == .32 and words[0]["end"] == 1.23
+    assert words[0]["text"] == "hello world" and words[0]["timingApproximate"]
+    assert words[1]["text"] == "aaj" and words[1]["original"] == "आज"
+
+
+def test_romanization_preserves_english_and_common_hindi():
+    assert romanize_hinglish("मैं आज video upload कर रहा हूँ।") == "main aaj video upload kar raha hoon."
+    assert romanize_hinglish("OpenAI API") == "OpenAI API"
+    # Exercise uroman for a token outside the common-spelling dictionary.
+    assert not any("\u0900" <= char <= "\u097f" for char in romanize_hinglish("पुस्तकालय"))
+
+
+def test_code_mixed_merge_keeps_english_words_in_latin_script():
+    words = normalize_words([{"words": [
+        {"word": " Come", "start": .0, "end": .3, "probability": .95},
+        {"word": " ऑन", "start": .3, "end": .5, "probability": .9},
+        {"word": " वीडियो", "start": .5, "end": .9, "probability": .9},
+        {"word": " आज", "start": .9, "end": 1.2, "probability": .95},
+    ]}], 2, "roman")
+    merge_code_mixed_english(words, [{"words": [
+        {"word": " Come", "start": .0, "end": .3, "probability": .95},
+        {"word": " on", "start": .3, "end": .5, "probability": .9},
+        {"word": " video", "start": .5, "end": .9, "probability": .95},
+        {"word": " aaj", "start": .9, "end": 1.2, "probability": .95},
+    ]}])
+    assert [word["text"] for word in words] == ["Come", "on", "video", "aaj"]
+
+
+def test_english_verifier_repairs_basic_words_without_translating_hindi():
+    words = normalize_words([{"words": [
+        {"word": " Is", "start": .0, "end": .2, "probability": .75},
+        {"word": " something", "start": .2, "end": .42, "probability": .75},
+        {"word": " capsules", "start": .64, "end": 1.0, "probability": .75},
+        {"word": " baaki", "start": 1.0, "end": 1.3, "probability": .75},
+    ]}], 2, "roman")
+    merge_code_mixed_english(words, [{"words": [
+        {"word": " There", "start": .0, "end": .14, "probability": .497},
+        {"word": " is", "start": .14, "end": .24, "probability": .94},
+        {"word": " captions", "start": .66, "end": .96, "probability": .88},
+        {"word": " the", "start": 1.02, "end": 1.16, "probability": .80},
+    ]}])
+    assert [word["text"] for word in words] == ["There", "is", "something", "captions", "baaki"]
+
+
+def test_hinglish_specialist_tokens_keep_true_word_boundaries():
+    class Result:
+        tokens = ["N", "am", "aste", " d", "ost", "on", ",", " a", "aj", " video"]
+        timestamps = [0, .06, .28, .52, .66, .86, 1.02, 1.12, 1.3, 1.5]
+        durations = [.06, .22, .24, .14, .2, .16, .1, .18, .2, .3]
+
+    words = _sherpa_tokens_to_words(Result(), 2)
+    assert [word["word"] for word in words] == ["Namaste", "doston,", "aaj", "video"]
+    assert words[1]["start"] == .52 and words[1]["end"] == 1.12
+
+
+def test_emphasis_responds_to_measured_loudness():
+    rate = 16000
+    tone = np.sin(2*np.pi*180*np.arange(rate//2)/rate).astype(np.float32)
+    audio = np.concatenate([tone*.04, tone*.04, tone*.3, tone*.04, tone*.04])
+    words = [word(id=f"w{i}", start=i*.5, end=(i+1)*.5) for i in range(5)]
+    suggest_emphasis(words, audio, rate)
+    assert words[2]["emphasis"]
+    assert words[2]["emphasisScore"] > words[0]["emphasisScore"] + .25
+    assert not words[0]["emphasis"]
+
+
+def test_emphasis_boosts_hook_keywords_and_dampens_particles():
+    rate = 16000
+    tone = np.sin(2*np.pi*180*np.arange(rate//2)/rate).astype(np.float32) * .08
+    audio = np.concatenate([tone, tone, tone, tone])
+    words = [
+        word(id="w1", text="Step", start=0.0, end=0.5),
+        word(id="w2", text="2", start=0.5, end=1.0),
+        word(id="w3", text="ke", start=1.0, end=1.5),
+        word(id="w4", text="andar", start=1.5, end=2.0),
+    ]
+    suggest_emphasis(words, audio, rate)
+    # Hook keywords "Step" and "2" receive positive bias over particle "ke"
+    assert words[0]["emphasisScore"] > words[2]["emphasisScore"]
+    assert not words[2]["emphasis"]  # "ke" should not be emphasized
+
+
+def test_silence_does_not_load_model_or_invent_words(tmp_path):
+    path = tmp_path / "silent.wav"
+    path.write_bytes(audio_bytes(silent=True))
+    progress = []
+    result = transcribe(path, 1, "roman", "hi", lambda *args: progress.append(args))
+    assert result["words"] == []
+    assert progress == []
+    assert not any(result["waveform"])
+
+
+def test_malformed_project_id_is_not_a_path(client):
+    assert client.get("/api/projects/not-a-uuid").status_code == 404
+
+
+def test_documented_environment_names_take_precedence(monkeypatch):
+    monkeypatch.setenv("BOL_ENGINE", "faster-whisper")
+    monkeypatch.setenv("BOL_MODEL", "my-local-model")
+    monkeypatch.setenv("TRANSCRIPTION_BACKEND", "mlx")
+    monkeypatch.setenv("WHISPER_MODEL", "legacy-model")
+    assert model_config() == ("faster-whisper", "my-local-model")
+
+
+def test_audio_preview_preserves_stereo_source_quality(client, project):
+    directory = backend.project_dir(project["id"])
+    source = directory / "source.bin"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=1",
+                    "-ac", "2", "-c:a", "pcm_s16le", "-f", "wav", str(source)], check=True)
+    backend.prepare_media(project)
+    preview = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(directory / "preview.m4a")], check=True, capture_output=True, text=True).stdout)["streams"][0]
+    assert preview["channels"] == 2 and preview["sample_rate"] == "44100"
+    rate, samples = wavfile.read(directory / "audio.wav")
+    assert rate == 16000 and samples.ndim == 1
+    response = client.get(f"/api/projects/{project['id']}/media", headers={"Range": "bytes=0-1023"})
+    assert response.status_code == 206 and response.headers["content-type"] == "audio/mp4"
+
+
+def test_refine_word_boundaries_with_vad_trims_silence():
+    rate = 16000
+    duration = 3.0
+    # Audio with silence 0.0-0.4s, tone 0.4-0.8s, silence 0.8-1.5s, tone 1.5-1.9s, silence 1.9-3.0s
+    samples = np.zeros(int(rate * duration), dtype=np.float32)
+    t1 = np.arange(int(rate * 0.4)) / rate
+    samples[int(rate * 0.4):int(rate * 0.8)] = np.sin(2 * np.pi * 300 * t1) * 0.5
+    t2 = np.arange(int(rate * 0.4)) / rate
+    samples[int(rate * 1.5):int(rate * 1.9)] = np.sin(2 * np.pi * 300 * t2) * 0.5
+
+    # Simulated stretched Whisper alignments with zero gap
+    words = [
+        {"id": "w1", "text": "First", "start": 0.0, "end": 1.1},
+        {"id": "w2", "text": "Second", "start": 1.1, "end": 2.5},
+    ]
+    refined = refine_word_boundaries_with_vad(words, samples, rate, duration)
+    assert len(refined) == 2
+    # w1 leading silence should be trimmed (start moved from 0.0 to ~0.37 with 30ms pre-roll)
+    assert refined[0]["start"] >= 0.35
+    # w1 trailing silence trimmed (end moved from 1.1 to ~0.84 with 40ms post-roll)
+    assert refined[0]["end"] <= 0.86
+    # w2 leading silence trimmed (start moved from 1.1 to ~1.47)
+    assert refined[1]["start"] >= 1.45
+    # w2 trailing silence trimmed (end moved from 2.5 to ~1.95)
+    assert refined[1]["end"] <= 1.96
+
+    # A real pause (> 0.5s) is created between w1 and w2
+    assert refined[1]["start"] - refined[0]["end"] > 0.5
+
+    # Refined words must strictly satisfy backend validation
+    backend.validate_word_intervals(refined, duration)
+
