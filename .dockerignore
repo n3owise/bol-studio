@@ -1,0 +1,9 @@
+node_modules
+.venv
+dist
+.git
+.pytest_cache
+test-results
+data/7*
+data/test-fixtures
+.DS_Store

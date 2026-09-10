@@ -237,8 +237,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Bol local media API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=[v.strip() for v in os.getenv("BOL_ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")).split(",")],
-                   allow_methods=["GET", "POST", "PATCH"], allow_headers=["Content-Type"], allow_credentials=False)
+_cors_origins = [v.strip() for v in os.getenv("BOL_ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", "*")).split(",") if v.strip()]
+app.add_middleware(CORSMiddleware,
+                   allow_origins=_cors_origins or ["*"],
+                   allow_methods=["*"],
+                   allow_headers=["*"],
+                   allow_credentials=False)
 
 
 class ValidatedModel(BaseModel):
