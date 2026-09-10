@@ -24,31 +24,40 @@ if not NODE_MODULES.is_dir():
     except Exception as e:
         print(f"Warning: npm install failed: {e}")
 
-# 3. Import the FastAPI application
-import uvicorn
-from server.app import app
+import gradio as gr
+from fastapi.middleware.cors import CORSMiddleware
+from server.app import app, DATA_DIR
 
-# 4. Mount a clean Gradio status dashboard
-try:
-    import gradio as gr
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    with gr.Blocks(title="Bol Studio API Engine") as demo:
-        gr.Markdown(
-            """
-            # 🎙️ Bol Studio Backend Engine
-            
-            This Hugging Face Space powers the **AI Hinglish speech transcription** and **video rendering** for Bol Studio on Vercel.
-            
-            ### 🟢 Status: Online & Active
-            - **Transcription Engine**: Sherpa-ONNX Roman-Hinglish Specialist + Whisper fallback
-            - **Video Processing**: Native FFmpeg + Canvas Motion Renderer
-            """
-        )
+# 3. Create the Gradio interface
+with gr.Blocks(title="Bol Studio API Engine") as demo:
+    gr.Markdown(
+        """
+        # 🎙️ Bol Studio Backend Engine
+        
+        This Hugging Face Space powers **AI Hinglish speech transcription** and **video rendering** for [Bol Studio](https://vercel.com).
+        
+        ### 🟢 Status: Online & Active
+        - **API Base URL**: `https://n3owise-bol-studio-backend.hf.space/api/`
+        - **Transcription Engine**: Sherpa-ONNX Roman-Hinglish Specialist + Whisper fallback
+        - **Video Processing**: Native FFmpeg + Canvas Motion Renderer
+        """
+    )
 
-    app = gr.mount_gradio_app(app, demo, path="/")
-except Exception as e:
-    print(f"Gradio mounting skipped: {e}")
+# 4. Mount all FastAPI /api routes onto demo.app
+for r in app.routes:
+    if hasattr(r, "path") and r.path.startswith("/api"):
+        demo.app.routes.append(r)
+
+# 5. Enable universal CORS for Vercel
+demo.app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 7860))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    demo.launch()
