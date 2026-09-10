@@ -17,14 +17,14 @@ def gpu_worker():
 
 def _background_init():
     """Download model and install node dependencies asynchronously so startup is instant."""
-    model_file = Path("data/models/hinglish-swift/hi-hinglish-swift/encoder.int8.onnx")
+    model_file = Path("data/models/hinglish-apex/hi-hinglish-apex/encoder.int8.onnx")
     if not model_file.is_file():
-        print("Preparing Roman-Hinglish model in background...")
+        print("Preparing Roman-Hinglish Apex model in background...")
         try:
-            subprocess.run([sys.executable, "scripts/prepare-hinglish-model.py", "--variant", "swift"], check=True)
-            print("Roman-Hinglish model ready.")
+            subprocess.run([sys.executable, "scripts/prepare-hinglish-model.py", "--variant", "apex"], check=True)
+            print("Roman-Hinglish Apex model ready.")
         except Exception as e:
-            print(f"Warning: Model preparation failed: {e}")
+            print(f"Warning: Apex model preparation failed: {e}")
 
     node_modules = Path("node_modules")
     if not node_modules.is_dir():
