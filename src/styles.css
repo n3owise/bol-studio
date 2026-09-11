@@ -181,18 +181,20 @@ h1, h2, h3, p {
 .navbar-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
+  max-width: calc(50% - 90px);
 }
 
 .navbar-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  justify-content: center;
+  padding: 6px 12px;
   border-radius: 8px;
   background: transparent;
-  transition: background 0.15s;
+  transition: background 0.15s ease;
+  cursor: pointer;
 }
 .navbar-brand:hover {
   background: var(--bg-surface);
@@ -290,9 +292,13 @@ h1, h2, h3, p {
 }
 
 .navbar-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto;
 }
 
 .navbar-meta-pill {
@@ -2737,8 +2743,5 @@ kbd {
     order: 3;
     border-left: 0;
     border-top: 1px solid var(--border-subtle);
-  }
-  .navbar-center {
-    display: none;
   }
 }

@@ -441,44 +441,28 @@ function App() {
 
     <header className="studio-navbar">
       <div className="navbar-left">
-        <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
-          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo" />
-        </button>
         {project && (
-          <>
-            <div className="nav-divider" />
-            <div className="navbar-project">
-              <input
-                aria-label="Project name"
-                className="navbar-project-input"
-                value={project.name || project.filename}
-                readOnly={busy}
-                onChange={e => markEdit({ ...project, name: e.target.value })}
-                maxLength={120}
-              />
-              <span className="navbar-save-badge">
-                <span className={`status-dot ${health ? '' : 'offline'}`} />
-                {saveStatus}
-              </span>
-            </div>
-          </>
+          <div className="navbar-project">
+            <input
+              aria-label="Project name"
+              className="navbar-project-input"
+              value={project.name || project.filename}
+              readOnly={busy}
+              onChange={e => markEdit({ ...project, name: e.target.value })}
+              maxLength={120}
+            />
+            <span className="navbar-save-badge">
+              <span className={`status-dot ${health ? '' : 'offline'}`} />
+              {saveStatus}
+            </span>
+          </div>
         )}
       </div>
 
       <div className="navbar-center">
-        {project ? (
-          <div className="navbar-meta-pill">
-            <span>{timecode(duration)}</span>
-            <span className="pill-dot" />
-            <span>{project.words.length} words</span>
-            <span className="pill-dot" />
-            <span>{health?.engine === 'sherpa-hinglish' || (health as Record<string, unknown>)?.backend === 'sherpa-hinglish' ? 'Hinglish Pro' : (import.meta.env.DEV ? 'Local AI' : 'Cloud AI')}</span>
-          </div>
-        ) : (
-          <div className="navbar-meta-pill">
-            <span>Ready to transcribe</span>
-          </div>
-        )}
+        <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
+          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo" />
+        </button>
       </div>
 
       <div className="navbar-right">
