@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Keyboard, Layers, LoaderCircle, Maximize2, MonitorPlay, MoreHorizontal, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Search, Settings2, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap } from 'lucide-react';
+import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Layers, LoaderCircle, Maximize2, MonitorPlay, MoreHorizontal, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Search, Settings2, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -407,13 +407,13 @@ function App() {
     try {
       await flushSave();
       const result = await upload(file,script,language,setUploadProgress);
-      result.settings = result.settings || defaults; setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setHistory([]); setFuture([]); setSaveStatus('Saved locally');
+      result.settings = result.settings || defaults; setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
       setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
   }
   async function openProject(p: Project) {
-    try { await flushSave(); const result=await request<Project>(`/projects/${p.id}`); const projectScript = result.script || 'roman'; const projectLanguage = result.language || 'auto'; const normalized = { ...result, script: projectScript, language: projectLanguage }; setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setHistory([]); setFuture([]); setModal(null); }
+    try { await flushSave(); const result=await request<Project>(`/projects/${p.id}`); const projectScript = result.script || 'roman'; const projectLanguage = result.language || 'auto'; const normalized = { ...result, script: projectScript, language: projectLanguage }; setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null); }
     catch(e) { notify((e as Error).message); }
   }
   async function startExport() {
@@ -543,62 +543,66 @@ function App() {
             <div className="captions-header-left">
               <Subtitles size={16} />
               <h2 className="captions-title">Lyrics Editor</h2>
-              {project?.words.length ? <span className="count">{project.words.length}</span> : null}
+              {project?.words.length && !busy ? <span className="count">{project.words.length}</span> : null}
             </div>
             <div className="captions-header-right">
-              <button
-                type="button"
-                className={`caption-search-btn ${showSearchBar ? 'active' : ''}`}
-                title="Search captions"
-                aria-label="Search captions"
-                onClick={() => setShowSearchBar(prev => !prev)}
-              >
-                <Search size={16} />
-              </button>
-              <div className="caption-tools-wrap">
-                <button
-                  type="button"
-                  className={`caption-sparkles-btn ${captionToolsOpen ? 'active' : ''}`}
-                  title="Word emphasis (Magic star)"
-                  aria-label="Word emphasis"
-                  onClick={() => setCaptionToolsOpen(prev => !prev)}
-                >
-                  <Sparkles size={16} />
-                </button>
-                {captionToolsOpen && (
-                  <>
-                    <div className="dropdown-backdrop" onClick={() => setCaptionToolsOpen(false)} />
-                    <div className="caption-tools-dropdown">
-                      <button
-                        type="button"
-                        className="caption-tools-item"
-                        onClick={() => {
-                          setCaptionToolsOpen(false);
-                          handleAutoStar();
-                        }}
-                      >
-                        <Sparkles size={14} />
-                        <span>Auto Emphasize</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="caption-tools-item"
-                        onClick={() => {
-                          setCaptionToolsOpen(false);
-                          handleClearAllEmphasis();
-                        }}
-                      >
-                        <RotateCcw size={14} />
-                        <span>Clear All Stars</span>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
+              {!!(project?.words.length && !busy) && (
+                <>
+                  <button
+                    type="button"
+                    className={`caption-search-btn ${showSearchBar ? 'active' : ''}`}
+                    title="Search captions"
+                    aria-label="Search captions"
+                    onClick={() => setShowSearchBar(prev => !prev)}
+                  >
+                    <Search size={16} />
+                  </button>
+                  <div className="caption-tools-wrap">
+                    <button
+                      type="button"
+                      className={`caption-sparkles-btn ${captionToolsOpen ? 'active' : ''}`}
+                      title="Word emphasis (Magic star)"
+                      aria-label="Word emphasis"
+                      onClick={() => setCaptionToolsOpen(prev => !prev)}
+                    >
+                      <Sparkles size={16} />
+                    </button>
+                    {captionToolsOpen && (
+                      <>
+                        <div className="dropdown-backdrop" onClick={() => setCaptionToolsOpen(false)} />
+                        <div className="caption-tools-dropdown">
+                          <button
+                            type="button"
+                            className="caption-tools-item"
+                            onClick={() => {
+                              setCaptionToolsOpen(false);
+                              handleAutoStar();
+                            }}
+                          >
+                            <Sparkles size={14} />
+                            <span>Auto Emphasize</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="caption-tools-item"
+                            onClick={() => {
+                              setCaptionToolsOpen(false);
+                              handleClearAllEmphasis();
+                            }}
+                          >
+                            <RotateCcw size={14} />
+                            <span>Clear All Stars</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          {showSearchBar && (
+          {showSearchBar && !!(project?.words.length && !busy) && (
             <div className="caption-search-bar">
               <Search size={14} color="#6b7280" />
               <input
@@ -1112,7 +1116,24 @@ function App() {
           </div>
         </section>
       </main>
-      <footer className="statusbar"><span><span className={health?'status-dot':'status-dot offline'}/>{health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}<span className="status-separator">/</span>Hinglish, without the compromise.</span><button onClick={()=>setModal('help')}><Keyboard size={14}/>Studio guide</button></footer>
+      <footer className="statusbar">
+        <div
+          className="statusbar-env"
+          title={health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}
+          aria-label={health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}
+        >
+          <span className={health ? 'status-dot' : 'status-dot offline'} />
+        </div>
+        <button
+          type="button"
+          className="statusbar-help-btn"
+          title="Studio guide"
+          aria-label="Studio guide"
+          onClick={() => setModal('help')}
+        >
+          <CircleHelp size={14} />
+        </button>
+      </footer>
     </div>
 
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
