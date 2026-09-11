@@ -70,7 +70,6 @@ function App() {
   const [dragging, setDragging] = useState(false);
   const [script, setScript] = useState('roman');
   const [language, setLanguage] = useState('auto');
-  const [leftTab, setLeftTab] = useState('transcript');
   const [rightTab, setRightTab] = useState('templates');
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [wordMenu, setWordMenu] = useState<{ word: Word; position: { top: number; left: number } } | null>(null);
@@ -408,7 +407,7 @@ function App() {
     try {
       await flushSave();
       const result = await upload(file,script,language,setUploadProgress);
-      result.settings = result.settings || defaults; setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setHistory([]); setFuture([]); setLeftTab('transcript'); setSaveStatus('Saved locally');
+      result.settings = result.settings || defaults; setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setHistory([]); setFuture([]); setSaveStatus('Saved locally');
       setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
@@ -540,59 +539,16 @@ function App() {
     <div className="studio">
       <main className="editor-grid">
         <section className="transcript-panel panel">
-          <div className="panel-tabs">
-            <button className={leftTab === 'transcript' ? 'active' : ''} onClick={() => setLeftTab('transcript')}>
-              <Subtitles size={16} /> Lyrics Editor {project?.words.length ? <span className="count">{project.words.length}</span> : null}
-            </button>
-            <button className={leftTab === 'media' ? 'active' : ''} onClick={() => setLeftTab('media')}>
-              <Film size={16} /> Media
-            </button>
-          </div>
-          {leftTab === 'media' ? (
-            <div className="media-panel">
-              <div className="section-label">SOURCE FILE</div>
-              {project ? (
-                <div className="source-card">
-                  {project.mediaType === 'audio' ? <FileAudio size={30} /> : <Film size={30} />}
-                  <strong>{project.filename}</strong>
-                  <span>{timecode(project.duration)} · {project.width} × {project.height}</span>
-                  <span className="subtle">Stored on this computer</span>
-                  {hasVideoLayer && (
-                    <span className="source-video-note">
-                      {videoEnabled ? 'Video + audio active.' : 'Video removed · audio captions on black.'}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <p className="muted">Your uploaded video or audio will appear here.</p>
-              )}
-              <div className="upload-preferences">
-                <label>Next spoken language
-                  <select value={language} onChange={e => setLanguage(e.target.value)}>
-                    <option value="auto">Hindi + English · Auto</option>
-                    <option value="hi">Hindi + English</option>
-                    <option value="en">English</option>
-                  </select>
-                </label>
-                <label>Next caption script
-                  <select value={script} onChange={e => setScript(e.target.value)}>
-                    <option value="roman">Hinglish · Roman</option>
-                    <option value="native">Hindi · Devanagari</option>
-                  </select>
-                </label>
-              </div>
-              <button className="button secondary full" onClick={() => input.current?.click()} disabled={busy}>
-                <Upload size={16} /> Upload a new file
-              </button>
+          <div className="captions-header">
+            <div className="captions-header-left">
+              <Subtitles size={16} />
+              <h2 className="captions-title">Lyrics Editor</h2>
+              {project?.words.length ? <span className="count">{project.words.length}</span> : null}
             </div>
-          ) : (
-            <>
-              <div className="captions-header">
-                <h2 className="captions-title">Captions</h2>
-                <div className="captions-header-right">
-                  <button
-                    type="button"
-                    className={`caption-search-btn ${showSearchBar ? 'active' : ''}`}
+            <div className="captions-header-right">
+              <button
+                type="button"
+                className={`caption-search-btn ${showSearchBar ? 'active' : ''}`}
                     title="Search captions"
                     aria-label="Search captions"
                     onClick={() => setShowSearchBar(prev => !prev)}
@@ -924,8 +880,6 @@ function App() {
                   </div>
                 </div>
               ) : null}
-            </>
-          )}
         </section>
 
         <section className="preview-panel">
