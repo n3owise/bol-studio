@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Layers, LoaderCircle, Maximize2, MonitorPlay, MoreHorizontal, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Search, Settings2, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap } from 'lucide-react';
+import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Layers, LoaderCircle, Maximize2, Minus, MonitorPlay, MoreHorizontal, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Search, Settings2, Smile, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -112,6 +112,78 @@ function App() {
   const activeWord = words.find(w => time >= w.start && time < w.end);
   const latestExport = project?.exports?.at(-1);
   const hasExportRunning = project?.exports?.some(e => ['queued','processing','rendering'].includes(e.status));
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const timelineViewportRef = useRef<HTMLDivElement>(null);
+  const timelineTrackRef = useRef<HTMLDivElement>(null);
+  const [timelinePopover, setTimelinePopover] = useState<{
+    word: Word;
+    rect: DOMRect;
+    draftText: string;
+    emphasis: boolean;
+    spotlight: boolean;
+    behind: boolean;
+  } | null>(null);
+
+  const rulerTicks = useMemo(() => {
+    if (!duration || duration <= 0) return [];
+    let majorInterval = 5;
+    if (timelineZoom >= 5) majorInterval = 0.5;
+    else if (timelineZoom >= 3) majorInterval = 1;
+    else if (timelineZoom >= 1.8) majorInterval = 2;
+    else if (duration <= 10) majorInterval = 1;
+    else if (duration <= 30) majorInterval = 2;
+    else if (duration <= 60) majorInterval = 5;
+    else majorInterval = 10;
+
+    const ticks: { time: number; label: string; isMajor: boolean }[] = [];
+    const count = Math.ceil(duration / majorInterval);
+    for (let i = 0; i <= count; i++) {
+      const t = Number((i * majorInterval).toFixed(2));
+      if (t > duration + 0.05) break;
+      ticks.push({ time: t, label: timecode(t), isMajor: true });
+
+      if (majorInterval >= 1) {
+        const subCount = majorInterval >= 5 ? 4 : 1;
+        for (let s = 1; s <= subCount; s++) {
+          const subT = Number((t + (s * majorInterval) / (subCount + 1)).toFixed(2));
+          if (subT < duration) {
+            ticks.push({ time: subT, label: '', isMajor: false });
+          }
+        }
+      }
+    }
+    return ticks;
+  }, [duration, timelineZoom]);
+
+  useEffect(() => {
+    if (!playing || timelineZoom <= 1 || !timelineViewportRef.current) return;
+    const vp = timelineViewportRef.current;
+    const playheadPx = (time / (duration || 1)) * vp.scrollWidth;
+    const leftBound = vp.scrollLeft;
+    const rightBound = leftBound + vp.clientWidth;
+    if (playheadPx < leftBound + 40 || playheadPx > rightBound - 60) {
+      vp.scrollLeft = playheadPx - vp.clientWidth / 3;
+    }
+  }, [time, playing, timelineZoom, duration]);
+
+  useEffect(() => {
+    if (!isScrubbing) return;
+    const onMouseMove = (e: MouseEvent) => {
+      if (!timelineTrackRef.current || !duration) return;
+      const rect = timelineTrackRef.current.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const pct = Math.max(0, Math.min(1, clickX / rect.width));
+      seek(pct * duration);
+    };
+    const onMouseUp = () => setIsScrubbing(false);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, [isScrubbing, duration]);
 
   useEffect(() => () => { if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current); }, []);
 
@@ -276,6 +348,57 @@ function App() {
       position: { top, left },
     });
   }
+  function handleTimelineWordClick(e: React.MouseEvent<HTMLButtonElement>, word: Word) {
+    e.stopPropagation();
+    setSelectedWord(word.id);
+    seek(word.start);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTimelinePopover({
+      word,
+      rect,
+      draftText: word.text,
+      emphasis: !!word.emphasis,
+      spotlight: !!word.spotlight,
+      behind: !!word.behind,
+    });
+  }
+  function saveTimelineWordEdit() {
+    if (!timelinePopover) return;
+    const trimmed = timelinePopover.draftText.trim();
+    if (trimmed) {
+      updateWord(timelinePopover.word.id, {
+        text: trimmed,
+        emphasis: timelinePopover.emphasis,
+        spotlight: timelinePopover.spotlight,
+        behind: timelinePopover.behind,
+      });
+      notify(`Updated "${trimmed}"`);
+    }
+    setTimelinePopover(null);
+  }
+  function calculatePopoverPosition(rect: DOMRect): React.CSSProperties {
+    const width = 280;
+    const height = 180;
+    let top = rect.top - height - 12;
+    if (top < 10) top = rect.bottom + 12;
+    let left = rect.left + rect.width / 2 - width / 2;
+    left = Math.max(12, Math.min(window.innerWidth - width - 12, left));
+    return { top: `${top}px`, left: `${left}px`, width: `${width}px` };
+  }
+  function handleTimelineTrackClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (!project || !duration || !timelineTrackRef.current) return;
+    const rect = timelineTrackRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const pct = Math.max(0, Math.min(1, clickX / rect.width));
+    seek(pct * duration);
+  }
+  function handleTimelineWheel(e: React.WheelEvent<HTMLDivElement>) {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      if (e.deltaY < 0) setTimelineZoom(z => Math.min(6, Number((z + 0.3).toFixed(2))));
+      else setTimelineZoom(z => Math.max(1, Number((z - 0.3).toFixed(2))));
+    }
+  }
   function handleMergeWithNext(group: Word[]) {
     const p = projectRef.current; if (!p || !group.length) return;
     const last = group[group.length - 1];
@@ -401,6 +524,7 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (timelinePopover) { setTimelinePopover(null); return; }
         if (wordMenu) { setWordMenu(null); return; }
         if (captionToolsOpen) { setCaptionToolsOpen(false); return; }
         if (editingWordId) { setEditingWordId(null); return; }
@@ -410,7 +534,7 @@ function App() {
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener('keydown',onKey); return () => window.removeEventListener('keydown',onKey);
-  },[togglePlay,flushSave,wordMenu,captionToolsOpen,editingWordId]);
+  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId]);
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
@@ -881,7 +1005,160 @@ function App() {
             {busy&&<div className="preview-processing"><LoaderCircle size={18} className="spin"/>Captions are on their way</div>}
           </div></div>
           <div className="playback-controls"><button className="icon-button" aria-label={muted?'Unmute':'Mute'} onClick={()=>setMuted(!muted)} disabled={!project}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button><div className="transport"><button className="icon-button" aria-label="Back three seconds" onClick={()=>seek(time-3)} disabled={!project}><ChevronLeft size={21}/></button><button className="play-button" aria-label={playing?'Pause':'Play'} onClick={togglePlay} disabled={!project}>{playing?<Pause size={18} fill="currentColor"/>:<Play size={18} fill="currentColor"/>}</button><button className="icon-button" aria-label="Forward three seconds" onClick={()=>seek(time+3)} disabled={!project}><ChevronRight size={21}/></button></div><span className="playback-time">{timecode(time)} <span>/ {timecode(duration)}</span></span></div>
-          <div className="timeline"><div className="timeline-ruler">{Array.from({length:7},(_,i)=><span key={i}>{timecode(duration?duration*i/6:0)}</span>)}</div><div className="waveform-track"><div className="waveform" aria-hidden="true">{(project?.waveform?.length?project.waveform:[]).map((v,i)=><i key={i} style={{height:`${Math.max(8,v*100)}%`,opacity:i/((project?.waveform?.length)||1)<=time/(duration||1)?1:.35}}/>)}</div><input aria-label="Playback position" type="range" min="0" max={duration||1} step="0.01" value={time} onChange={e=>seek(Number(e.target.value))} disabled={!project}/><div className="playhead" style={{left:`${duration?(time/duration*100):0}%`,display:project?'':'none'}}><span/></div></div>{project&&groups.length>0&&<div className="caption-track">{groups.map(g=><button aria-label={`Jump to ${g.map(w=>w.text).join(' ')}`} key={g[0].id} onClick={()=>seek(g[0].start)} style={{left:`${duration?(g[0].start/duration*100):0}%`,width:`${Math.max(.5,(g.at(-1)!.end-g[0].start)/(duration||1)*100)}%`}}>{g.map(w=>w.text).join(' ')}</button>)}</div>}</div>
+          <div className="timeline-container">
+            <div className="timeline-top-bar">
+              <div className="timeline-track-tag">
+                <span>Main</span>
+                {project ? <small>{project.words.length} words</small> : null}
+              </div>
+              <div className="timeline-zoom-controls">
+                <button
+                  type="button"
+                  className="icon-button tiny"
+                  aria-label="Zoom out"
+                  title="Zoom out timeline (-)"
+                  disabled={!project || timelineZoom <= 1}
+                  onClick={() => setTimelineZoom(z => Math.max(1, Number((z - 0.5).toFixed(1))))}
+                >
+                  <ZoomOut size={13} />
+                </button>
+                <span className="timeline-zoom-level">{Math.round(timelineZoom * 100)}%</span>
+                <button
+                  type="button"
+                  className="icon-button tiny"
+                  aria-label="Zoom in"
+                  title="Zoom in timeline (+)"
+                  disabled={!project || timelineZoom >= 6}
+                  onClick={() => setTimelineZoom(z => Math.min(6, Number((z + 0.5).toFixed(1))))}
+                >
+                  <ZoomIn size={13} />
+                </button>
+                {timelineZoom > 1 && (
+                  <button
+                    type="button"
+                    className="icon-button tiny"
+                    aria-label="Reset zoom"
+                    title="Reset zoom to 100%"
+                    onClick={() => setTimelineZoom(1)}
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div
+              ref={timelineViewportRef}
+              className="timeline-viewport"
+              onWheel={handleTimelineWheel}
+            >
+              <div
+                ref={timelineTrackRef}
+                className="timeline-track-content"
+                style={{
+                  width: `${timelineZoom * 100}%`,
+                  minWidth: '100%',
+                }}
+                onMouseDown={(e) => {
+                  setIsScrubbing(true);
+                  handleTimelineTrackClick(e);
+                }}
+              >
+                {/* 1. Dynamic Ruler with Ticks & Timecode Numbers */}
+                <div className="timeline-ruler">
+                  {rulerTicks.map((tick, i) => (
+                    <div
+                      key={i}
+                      className={`timeline-ruler-tick ${tick.isMajor ? 'major' : 'minor'}`}
+                      style={{ left: `${duration ? (tick.time / duration) * 100 : 0}%` }}
+                    >
+                      {tick.isMajor && <span className="tick-label">{tick.label}</span>}
+                      <span className="tick-line" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* 2. Waveform track (integrated sleek audio wave) */}
+                {project?.waveform?.length ? (
+                  <div className="timeline-waveform" aria-hidden="true">
+                    {project.waveform.map((v, i) => (
+                      <i
+                        key={i}
+                        style={{
+                          height: `${Math.max(12, v * 100)}%`,
+                          opacity: i / project.waveform!.length <= (duration ? time / duration : 0) ? 0.7 : 0.22,
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {/* 3. Word Chips Row (exact word placement and text) */}
+                <div className="timeline-words-lane">
+                  {project && words.map((w) => {
+                    const isCurrentWord = time >= w.start && time < w.end;
+                    const leftPct = duration ? (w.start / duration) * 100 : 0;
+                    const widthPct = duration ? Math.max(0.4, ((w.end - w.start) / duration) * 100) : 0;
+
+                    return (
+                      <button
+                        key={w.id}
+                        type="button"
+                        className={`timeline-word-chip ${isCurrentWord ? 'is-active' : ''} ${w.emphasis ? 'is-emphasized' : ''}`}
+                        style={{
+                          left: `${leftPct}%`,
+                          width: `${widthPct}%`,
+                        }}
+                        title={`${w.text} (${timecode(w.start)} - ${timecode(w.end)}) · Click to edit`}
+                        onClick={(e) => handleTimelineWordClick(e, w)}
+                      >
+                        <span className="timeline-word-text">{w.text}</span>
+                        {w.emphasis && <span className="timeline-word-star">★</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 4. Sentence / Group Indicator Bars directly beneath the words */}
+                <div className="timeline-groups-lane">
+                  {project && groups.map((g) => {
+                    const gStart = g[0].start;
+                    const gEnd = g.at(-1)!.end;
+                    const isCurrentGroup = time >= gStart && time <= gEnd;
+                    const leftPct = duration ? (gStart / duration) * 100 : 0;
+                    const widthPct = duration ? Math.max(0.5, ((gEnd - gStart) / duration) * 100) : 0;
+
+                    return (
+                      <div
+                        key={g[0].id}
+                        className={`timeline-group-bar ${isCurrentGroup ? 'is-active' : ''}`}
+                        style={{
+                          left: `${leftPct}%`,
+                          width: `${widthPct}%`,
+                        }}
+                        title={`Caption line: ${g.map(w => w.text).join(' ')}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          seek(gStart);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* 5. Vertical Red Playhead Line */}
+                {project && duration > 0 ? (
+                  <div
+                    className="timeline-playhead"
+                    style={{ left: `${(time / duration) * 100}%` }}
+                  >
+                    <div className="playhead-needle" />
+                    <div className="playhead-line" />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
           <div className="preview-foot"><span><span className="keyboard-key">space</span> play / pause</span><span>{project?`${project.words.length} words · 30 fps export`:''}</span></div>
         </section>
 
@@ -1411,6 +1688,112 @@ function App() {
               <span className="word-menu-item-desc">Remove this word</span>
             </div>
           </button>
+        </div>
+      </>
+    )}
+    {timelinePopover && (
+      <>
+        <div
+          className="timeline-popover-backdrop"
+          onClick={() => setTimelinePopover(null)}
+        />
+        <div
+          className="timeline-word-popover"
+          style={calculatePopoverPosition(timelinePopover.rect)}
+        >
+          <div className="popover-header">
+            <span className="popover-title">Highlight</span>
+            <div className="popover-style-group">
+              <select
+                aria-label="Highlight style"
+                className="popover-style-select"
+                value={timelinePopover.spotlight ? 'spotlight' : timelinePopover.emphasis ? 'emphasis' : 'default'}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === 'default') {
+                    setTimelinePopover(p => p ? { ...p, emphasis: false, spotlight: false } : null);
+                  } else if (val === 'emphasis') {
+                    setTimelinePopover(p => p ? { ...p, emphasis: true, spotlight: false } : null);
+                  } else if (val === 'spotlight') {
+                    setTimelinePopover(p => p ? { ...p, emphasis: true, spotlight: true } : null);
+                  }
+                }}
+              >
+                <option value="default">Default</option>
+                <option value="emphasis">Emphasize</option>
+                <option value="spotlight">Spotlight</option>
+              </select>
+              <button
+                type="button"
+                className={`popover-palette-btn ${timelinePopover.emphasis ? 'active' : ''}`}
+                title="Toggle Highlight / Emphasis"
+                aria-label="Toggle highlight"
+                onClick={() => setTimelinePopover(p => p ? { ...p, emphasis: !p.emphasis } : null)}
+              >
+                <Palette size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div className="popover-input-wrapper">
+            <textarea
+              autoFocus
+              aria-label="Edit word text"
+              className="popover-word-input"
+              value={timelinePopover.draftText}
+              rows={2}
+              onChange={(e) => setTimelinePopover(p => p ? { ...p, draftText: e.target.value } : null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  saveTimelineWordEdit();
+                } else if (e.key === 'Escape') {
+                  setTimelinePopover(null);
+                }
+              }}
+            />
+            <span className="popover-input-emoji" title="Word emoji tag" aria-hidden="true">
+              <Smile size={16} />
+            </span>
+          </div>
+
+          <div className="popover-footer">
+            <button
+              type="button"
+              className="popover-btn-delete"
+              title="Delete word"
+              aria-label="Delete word"
+              onClick={() => {
+                handleDeleteWord(timelinePopover.word.id);
+                setTimelinePopover(null);
+              }}
+            >
+              <Trash2 size={16} />
+            </button>
+
+            <div className="popover-footer-actions">
+              <button
+                type="button"
+                className="popover-btn-cancel"
+                title="Cancel"
+                aria-label="Cancel"
+                onClick={() => setTimelinePopover(null)}
+              >
+                <X size={16} />
+              </button>
+              <button
+                type="button"
+                className="popover-btn-confirm"
+                title="Save changes (Enter)"
+                aria-label="Save changes"
+                onClick={saveTimelineWordEdit}
+              >
+                <Check size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="popover-arrow" />
         </div>
       </>
     )}
