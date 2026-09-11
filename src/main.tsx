@@ -511,14 +511,6 @@ function App() {
           <span>Projects</span>
         </button>
         <button
-          className="nav-btn secondary"
-          onClick={() => input.current?.click()}
-          disabled={busy || uploadProgress !== null}
-        >
-          <Plus size={15} />
-          <span>New</span>
-        </button>
-        <button
           className="nav-btn primary"
           onClick={() => setModal('export')}
           disabled={!project?.words.length || busy}
