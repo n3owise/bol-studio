@@ -407,6 +407,7 @@ function App() {
     try {
       await flushSave();
       const result = await upload(file,script,language,setUploadProgress);
+      result.name = file.name || result.filename || result.name;
       result.settings = result.settings || defaults; setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
       setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
     } catch(e) { notify((e as Error).message); }
@@ -443,21 +444,25 @@ function App() {
         <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
           <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo" />
         </button>
-        <div className="nav-divider" />
-        <div className="navbar-project">
-          <input
-            aria-label="Project name"
-            className="navbar-project-input"
-            value={project?.name ?? 'Untitled Story'}
-            readOnly={!project || busy}
-            onChange={e => { if (project) markEdit({ ...project, name: e.target.value }); }}
-            maxLength={120}
-          />
-          <span className="navbar-save-badge">
-            <span className={`status-dot ${health ? '' : 'offline'}`} />
-            {saveStatus}
-          </span>
-        </div>
+        {project && (
+          <>
+            <div className="nav-divider" />
+            <div className="navbar-project">
+              <input
+                aria-label="Project name"
+                className="navbar-project-input"
+                value={project.name || project.filename}
+                readOnly={busy}
+                onChange={e => markEdit({ ...project, name: e.target.value })}
+                maxLength={120}
+              />
+              <span className="navbar-save-badge">
+                <span className={`status-dot ${health ? '' : 'offline'}`} />
+                {saveStatus}
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="navbar-center">
