@@ -18,21 +18,21 @@ type Health = { status?: string; engine?: string; model?: string; [key: string]:
 type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'>;
 
 function TemplatePreview({ id }: { id: string }) {
-  if (id === 'kinetic') return <strong>BAWAL.</strong>;
-  if (id === 'editorial') return <span>make it <b>matter.</b></span>;
+  if (id === 'kinetic') return <strong>BAWAAL.</strong>;
+  if (id === 'editorial') return <span>dil se <b>bolo.</b></span>;
   if (id === 'bounce') return <span>thoda <b>extra</b></span>;
   if (id === 'karaoke') return <span>apni <b>vibe</b> hai.</span>;
-  if (id === 'neon') return <span>AFTER <b>HOURS</b></span>;
-  if (id === 'glow-script') return <span>The <i>quick</i> <b>brown</b></span>;
-  if (id === 'scribble') return <span><b>THE WORD</b><small>~ ~ ~</small></span>;
-  if (id === 'welcome-stack') return <span>ab <b>ENGLISH</b><small>mein ye</small></span>;
-  if (id === 'soft-focus') return <span>The <i>brown</i> fox</span>;
-  if (id === 'double-trouble') return <span><b>THE QUICK</b><i>BROWN FOX</i></span>;
-  if (id === 'bubble-highlight') return <span>The quick <b>brown</b> fox</span>;
-  if (id === 'mumbai') return <span><b>THE QUICK</b><i>brown fox jumps</i></span>;
-  if (id === 'editing-school') return <span><b>fox</b></span>;
-  if (id === 'kalakar-shadow') return <span>Hello <b>WELCOME</b></span>;
-  if (id === 'pop-up') return <span>WE DIDN'T <b>MAKE</b> MONEY</span>;
+  if (id === 'neon') return <span>CHAMKEE-<b>LA</b></span>;
+  if (id === 'glow-script') return <span>Jadoo <i>wali</i> <b>baat</b></span>;
+  if (id === 'scribble') return <span><b>GOLMAAL</b><small>~ ~ ~</small></span>;
+  if (id === 'welcome-stack') return <span>ab <b>HERO</b><small>ki entry</small></span>;
+  if (id === 'soft-focus') return <span>Dil ka <i>sukoon</i></span>;
+  if (id === 'double-trouble') return <span><b>JODI</b><i>NO. 1</i></span>;
+  if (id === 'bubble-highlight') return <span>Apna <b>Tashan</b> dikhao</span>;
+  if (id === 'mumbai') return <span><b>BAMBAIYA</b><i>meri jaan</i></span>;
+  if (id === 'editing-school') return <span><b>USTAAD</b></span>;
+  if (id === 'kalakar-shadow') return <span>Hello <b>KALAKAR</b></span>;
+  if (id === 'pop-up') return <span>PATAKHA <b>DHAMAKA</b></span>;
   return <span>THINK <b>BIGGER.</b></span>;
 }
 function TemplateCard({ template, selected, onClick, disabled = false }: { template: typeof templates[number]; selected: boolean; onClick: () => void; disabled?: boolean }) {
