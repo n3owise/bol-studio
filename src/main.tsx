@@ -453,29 +453,31 @@ function App() {
 
     <header className="studio-navbar">
       <div className="navbar-left">
-        {project && (
-          <div className="navbar-project">
-            <input
-              aria-label="Project name"
-              className="navbar-project-input"
-              value={project.name || project.filename}
-              readOnly={busy}
-              onChange={e => markEdit({ ...project, name: e.target.value })}
-              maxLength={120}
-            />
-            <span className="navbar-save-badge">
-              <span className={`status-dot ${health ? '' : 'offline'}`} />
-              {saveStatus}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="navbar-center">
         <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
           <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo" />
         </button>
+        {project && (
+          <>
+            <div className="nav-divider" />
+            <div className="navbar-project">
+              <input
+                aria-label="Project name"
+                className="navbar-project-input"
+                value={project.name || project.filename}
+                readOnly={busy}
+                onChange={e => markEdit({ ...project, name: e.target.value })}
+                maxLength={120}
+              />
+              <span className="navbar-save-badge">
+                <span className={`status-dot ${health ? '' : 'offline'}`} />
+                {saveStatus}
+              </span>
+            </div>
+          </>
+        )}
       </div>
+
+      <div className="navbar-center" />
 
       <div className="navbar-right">
         <div className="nav-btn-group">
@@ -507,15 +509,6 @@ function App() {
         >
           <FolderOpen size={16} />
           <span>Projects</span>
-        </button>
-        <button
-          className="nav-btn ghost"
-          aria-label="Studio guide"
-          title="Quick guide & shortcuts"
-          onClick={() => setModal('help')}
-        >
-          <CircleHelp size={16} />
-          <span>Guide</span>
         </button>
         <button
           className="nav-btn secondary"

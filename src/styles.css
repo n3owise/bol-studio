@@ -181,16 +181,15 @@ h1, h2, h3, p {
 .navbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
-  max-width: calc(50% - 90px);
 }
 
 .navbar-brand {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 6px 12px;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 8px;
   background: transparent;
   transition: background 0.15s ease;
@@ -292,13 +291,9 @@ h1, h2, h3, p {
 }
 
 .navbar-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: auto;
 }
 
 .navbar-meta-pill {
