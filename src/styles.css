@@ -68,13 +68,14 @@
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
   padding: 0;
   background: var(--bg-app);
   color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
+  touch-action: pan-x pan-y;
 }
 
 /* Custom Sleek Scrollbars */
@@ -1415,6 +1416,7 @@ progress::-moz-progress-bar {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  touch-action: pan-x pan-y;
 }
 
 .timeline-top-bar {

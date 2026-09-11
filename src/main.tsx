@@ -116,6 +116,9 @@ function App() {
   const [isScrubbing, setIsScrubbing] = useState(false);
   const timelineViewportRef = useRef<HTMLDivElement>(null);
   const timelineTrackRef = useRef<HTMLDivElement>(null);
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+  const timelineZoomRef = useRef(timelineZoom);
+  timelineZoomRef.current = timelineZoom;
   const [timelinePopover, setTimelinePopover] = useState<{
     word: Word;
     rect: DOMRect;
@@ -184,6 +187,156 @@ function App() {
       window.removeEventListener('mouseup', onMouseUp);
     };
   }, [isScrubbing, duration]);
+
+  // Trackpad pinch-to-zoom and gesture zooming on the timeline container
+  useEffect(() => {
+    const container = timelineContainerRef.current;
+    if (!container) return;
+
+    const onWheel = (e: WheelEvent) => {
+      // 1. Pinch-to-zoom on trackpad or Ctrl/Cmd + wheel
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const vp = timelineViewportRef.current;
+        if (!vp) return;
+
+        const rect = vp.getBoundingClientRect();
+        // Mouse X relative to viewport container
+        const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const scrollLeft = vp.scrollLeft;
+        const scrollWidth = vp.scrollWidth;
+
+        // Ratio of position in content under cursor
+        const contentX = scrollLeft + mouseX;
+        const ratio = scrollWidth > 0 ? contentX / scrollWidth : 0.5;
+
+        // Smooth zoom calculation for trackpad gestures
+        // Trackpads emit frequent events with deltaY usually between -10 and 10
+        // Mouse wheels emit deltaY ~100
+        const rawDelta = -e.deltaY * 0.008;
+        const zoomDelta = Math.max(-0.6, Math.min(0.6, rawDelta));
+        const curZoom = timelineZoomRef.current;
+        const nextZoom = Math.min(6, Math.max(1, Number((curZoom + zoomDelta).toFixed(2))));
+
+        if (nextZoom !== curZoom) {
+          setTimelineZoom(nextZoom);
+
+          // Anchor the content under the cursor position so it doesn't jump
+          requestAnimationFrame(() => {
+            if (!timelineViewportRef.current) return;
+            const newScrollWidth = timelineViewportRef.current.scrollWidth;
+            const targetScrollLeft = (ratio * newScrollWidth) - mouseX;
+            timelineViewportRef.current.scrollLeft = Math.max(0, targetScrollLeft);
+          });
+        }
+        return;
+      }
+
+      // 2. Two-finger vertical scroll on trackpad or mouse wheel when zoomed in:
+      // Translate vertical scrolling to horizontal panning across the timeline
+      if (timelineZoomRef.current > 1 && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        const vp = timelineViewportRef.current;
+        if (vp) {
+          e.preventDefault();
+          vp.scrollLeft += e.deltaY;
+        }
+      }
+    };
+
+    // Safari native WebKit gesture events for trackpad pinch
+    let gestureStartZoom = 1;
+    let gestureStartX = 0;
+    let gestureStartRatio = 0.5;
+
+    const onGestureStart = (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      gestureStartZoom = timelineZoomRef.current;
+      const vp = timelineViewportRef.current;
+      if (vp) {
+        const rect = vp.getBoundingClientRect();
+        gestureStartX = Math.max(0, Math.min(rect.width, (e.clientX || (rect.left + rect.width / 2)) - rect.left));
+        gestureStartRatio = vp.scrollWidth > 0 ? (vp.scrollLeft + gestureStartX) / vp.scrollWidth : 0.5;
+      }
+    };
+
+    const onGestureChange = (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const scale = typeof e.scale === 'number' ? e.scale : 1;
+      const nextZoom = Math.min(6, Math.max(1, Number((gestureStartZoom * scale).toFixed(2))));
+      if (nextZoom !== timelineZoomRef.current) {
+        setTimelineZoom(nextZoom);
+        requestAnimationFrame(() => {
+          const vp = timelineViewportRef.current;
+          if (!vp) return;
+          const targetScrollLeft = (gestureStartRatio * vp.scrollWidth) - gestureStartX;
+          vp.scrollLeft = Math.max(0, targetScrollLeft);
+        });
+      }
+    };
+
+    const onGestureEnd = (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    container.addEventListener('wheel', onWheel, { passive: false });
+    container.addEventListener('gesturestart', onGestureStart, { passive: false });
+    container.addEventListener('gesturechange', onGestureChange, { passive: false });
+    container.addEventListener('gestureend', onGestureEnd, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', onWheel);
+      container.removeEventListener('gesturestart', onGestureStart);
+      container.removeEventListener('gesturechange', onGestureChange);
+      container.removeEventListener('gestureend', onGestureEnd);
+    };
+  }, []);
+
+  // Disable browser website zoom globally (trackpad pinch, Ctrl/Cmd+wheel, Cmd+plus/minus)
+  useEffect(() => {
+    const onGlobalWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+      }
+    };
+
+    const onGlobalGesture = (e: Event) => {
+      e.preventDefault();
+    };
+
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
+          e.preventDefault();
+          setTimelineZoom(z => Math.min(6, Number((z + 0.5).toFixed(1))));
+        } else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
+          e.preventDefault();
+          setTimelineZoom(z => Math.max(1, Number((z - 0.5).toFixed(1))));
+        } else if (e.key === '0' || e.code === 'Numpad0') {
+          e.preventDefault();
+          setTimelineZoom(1);
+        }
+      }
+    };
+
+    window.addEventListener('wheel', onGlobalWheel, { passive: false });
+    window.addEventListener('gesturestart', onGlobalGesture, { passive: false });
+    window.addEventListener('gesturechange', onGlobalGesture, { passive: false });
+    window.addEventListener('gestureend', onGlobalGesture, { passive: false });
+    window.addEventListener('keydown', onGlobalKeyDown);
+
+    return () => {
+      window.removeEventListener('wheel', onGlobalWheel);
+      window.removeEventListener('gesturestart', onGlobalGesture);
+      window.removeEventListener('gesturechange', onGlobalGesture);
+      window.removeEventListener('gestureend', onGlobalGesture);
+      window.removeEventListener('keydown', onGlobalKeyDown);
+    };
+  }, []);
 
   useEffect(() => () => { if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current); }, []);
 
@@ -391,13 +544,6 @@ function App() {
     const clickX = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(1, clickX / rect.width));
     seek(pct * duration);
-  }
-  function handleTimelineWheel(e: React.WheelEvent<HTMLDivElement>) {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      if (e.deltaY < 0) setTimelineZoom(z => Math.min(6, Number((z + 0.3).toFixed(2))));
-      else setTimelineZoom(z => Math.max(1, Number((z - 0.3).toFixed(2))));
-    }
   }
   function handleMergeWithNext(group: Word[]) {
     const p = projectRef.current; if (!p || !group.length) return;
@@ -1005,7 +1151,7 @@ function App() {
             {busy&&<div className="preview-processing"><LoaderCircle size={18} className="spin"/>Captions are on their way</div>}
           </div></div>
           <div className="playback-controls"><button className="icon-button" aria-label={muted?'Unmute':'Mute'} onClick={()=>setMuted(!muted)} disabled={!project}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button><div className="transport"><button className="icon-button" aria-label="Back three seconds" onClick={()=>seek(time-3)} disabled={!project}><ChevronLeft size={21}/></button><button className="play-button" aria-label={playing?'Pause':'Play'} onClick={togglePlay} disabled={!project}>{playing?<Pause size={18} fill="currentColor"/>:<Play size={18} fill="currentColor"/>}</button><button className="icon-button" aria-label="Forward three seconds" onClick={()=>seek(time+3)} disabled={!project}><ChevronRight size={21}/></button></div><span className="playback-time">{timecode(time)} <span>/ {timecode(duration)}</span></span></div>
-          <div className="timeline-container">
+          <div ref={timelineContainerRef} className="timeline-container">
             <div className="timeline-top-bar">
               <div className="timeline-track-tag">
                 <span>Main</span>
@@ -1050,7 +1196,6 @@ function App() {
             <div
               ref={timelineViewportRef}
               className="timeline-viewport"
-              onWheel={handleTimelineWheel}
             >
               <div
                 ref={timelineTrackRef}
