@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Keyboard, Layers, LoaderCircle, Maximize2, MonitorPlay, MoreHorizontal, Pause, Pencil, Play, Plus, Redo2, RotateCcw, Rows2, Scan, Search, Settings2, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap } from 'lucide-react';
+import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Keyboard, Layers, LoaderCircle, Maximize2, MonitorPlay, MoreHorizontal, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Search, Settings2, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -549,106 +549,89 @@ function App() {
               <button
                 type="button"
                 className={`caption-search-btn ${showSearchBar ? 'active' : ''}`}
-                    title="Search captions"
-                    aria-label="Search captions"
-                    onClick={() => setShowSearchBar(prev => !prev)}
-                  >
-                    <Search size={16} />
-                  </button>
-                  <div className="caption-tools-wrap">
-                    <button
-                      type="button"
-                      className="caption-tools-btn"
-                      onClick={() => setCaptionToolsOpen(prev => !prev)}
-                    >
-                      <Settings2 size={15} />
-                      <span>Caption Tools</span>
-                      <ChevronDown size={14} />
-                    </button>
-                    {captionToolsOpen && (
-                      <div className="caption-tools-dropdown">
-                        <button
-                          type="button"
-                          className="caption-tools-item"
-                          onClick={() => {
-                            setCaptionToolsOpen(false);
-                            handleAddNewLine();
-                          }}
-                        >
-                          <Plus size={15} />
-                          <span>Add New Line</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="caption-tools-item"
-                          onClick={() => {
-                            setCaptionToolsOpen(false);
-                            handleAutoStar();
-                          }}
-                        >
-                          <Sparkles size={15} />
-                          <span>Auto Emphasize</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="caption-tools-item"
-                          onClick={() => {
-                            setCaptionToolsOpen(false);
-                            handleClearAllEmphasis();
-                          }}
-                        >
-                          <RotateCcw size={15} />
-                          <span>Clear All Stars</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="caption-tools-item"
-                          onClick={() => {
-                            setCaptionToolsOpen(false);
-                            handleTransformCase('upper');
-                          }}
-                        >
-                          <Type size={15} />
-                          <span>Uppercase / Lowercase</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="caption-tools-item"
-                          onClick={() => {
-                            setCaptionToolsOpen(false);
-                            setModal('search-replace');
-                          }}
-                        >
-                          <Search size={15} />
-                          <span>Search &amp; Replace</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                title="Search captions"
+                aria-label="Search captions"
+                onClick={() => setShowSearchBar(prev => !prev)}
+              >
+                <Search size={16} />
+              </button>
+              <div className="caption-tools-wrap">
+                <button
+                  type="button"
+                  className={`caption-sparkles-btn ${captionToolsOpen ? 'active' : ''}`}
+                  title="Word emphasis (Magic star)"
+                  aria-label="Word emphasis"
+                  onClick={() => setCaptionToolsOpen(prev => !prev)}
+                >
+                  <Sparkles size={16} />
+                </button>
+                {captionToolsOpen && (
+                  <>
+                    <div className="dropdown-backdrop" onClick={() => setCaptionToolsOpen(false)} />
+                    <div className="caption-tools-dropdown">
+                      <button
+                        type="button"
+                        className="caption-tools-item"
+                        onClick={() => {
+                          setCaptionToolsOpen(false);
+                          handleAutoStar();
+                        }}
+                      >
+                        <Sparkles size={14} />
+                        <span>Auto Emphasize</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="caption-tools-item"
+                        onClick={() => {
+                          setCaptionToolsOpen(false);
+                          handleClearAllEmphasis();
+                        }}
+                      >
+                        <RotateCcw size={14} />
+                        <span>Clear All Stars</span>
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
+            </div>
+          </div>
 
-              {showSearchBar && (
-                <div className="caption-search-bar">
-                  <Search size={14} color="#6b7280" />
-                  <input
-                    autoFocus
-                    placeholder="Search words..."
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      className="icon-button tiny"
-                      onClick={() => setSearchQuery('')}
-                      aria-label="Clear search"
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </div>
+          {showSearchBar && (
+            <div className="caption-search-bar">
+              <Search size={14} color="#6b7280" />
+              <input
+                autoFocus
+                placeholder="Search words..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="icon-button tiny"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                >
+                  <X size={13} />
+                </button>
               )}
+              <button
+                type="button"
+                className="caption-search-replace-btn"
+                title="Find & Replace all"
+                onClick={() => {
+                  setSearchFindText(searchQuery);
+                  setSearchReplaceText('');
+                  setModal('search-replace');
+                }}
+              >
+                <Replace size={13} />
+                <span>Replace</span>
+              </button>
+            </div>
+          )}
 
               <div className={`transcript-content ${!project ? 'empty-content' : ''}`}>
                 {!project && (
@@ -714,83 +697,100 @@ function App() {
                   <div className="processing-state">
                     <AudioLines size={30} />
                     <h2>No speech found</h2>
-                    <p>Try a recording with a clearer voice.</p>
-                    <button className="button secondary" onClick={() => input.current?.click()}>Choose another file</button>
+                    <p>Try a recording with a clearer voice, or write captions manually.</p>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                      <button className="button secondary" onClick={() => input.current?.click()}>Choose another file</button>
+                      <button className="button primary" onClick={handleAddNewLine}>
+                        <Plus size={15} /> Add line manually
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="caption-rows-list">
                     {filteredGroups.length === 0 && searchQuery ? (
                       <div className="lyrics-empty-search">No words matching "{searchQuery}"</div>
                     ) : (
-                      filteredGroups.map((group, groupIdx) => {
-                        const isCurrentGroup = time >= group[0].start && time <= group.at(-1)!.end;
-                        return (
-                          <div key={group[0].id} className={`caption-row ${isCurrentGroup ? 'is-current' : ''}`}>
-                            <div className="caption-row-left">
-                              <div className="caption-num-pill">{groupIdx + 1}</div>
-                              <div className="caption-row-words">
-                                {group.map(word => {
-                                  const isEditing = editingWordId === word.id;
-                                  const isMenuOpen = wordMenu?.word.id === word.id;
-                                  const isSpeaking = activeWord?.id === word.id;
+                      <>
+                        {filteredGroups.map((group, groupIdx) => {
+                          const isCurrentGroup = time >= group[0].start && time <= group.at(-1)!.end;
+                          return (
+                            <div key={group[0].id} className={`caption-row ${isCurrentGroup ? 'is-current' : ''}`}>
+                              <div className="caption-row-left">
+                                <div className="caption-num-pill">{groupIdx + 1}</div>
+                                <div className="caption-row-words">
+                                  {group.map(word => {
+                                    const isEditing = editingWordId === word.id;
+                                    const isMenuOpen = wordMenu?.word.id === word.id;
+                                    const isSpeaking = activeWord?.id === word.id;
 
-                                  if (isEditing) {
+                                    if (isEditing) {
+                                      return (
+                                        <input
+                                          key={word.id}
+                                          autoFocus
+                                          className="word-inline-input"
+                                          value={editingText}
+                                          onChange={e => setEditingText(e.target.value)}
+                                          onKeyDown={e => {
+                                            if (e.key === 'Enter') commitInlineEdit();
+                                            else if (e.key === 'Escape') cancelInlineEdit();
+                                          }}
+                                          onBlur={commitInlineEdit}
+                                        />
+                                      );
+                                    }
+
                                     return (
-                                      <input
+                                      <button
                                         key={word.id}
-                                        autoFocus
-                                        className="word-inline-input"
-                                        value={editingText}
-                                        onChange={e => setEditingText(e.target.value)}
-                                        onKeyDown={e => {
-                                          if (e.key === 'Enter') commitInlineEdit();
-                                          else if (e.key === 'Escape') cancelInlineEdit();
-                                        }}
-                                        onBlur={commitInlineEdit}
-                                      />
+                                        type="button"
+                                        className={`caption-word-btn ${word.emphasis ? 'is-emphasized' : ''} ${word.spotlight ? 'is-spotlight' : ''} ${word.behind ? 'is-behind' : ''} ${isMenuOpen ? 'is-menu-open' : ''} ${isSpeaking ? 'is-active-word' : ''}`}
+                                        onClick={e => handleWordClick(e, word)}
+                                        title={`Click to customize "${word.text}"`}
+                                      >
+                                        {word.text}
+                                      </button>
                                     );
-                                  }
-
-                                  return (
-                                    <button
-                                      key={word.id}
-                                      type="button"
-                                      className={`caption-word-btn ${word.emphasis ? 'is-emphasized' : ''} ${word.spotlight ? 'is-spotlight' : ''} ${word.behind ? 'is-behind' : ''} ${isMenuOpen ? 'is-menu-open' : ''} ${isSpeaking ? 'is-active-word' : ''}`}
-                                      onClick={e => handleWordClick(e, word)}
-                                      title={`Click to customize "${word.text}"`}
-                                    >
-                                      {word.text}
-                                    </button>
-                                  );
-                                })}
+                                  })}
+                                </div>
+                              </div>
+                              <div className="caption-row-actions">
+                                <button
+                                  type="button"
+                                  className="caption-row-action-btn"
+                                  title="Play this caption line"
+                                  aria-label="Play caption line"
+                                  onClick={() => playInterval(group[0].start, group.at(-1)!.end)}
+                                >
+                                  <Accessibility size={16} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="caption-row-action-btn"
+                                  title="Split caption line"
+                                  aria-label="Split line"
+                                  onClick={() => {
+                                    const targetWord = group[Math.floor((group.length - 1) / 2)];
+                                    handleSplitLine(targetWord.id);
+                                  }}
+                                >
+                                  <Rows2 size={16} />
+                                </button>
                               </div>
                             </div>
-                            <div className="caption-row-actions">
-                              <button
-                                type="button"
-                                className="caption-row-action-btn"
-                                title="Play this caption line"
-                                aria-label="Play caption line"
-                                onClick={() => playInterval(group[0].start, group.at(-1)!.end)}
-                              >
-                                <Accessibility size={16} />
-                              </button>
-                              <button
-                                type="button"
-                                className="caption-row-action-btn"
-                                title="Split caption line"
-                                aria-label="Split line"
-                                onClick={() => {
-                                  const targetWord = group[Math.floor((group.length - 1) / 2)];
-                                  handleSplitLine(targetWord.id);
-                                }}
-                              >
-                                <Rows2 size={16} />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
+                          );
+                        })}
+                        {!searchQuery && (
+                          <button
+                            type="button"
+                            className="caption-add-line-btn"
+                            onClick={handleAddNewLine}
+                          >
+                            <Plus size={14} />
+                            <span>Add line</span>
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
