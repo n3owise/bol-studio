@@ -13,8 +13,6 @@ import { API, request, upload } from './lib/api';
 import { defaults, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, dimensions, drawCaptions, getContrastColor, groupWords, insertWord, mergeLines, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 
-const demoLines = ['Har kahaani deserves the spotlight.', 'Apni awaaz ko thoda aur BOLD banao.', 'Bas bolo. Baaki captions sambhaal lenge.'];
-const demoWords: Word[] = demoLines.flatMap((line, row) => line.split(' ').map((text, i) => ({ id: `demo-${row}-${i}`, text, original: text, start: row*3+i*.45, end: row*3+i*.45+.43, confidence: 1, emphasis: ['kahaani','spotlight.','BOLD','captions'].includes(text), emphasisScore: .8 })));
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
 type Health = { status?: string; engine?: string; model?: string; [key: string]: unknown };
 type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'>;
@@ -98,8 +96,8 @@ function App() {
   const media = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const preview = useRef<HTMLDivElement>(null);
-  const duration = project?.duration || 9;
-  const words = project?.words ?? demoWords;
+  const duration = project?.duration || 0;
+  const words = project?.words ?? [];
   const groups = useMemo(() => groupWords(words, settings.template === 'kinetic' ? 1 : settings.wordsPerLine), [words, settings.wordsPerLine, settings.template]);
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groups;
@@ -372,20 +370,34 @@ function App() {
     const p = projectRef.current; const next = future.at(-1); if (!p || !next) return;
     setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
   }
-  function seek(value: number) { const t = Math.max(0,Math.min(duration,value)); setTime(t); if (media.current && project) media.current.currentTime=t; }
+  function seek(value: number) { if (!project) return; const t = Math.max(0,Math.min(duration,value)); setTime(t); if (media.current) media.current.currentTime=t; }
   const togglePlay = useCallback(() => {
-    if (project && media.current) {
-      if (playing) media.current.pause(); else { if (media.current.currentTime >= duration-.02) media.current.currentTime=0; void media.current.play().catch(() => notify('This media could not play. Try re-uploading as MP4 or WAV.')); }
-    } else { setPlaying(p => !p); if(time >= duration) setTime(0); }
-  }, [project, playing, duration, time, notify]);
+    if (!project || !media.current) return;
+    if (playing) media.current.pause();
+    else { if (media.current.currentTime >= duration-.02) media.current.currentTime=0; void media.current.play().catch(() => notify('This media could not play. Try re-uploading as MP4 or WAV.')); }
+  }, [project, playing, duration, notify]);
   useEffect(() => {
-    if (!playing) return;
-    let frame = 0; let last = performance.now();
-    const tick = (now: number) => { const delta=(now-last)/1000; last=now; if(project && media.current) setTime(media.current.currentTime); else setTime(t=>(t+delta)%duration); frame=requestAnimationFrame(tick); };
-    frame=requestAnimationFrame(tick); return () => cancelAnimationFrame(frame);
-  }, [playing,project?.id,duration]);
-  useEffect(() => { const ctx=canvas.current?.getContext('2d'); if(ctx) drawCaptions(ctx,size.width,size.height,words,settings,time,groups); },[words,settings,time,size.width,size.height,groups]);
-  useEffect(() => { void document.fonts.ready.then(() => { const ctx=canvas.current?.getContext('2d'); if(ctx) drawCaptions(ctx,size.width,size.height,words,settings,time,groups); }); },[]);
+    if (!playing || !project) return;
+    let frame = 0;
+    const tick = () => { if (media.current) setTime(media.current.currentTime); frame = requestAnimationFrame(tick); };
+    frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame);
+  }, [playing, project]);
+  useEffect(() => {
+    const ctx = canvas.current?.getContext('2d');
+    if (ctx) {
+      if (!project || words.length === 0) ctx.clearRect(0, 0, size.width, size.height);
+      else drawCaptions(ctx, size.width, size.height, words, settings, time, groups);
+    }
+  }, [project, words, settings, time, size.width, size.height, groups]);
+  useEffect(() => {
+    void document.fonts.ready.then(() => {
+      const ctx = canvas.current?.getContext('2d');
+      if (ctx) {
+        if (!project || words.length === 0) ctx.clearRect(0, 0, size.width, size.height);
+        else drawCaptions(ctx, size.width, size.height, words, settings, time, groups);
+      }
+    });
+  }, [project, words, settings, time, groups, size.width, size.height]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -876,16 +888,16 @@ function App() {
         </section>
 
         <section className="preview-panel">
-          <div className="preview-toolbar"><div><span className="section-label">PREVIEW</span>{!project&&<span className="demo-tag">TEMPLATE DEMO</span>}</div><div className="preview-tools">{hasVideoLayer&&!busy&&<button className={`media-toggle ${videoEnabled?'':'removed'}`} aria-pressed={videoEnabled} aria-label={videoEnabled?'Remove video layer':'Restore video layer'} onClick={()=>setVideoEnabled(!videoEnabled)}>{videoEnabled?<Trash2 size={13}/>:<RotateCcw size={13}/>}<span>{videoEnabled?'Remove video':'Restore video'}</span></button>}<select aria-label="Video aspect ratio" value={settings.aspect} onChange={e=>updateSettings({aspect:e.target.value as Settings['aspect']})} disabled={busy}><option value="original">{project?'Original':'9:16'}</option><option value="9:16">9:16 · Reel</option><option value="1:1">1:1 · Square</option><option value="16:9">16:9 · Landscape</option></select><button className="icon-button tiny" aria-label="Fullscreen preview" onClick={()=>void preview.current?.requestFullscreen().catch(()=>notify('Fullscreen is unavailable in this browser.'))}><Maximize2 size={15}/></button></div></div>
-          <div className="preview-stage"><div ref={preview} className={`video-frame ${!project?'demo-frame':''} ${hasVideoLayer&&!videoEnabled?'video-removed':''}`} style={{aspectRatio:`${size.width}/${size.height}`}}>
-            {project?<video ref={media} className={project.mediaType==='audio'||(hasVideoLayer&&!videoEnabled)?'audio-media':''} key={`${project.id}-${busy?'processing':'ready'}-${videoEnabled?'video':'audio'}`} src={busy?undefined:`${API}/api/projects/${project.id}/media`} playsInline preload="metadata" muted={muted} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onSeeked={()=>setTime(media.current?.currentTime??0)} onError={()=>notify('The preview could not load. The file may still be processing.')}/>:<div className="demo-backdrop"><div className="demo-kicker"><span className="mini-brand">bol.</span><span>MAKE YOURSELF HEARD</span></div><div className="demo-headline">A little Hindi.<br/>A little English.<br/><em>All you.</em></div><div className="demo-rule"/><div className="demo-caption-label">YOUR WORDS, IN MOTION</div><div className="demo-bottom"><span>कैप्शन में भी, अपनी बात।</span><AudioLines size={24}/></div></div>}
+          <div className="preview-toolbar"><div><span className="section-label">PREVIEW</span></div><div className="preview-tools">{hasVideoLayer&&!busy&&<button className={`media-toggle ${videoEnabled?'':'removed'}`} aria-pressed={videoEnabled} aria-label={videoEnabled?'Remove video layer':'Restore video layer'} onClick={()=>setVideoEnabled(!videoEnabled)}>{videoEnabled?<Trash2 size={13}/>:<RotateCcw size={13}/>}<span>{videoEnabled?'Remove video':'Restore video'}</span></button>}<select aria-label="Video aspect ratio" value={settings.aspect} onChange={e=>updateSettings({aspect:e.target.value as Settings['aspect']})} disabled={busy}><option value="original">{project?'Original':'9:16'}</option><option value="9:16">9:16 · Reel</option><option value="1:1">1:1 · Square</option><option value="16:9">16:9 · Landscape</option></select><button className="icon-button tiny" aria-label="Fullscreen preview" onClick={()=>void preview.current?.requestFullscreen().catch(()=>notify('Fullscreen is unavailable in this browser.'))}><Maximize2 size={15}/></button></div></div>
+          <div className="preview-stage"><div ref={preview} className={`video-frame ${!project?'empty-frame':''} ${hasVideoLayer&&!videoEnabled?'video-removed':''}`} style={{aspectRatio:`${size.width}/${size.height}`}}>
+            {project?<video ref={media} className={project.mediaType==='audio'||(hasVideoLayer&&!videoEnabled)?'audio-media':''} key={`${project.id}-${busy?'processing':'ready'}-${videoEnabled?'video':'audio'}`} src={busy?undefined:`${API}/api/projects/${project.id}/media`} playsInline preload="metadata" muted={muted} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onSeeked={()=>setTime(media.current?.currentTime??0)} onError={()=>notify('The preview could not load. The file may still be processing.')}/>:null}
             {project?.mediaType==='audio'&&<div className="audio-backdrop"><AudioLines size={48}/><span>AUDIO PROJECT</span></div>}
-            <canvas ref={canvas} width={size.width} height={size.height} aria-label="Animated caption preview"/>
+            {project&&<canvas ref={canvas} width={size.width} height={size.height} aria-label="Animated caption preview"/>}
             {busy&&<div className="preview-processing"><LoaderCircle size={18} className="spin"/>Captions are on their way</div>}
           </div></div>
-          <div className="playback-controls"><button className="icon-button" aria-label={muted?'Unmute':'Mute'} onClick={()=>setMuted(!muted)}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button><div className="transport"><button className="icon-button" aria-label="Back three seconds" onClick={()=>seek(time-3)}><ChevronLeft size={21}/></button><button className="play-button" aria-label={playing?'Pause':'Play'} onClick={togglePlay}>{playing?<Pause size={18} fill="currentColor"/>:<Play size={18} fill="currentColor"/>}</button><button className="icon-button" aria-label="Forward three seconds" onClick={()=>seek(time+3)}><ChevronRight size={21}/></button></div><span className="playback-time">{timecode(time)} <span>/ {timecode(duration)}</span></span></div>
-          <div className="timeline"><div className="timeline-ruler">{Array.from({length:7},(_,i)=><span key={i}>{timecode(duration*i/6)}</span>)}</div><div className="waveform-track"><div className="waveform" aria-hidden="true">{(project?.waveform?.length?project.waveform:Array.from({length:96},(_,i)=>.2+Math.abs(Math.sin(i*.53)*Math.cos(i*.19))*.65)).map((v,i)=><i key={i} style={{height:`${Math.max(8,v*100)}%`,opacity:i/((project?.waveform?.length)||96)<=time/duration?1:.35}}/>)}</div><input aria-label="Playback position" type="range" min="0" max={duration} step="0.01" value={time} onChange={e=>seek(Number(e.target.value))}/><div className="playhead" style={{left:`${time/duration*100}%`}}><span/></div></div><div className="caption-track">{(project?groups:groupWords(demoWords,4)).map(g=><button aria-label={`Jump to ${g.map(w=>w.text).join(' ')}`} key={g[0].id} onClick={()=>seek(g[0].start)} style={{left:`${g[0].start/duration*100}%`,width:`${Math.max(.5,(g.at(-1)!.end-g[0].start)/duration*100)}%`}}>{g.map(w=>w.text).join(' ')}</button>)}</div></div>
-          <div className="preview-foot"><span><span className="keyboard-key">space</span> play / pause</span><span>{!project?'Try a style. Then make it yours.':`${project.words.length} words · 30 fps export`}</span></div>
+          <div className="playback-controls"><button className="icon-button" aria-label={muted?'Unmute':'Mute'} onClick={()=>setMuted(!muted)} disabled={!project}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button><div className="transport"><button className="icon-button" aria-label="Back three seconds" onClick={()=>seek(time-3)} disabled={!project}><ChevronLeft size={21}/></button><button className="play-button" aria-label={playing?'Pause':'Play'} onClick={togglePlay} disabled={!project}>{playing?<Pause size={18} fill="currentColor"/>:<Play size={18} fill="currentColor"/>}</button><button className="icon-button" aria-label="Forward three seconds" onClick={()=>seek(time+3)} disabled={!project}><ChevronRight size={21}/></button></div><span className="playback-time">{timecode(time)} <span>/ {timecode(duration)}</span></span></div>
+          <div className="timeline"><div className="timeline-ruler">{Array.from({length:7},(_,i)=><span key={i}>{timecode(duration?duration*i/6:0)}</span>)}</div><div className="waveform-track"><div className="waveform" aria-hidden="true">{(project?.waveform?.length?project.waveform:[]).map((v,i)=><i key={i} style={{height:`${Math.max(8,v*100)}%`,opacity:i/((project?.waveform?.length)||1)<=time/(duration||1)?1:.35}}/>)}</div><input aria-label="Playback position" type="range" min="0" max={duration||1} step="0.01" value={time} onChange={e=>seek(Number(e.target.value))} disabled={!project}/><div className="playhead" style={{left:`${duration?(time/duration*100):0}%`,display:project?'':'none'}}><span/></div></div>{project&&groups.length>0&&<div className="caption-track">{groups.map(g=><button aria-label={`Jump to ${g.map(w=>w.text).join(' ')}`} key={g[0].id} onClick={()=>seek(g[0].start)} style={{left:`${duration?(g[0].start/duration*100):0}%`,width:`${Math.max(.5,(g.at(-1)!.end-g[0].start)/(duration||1)*100)}%`}}>{g.map(w=>w.text).join(' ')}</button>)}</div>}</div>
+          <div className="preview-foot"><span><span className="keyboard-key">space</span> play / pause</span><span>{project?`${project.words.length} words · 30 fps export`:''}</span></div>
         </section>
 
         <section className="style-panel panel">
@@ -916,7 +928,6 @@ function App() {
                       disabled={busy}
                       onClick={() => {
                         updateSettings({ template: template.id, accent: template.accent });
-                        if (!project) { setTime(0.55); setPlaying(true); }
                       }}
                     />
                   ))}

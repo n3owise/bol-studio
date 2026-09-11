@@ -1224,16 +1224,6 @@ progress::-moz-progress-bar {
   letter-spacing: 1.2px;
   font-weight: 700;
 }
-.demo-tag {
-  font-size: 9px;
-  letter-spacing: 0.6px;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  background: #ffffff;
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-weight: 600;
-}
 .preview-tools {
   display: flex;
   align-items: center;
@@ -1322,83 +1312,8 @@ progress::-moz-progress-bar {
   visibility: hidden;
 }
 
-/* Demo backdrop when no video loaded - Modern Studio White Mockup */
-.demo-backdrop {
-  height: 100%;
-  width: 100%;
-  background: #ffffff;
-  background-image: radial-gradient(ellipse at 50% 20%, rgba(16, 185, 129, 0.08) 0%, transparent 65%), linear-gradient(180deg, #ffffff 0%, #f4f5f7 100%);
-  position: absolute;
-  inset: 0;
-  padding: 8% 8%;
-  overflow: hidden;
-}
-.demo-kicker {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 6%;
-}
-.mini-brand {
-  font-family: var(--font-display);
-  font-size: 22px;
-  letter-spacing: -1.5px;
-  line-height: 1;
-  font-weight: 800;
-  color: #09090b;
-}
-.demo-kicker > span:last-child {
-  font-size: clamp(7px, 0.6vw, 9px);
-  letter-spacing: 1.5px;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.demo-headline {
-  font-family: var(--font-display);
-  position: absolute;
-  left: 8%;
-  top: 22%;
-  font-size: clamp(24px, 2.4vw, 40px);
-  line-height: 1.12;
-  letter-spacing: -1.5px;
-  color: #09090b;
-  font-weight: 700;
-}
-.demo-headline em {
-  font-style: normal;
-  color: var(--accent-light);
-}
-.demo-rule {
-  height: 2px;
-  position: absolute;
-  left: 8%;
-  width: 20%;
-  top: 52%;
-  background: var(--accent);
-}
-.demo-caption-label {
-  position: absolute;
-  left: 8%;
-  top: 55%;
-  font-size: 8px;
-  letter-spacing: 1.6px;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.demo-bottom {
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: 6%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--text-secondary);
-}
-.demo-bottom > span {
-  font-size: 11px;
-  font-weight: 500;
+.video-frame.empty-frame {
+  background: #000000;
 }
 
 .audio-media {
@@ -1473,9 +1388,15 @@ progress::-moz-progress-bar {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18), 0 1px 2px rgba(0, 0, 0, 0.12);
   transition: all 0.15s ease;
 }
-.play-button:hover {
+.play-button:hover:not(:disabled) {
   background: #27272a;
   transform: scale(1.05);
+}
+.play-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 .play-button > svg {
   width: 16px;
@@ -1541,6 +1462,9 @@ progress::-moz-progress-bar {
   z-index: 3;
   margin: 0;
   cursor: pointer;
+}
+.waveform-track > input:disabled {
+  cursor: not-allowed;
 }
 .playhead {
   position: absolute;
