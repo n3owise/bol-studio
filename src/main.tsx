@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, FolderOpen, Headphones, Layers, LoaderCircle, Maximize2, Minus, MonitorPlay, MoreHorizontal, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Search, Settings2, Smile, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, Volume2, VolumeX, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Ban, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, Folder, FolderOpen, Headphones, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, MoreHorizontal, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings2, Smile, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -11,7 +11,7 @@ import '@fontsource/noto-sans-devanagari/700.css';
 import './styles.css';
 import { API, request, upload } from './lib/api';
 import { defaults, type Project, type Settings, type Word } from './lib/types';
-import { appendWord, dimensions, drawCaptions, getContrastColor, groupWords, insertWord, mergeLines, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { appendWord, autoDetectHighlights, dimensions, drawCaptions, ensureValidIntervals, getContrastColor, groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
 type Health = { status?: string; engine?: string; model?: string; [key: string]: unknown };
@@ -55,6 +55,24 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
   </dialog>;
 }
 
+const SAMPLE_ITEMS = [
+  {
+    title: 'Mountain Ascent',
+    duration: '0:12',
+    thumbnail: '/samples/sample-1.jpg',
+  },
+  {
+    title: 'Personal Story',
+    duration: '0:28',
+    thumbnail: '/samples/sample-2.jpg',
+  },
+  {
+    title: 'City Skyline',
+    duration: '0:15',
+    thumbnail: '/samples/sample-3.jpg',
+  },
+];
+
 function App() {
   const [project, setProject] = useState<Project | null>(null);
   const projectRef = useRef<Project | null>(null);
@@ -65,11 +83,15 @@ function App() {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [dragging, setDragging] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const [script, setScript] = useState('roman');
   const [language, setLanguage] = useState('auto');
   const [rightTab, setRightTab] = useState('templates');
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
+  const [selectedWordIds, setSelectedWordIds] = useState<Set<string>>(new Set());
+  const [draggingWordIds, setDraggingWordIds] = useState<string[]>([]);
+  const lastSelectedWordIdRef = useRef<string | null>(null);
   const [wordMenu, setWordMenu] = useState<{ word: Word; position: { top: number; left: number } } | null>(null);
   const [editingWordId, setEditingWordId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
@@ -127,11 +149,19 @@ function App() {
     spotlight: boolean;
     behind: boolean;
   } | null>(null);
+  const [draggingWordId, setDraggingWordId] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{
+    groupIdx: number;
+    targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' };
+  } | null>(null);
+  const dragMovedRef = useRef(false);
 
   const rulerTicks = useMemo(() => {
     if (!duration || duration <= 0) return [];
     let majorInterval = 5;
-    if (timelineZoom >= 5) majorInterval = 0.5;
+    if (timelineZoom >= 20) majorInterval = 0.1;
+    else if (timelineZoom >= 12) majorInterval = 0.2;
+    else if (timelineZoom >= 6) majorInterval = 0.5;
     else if (timelineZoom >= 3) majorInterval = 1;
     else if (timelineZoom >= 1.8) majorInterval = 2;
     else if (duration <= 10) majorInterval = 1;
@@ -212,13 +242,10 @@ function App() {
         const contentX = scrollLeft + mouseX;
         const ratio = scrollWidth > 0 ? contentX / scrollWidth : 0.5;
 
-        // Smooth zoom calculation for trackpad gestures
-        // Trackpads emit frequent events with deltaY usually between -10 and 10
-        // Mouse wheels emit deltaY ~100
-        const rawDelta = -e.deltaY * 0.008;
-        const zoomDelta = Math.max(-0.6, Math.min(0.6, rawDelta));
+        // Exponential scaling makes zoom feel equally smooth and responsive across 1x to 32x
         const curZoom = timelineZoomRef.current;
-        const nextZoom = Math.min(6, Math.max(1, Number((curZoom + zoomDelta).toFixed(2))));
+        const scaleFactor = Math.exp(Math.max(-0.4, Math.min(0.4, -e.deltaY * 0.006)));
+        const nextZoom = Math.min(32, Math.max(1, Number((curZoom * scaleFactor).toFixed(2))));
 
         if (nextZoom !== curZoom) {
           setTimelineZoom(nextZoom);
@@ -266,7 +293,7 @@ function App() {
       e.preventDefault();
       e.stopPropagation();
       const scale = typeof e.scale === 'number' ? e.scale : 1;
-      const nextZoom = Math.min(6, Math.max(1, Number((gestureStartZoom * scale).toFixed(2))));
+      const nextZoom = Math.min(32, Math.max(1, Number((gestureStartZoom * scale).toFixed(2))));
       if (nextZoom !== timelineZoomRef.current) {
         setTimelineZoom(nextZoom);
         requestAnimationFrame(() => {
@@ -312,10 +339,10 @@ function App() {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
           e.preventDefault();
-          setTimelineZoom(z => Math.min(6, Number((z + 0.5).toFixed(1))));
+          setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2))));
         } else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
           e.preventDefault();
-          setTimelineZoom(z => Math.max(1, Number((z - 0.5).toFixed(1))));
+          setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2))));
         } else if (e.key === '0' || e.code === 'Numpad0') {
           e.preventDefault();
           setTimelineZoom(1);
@@ -396,11 +423,55 @@ function App() {
     const p = projectRef.current; if (!p) return;
     markEdit({ ...p, words: p.words.map(w => w.id === id ? { ...w, ...update } : w) });
   }
+  function updateWords(ids: string[] | Set<string>, update: Partial<Word>) {
+    const p = projectRef.current; if (!p) return;
+    const targetIds = new Set(ids);
+    markEdit({ ...p, words: p.words.map(w => targetIds.has(w.id) ? { ...w, ...update } : w) });
+  }
+  function selectWord(wordId: string, e?: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) {
+    const p = projectRef.current;
+    if (!p) return;
+
+    if (e?.shiftKey && lastSelectedWordIdRef.current) {
+      const anchorIdx = p.words.findIndex(w => w.id === lastSelectedWordIdRef.current);
+      const currentIdx = p.words.findIndex(w => w.id === wordId);
+      if (anchorIdx !== -1 && currentIdx !== -1) {
+        const start = Math.min(anchorIdx, currentIdx);
+        const end = Math.max(anchorIdx, currentIdx);
+        const rangeIds = new Set(selectedWordIds);
+        for (let i = start; i <= end; i++) {
+          rangeIds.add(p.words[i].id);
+        }
+        setSelectedWordIds(rangeIds);
+        setSelectedWord(wordId);
+        return;
+      }
+    }
+
+    if (e?.metaKey || e?.ctrlKey) {
+      const next = new Set(selectedWordIds);
+      if (next.has(wordId)) {
+        next.delete(wordId);
+      } else {
+        next.add(wordId);
+      }
+      setSelectedWordIds(next);
+      setSelectedWord(next.has(wordId) ? wordId : (Array.from(next)[0] || null));
+      lastSelectedWordIdRef.current = wordId;
+      return;
+    }
+
+    // Normal click: single selection
+    setSelectedWordIds(new Set([wordId]));
+    setSelectedWord(wordId);
+    lastSelectedWordIdRef.current = wordId;
+  }
   function handleInsertWord(targetId: string, position: 'before' | 'after', text = 'word') {
     const p = projectRef.current; if (!p) return;
     const res = insertWord(p.words, targetId, position, text, duration);
     markEdit({ ...p, words: res.words });
     setSelectedWord(res.newWordId);
+    setSelectedWordIds(new Set([res.newWordId]));
     notify(`Inserted word ${position}.`);
   }
   function handleAppendWordToLine(group: Word[]) {
@@ -413,23 +484,25 @@ function App() {
     const res = appendWord(p.words, 'New line', duration);
     markEdit({ ...p, words: res.words });
     setSelectedWord(res.newWordId);
+    setSelectedWordIds(new Set([res.newWordId]));
     seek(res.words.find(w => w.id === res.newWordId)?.start ?? 0);
     notify('Added new caption line.');
   }
-  function handleDeleteWord(id: string) {
+  function handleDeleteWords(ids: string[] | Set<string>) {
     const p = projectRef.current; if (!p) return;
-    const updated = p.words.filter(w => w.id !== id);
+    const targetIds = new Set(ids);
+    const updated = p.words.filter(w => !targetIds.has(w.id));
+    ensureValidIntervals(updated, duration);
     markEdit({ ...p, words: updated });
-    if (selectedWord === id) setSelectedWord(null);
-    notify('Word deleted.');
+    setSelectedWordIds(new Set());
+    setSelectedWord(null);
+    notify(`Deleted ${targetIds.size} word${targetIds.size > 1 ? 's' : ''}.`);
+  }
+  function handleDeleteWord(id: string) {
+    handleDeleteWords([id]);
   }
   function handleDeleteLine(group: Word[]) {
-    const p = projectRef.current; if (!p || !group.length) return;
-    const ids = new Set(group.map(w => w.id));
-    const updated = p.words.filter(w => !ids.has(w.id));
-    markEdit({ ...p, words: updated });
-    if (selectedWord && ids.has(selectedWord)) setSelectedWord(null);
-    notify('Caption line deleted.');
+    handleDeleteWords(group.map(w => w.id));
   }
   function handleSplitLine(wordId: string) {
     const p = projectRef.current; if (!p) return;
@@ -449,48 +522,117 @@ function App() {
     markEdit({ ...p, words: updated });
     notify('Moved word to next line.');
   }
+
+  function loadSample(idx: number) {
+    if (projects.length > idx) {
+      void openProject(projects[idx]);
+    } else if (projects.length > 0) {
+      void openProject(projects[0]);
+    } else {
+      notify('Sample media ready.');
+    }
+  }
+
+  function handleSplitAtCurrent() {
+    const p = projectRef.current;
+    if (!p || !p.words.length) return;
+    const targetWord = (selectedWord ? p.words.find(w => w.id === selectedWord) : null)
+      || p.words.find(w => time >= w.start && time <= w.end)
+      || p.words.find(w => w.start >= time)
+      || p.words[0];
+    if (targetWord) {
+      handleSplitLine(targetWord.id);
+    }
+  }
+
+  function handleAddWord() {
+    const p = projectRef.current;
+    if (!p) return;
+    const { words: updated } = appendWord(p.words, 'New caption', duration);
+    markEdit({ ...p, words: updated });
+    notify('Added new caption.');
+  }
+  function handleDropWords(
+    sourceWordIds: string[],
+    targetGroupIdx: number,
+    targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' }
+  ) {
+    const p = projectRef.current;
+    if (!p || !sourceWordIds.length) return;
+
+    const effectivePerLine = settings.template === 'kinetic' ? 1 : settings.wordsPerLine;
+    const currentGroups = groupWords(p.words, effectivePerLine);
+    if (targetGroupIdx < 0 || targetGroupIdx >= currentGroups.length) return;
+    const targetGroup = currentGroups[targetGroupIdx];
+
+    const validMovingIds = p.words.filter(w => sourceWordIds.includes(w.id)).map(w => w.id);
+    if (!validMovingIds.length) return;
+
+    if (typeof targetPosition === 'object' && validMovingIds.includes(targetPosition.targetWordId)) {
+      return;
+    }
+
+    const neededMax = Math.max(effectivePerLine, targetGroup.length + validMovingIds.length);
+    const updatedWords = moveWordsToLine(p.words, validMovingIds, targetGroupIdx, targetPosition, neededMax);
+
+    const nextSettings = neededMax > settings.wordsPerLine && settings.template !== 'kinetic'
+      ? { ...settings, wordsPerLine: neededMax }
+      : settings;
+
+    markEdit({ ...p, words: updatedWords, settings: nextSettings }, true);
+    setSelectedWordIds(new Set(validMovingIds));
+    const label = validMovingIds.length > 1
+      ? `${validMovingIds.length} words`
+      : `"${p.words.find(w => w.id === validMovingIds[0])?.text.replace(/[.!?।]+$/, '')}"`;
+    notify(`Moved ${label} to line ${targetGroupIdx + 1}`);
+  }
+  function handleDropWord(
+    sourceWordId: string,
+    targetGroupIdx: number,
+    targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' }
+  ) {
+    handleDropWords([sourceWordId], targetGroupIdx, targetPosition);
+  }
   function handleAutoStar() {
     const p = projectRef.current; if (!p) return;
-    const updated = p.words.map(w => {
-      const clean = w.text.replace(/\W/g, '').toLowerCase();
-      const hasNum = /\d/.test(w.text);
-      const isHook = ['step', 'rule', 'secret', 'trick', 'hack', 'best', 'viral', 'bawal', 'sabse', 'bada', 'shandaar', 'important'].includes(clean) || hasNum;
-      const isStop = ['ke', 'ki', 'ka', 'ko', 'se', 'mein', 'par', 'pe', 'ne', 'aur', 'ya', 'bhi', 'hi', 'to', 'the', 'a', 'an', 'and', 'of', 'in', 'on', 'at'].includes(clean);
-      const shouldEmphasize = (w.emphasisScore >= 0.73 && !isStop) || (isHook && (w.emphasisScore || 0.6) >= 0.5);
-      return { ...w, emphasis: shouldEmphasize };
-    });
+    const updated = autoDetectHighlights(p.words, settings.wordsPerLine);
     markEdit({ ...p, words: updated });
-    notify('Auto-suggested emphasis applied.');
+    notify('Auto-suggested spotlights & emphasis applied.');
   }
   function handleClearAllEmphasis() {
     const p = projectRef.current; if (!p) return;
-    markEdit({ ...p, words: p.words.map(w => ({ ...w, emphasis: false, spotlight: false, behind: false })) });
-    notify('Cleared all word emphasis.');
+    markEdit({ ...p, words: p.words.map(w => ({ ...w, emphasis: false, spotlight: false })) });
+    notify('All spotlights and emphasis cleared.');
   }
   function commitInlineEdit() {
     if (!editingWordId) return;
-    const trimmed = editingText.trim();
-    if (trimmed) {
-      updateWord(editingWordId, { text: trimmed });
+    const p = projectRef.current;
+    if (p) {
+      const updated = p.words.map(w => w.id === editingWordId ? { ...w, text: editingText.trim() || w.text } : w);
+      markEdit({ ...p, words: updated });
     }
     setEditingWordId(null);
   }
   function cancelInlineEdit() {
     setEditingWordId(null);
   }
-  function handleWordClick(e: React.MouseEvent<HTMLButtonElement>, word: Word) {
+  function handleWordContextMenu(e: React.MouseEvent<HTMLElement>, word: Word) {
+    e.preventDefault();
     e.stopPropagation();
-    setSelectedWord(word.id);
-    seek(word.start);
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    if (!selectedWordIds.has(word.id)) {
+      setSelectedWordIds(new Set([word.id]));
+      setSelectedWord(word.id);
+      lastSelectedWordIdRef.current = word.id;
+    }
+
     const menuWidth = 280;
     const menuHeight = 440;
-    let top = rect.bottom + 6;
-    let left = rect.left;
+    let top = e.clientY + 4;
+    let left = e.clientX;
 
     if (top + menuHeight > window.innerHeight - 10) {
-      top = Math.max(10, rect.top - menuHeight - 6);
+      top = Math.max(10, e.clientY - menuHeight - 4);
     }
     if (left + menuWidth > window.innerWidth - 10) {
       left = Math.max(10, window.innerWidth - menuWidth - 10);
@@ -501,7 +643,7 @@ function App() {
       position: { top, left },
     });
   }
-  function handleTimelineWordClick(e: React.MouseEvent<HTMLButtonElement>, word: Word) {
+  function handleTimelineWordClick(e: React.MouseEvent<HTMLElement>, word: Word) {
     e.stopPropagation();
     setSelectedWord(word.id);
     seek(word.start);
@@ -515,10 +657,56 @@ function App() {
       behind: !!word.behind,
     });
   }
+  function setWordHighlight(style: 'emphasize' | 'spotlight' | 'clear') {
+    if (!timelinePopover) return;
+    const wordId = timelinePopover.word.id;
+    let nextEmphasis = false;
+    let nextSpotlight = false;
+
+    if (style === 'emphasize') {
+      const currentEmphasized = timelinePopover.emphasis && !timelinePopover.spotlight;
+      nextEmphasis = !currentEmphasized;
+      nextSpotlight = false;
+    } else if (style === 'spotlight') {
+      const currentSpotlight = timelinePopover.spotlight;
+      nextSpotlight = !currentSpotlight;
+      nextEmphasis = false;
+    } else if (style === 'clear') {
+      nextEmphasis = false;
+      nextSpotlight = false;
+    }
+
+    if (selectedWordIds.size > 1 && selectedWordIds.has(wordId)) {
+      updateWords(selectedWordIds, {
+        emphasis: nextEmphasis,
+        spotlight: nextSpotlight,
+      });
+    } else {
+      updateWord(wordId, {
+        emphasis: nextEmphasis,
+        spotlight: nextSpotlight,
+      });
+    }
+
+    setTimelinePopover(p =>
+      p
+        ? {
+            ...p,
+            emphasis: nextEmphasis,
+            spotlight: nextSpotlight,
+            word: {
+              ...p.word,
+              emphasis: nextEmphasis,
+              spotlight: nextSpotlight,
+            },
+          }
+        : null
+    );
+  }
   function saveTimelineWordEdit() {
     if (!timelinePopover) return;
     const trimmed = timelinePopover.draftText.trim();
-    if (trimmed) {
+    if (trimmed && trimmed !== timelinePopover.word.text) {
       updateWord(timelinePopover.word.id, {
         text: trimmed,
         emphasis: timelinePopover.emphasis,
@@ -544,6 +732,513 @@ function App() {
     const clickX = e.clientX - rect.left;
     const pct = Math.max(0, Math.min(1, clickX / rect.width));
     seek(pct * duration);
+  }
+
+  function startWordHandleDrag(
+    e: React.MouseEvent,
+    word: Word,
+    edge: 'left' | 'right'
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    setTimelinePopover(null);
+
+    const p = projectRef.current;
+    if (!p || !duration || !timelineTrackRef.current) return;
+
+    const vp = timelineViewportRef.current;
+    const track = timelineTrackRef.current;
+    const scrollWidth = track.offsetWidth || vp?.scrollWidth || 1;
+
+    const wordIdx = p.words.findIndex(w => w.id === word.id);
+    if (wordIdx === -1) return;
+
+    const prevWord = wordIdx > 0 ? p.words[wordIdx - 1] : null;
+    const nextWord = wordIdx < p.words.length - 1 ? p.words[wordIdx + 1] : null;
+
+    const MIN_WORD_DURATION = 0.04;
+    // Allow boundary to adjust shared boundary with neighboring words (down to 0.04s min duration)
+    const minStart = prevWord ? Number((prevWord.start + 0.04).toFixed(3)) : 0;
+    const maxEnd = nextWord ? Number((nextWord.end - 0.04).toFixed(3)) : duration;
+
+    const startX = e.clientX;
+    const origStart = word.start;
+    const origEnd = word.end;
+    const origPrevEnd = prevWord ? prevWord.end : 0;
+    const origNextStart = nextWord ? nextWord.start : duration;
+
+    let currentStart = origStart;
+    let currentEnd = origEnd;
+    let currentPrevEnd = origPrevEnd;
+    let currentNextStart = origNextStart;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const dt = (deltaX / scrollWidth) * duration;
+
+      if (edge === 'left') {
+        const rawTargetStart = Number((origStart + dt).toFixed(3));
+        currentStart = Math.max(minStart, Math.min(origEnd - MIN_WORD_DURATION, rawTargetStart));
+        if (prevWord) {
+          currentPrevEnd = Math.min(origPrevEnd, Number((currentStart - 0.005).toFixed(3)));
+        }
+
+        const updatedWords = p.words.map(w => {
+          if (w.id === word.id) return { ...w, start: currentStart };
+          if (prevWord && w.id === prevWord.id) return { ...w, end: currentPrevEnd };
+          return w;
+        });
+        markEdit({ ...p, words: updatedWords }, false);
+        seek(currentStart);
+      } else {
+        const rawTargetEnd = Number((origEnd + dt).toFixed(3));
+        currentEnd = Math.min(maxEnd, Math.max(origStart + MIN_WORD_DURATION, rawTargetEnd));
+        if (nextWord) {
+          currentNextStart = Math.max(origNextStart, Number((currentEnd + 0.005).toFixed(3)));
+        }
+
+        const updatedWords = p.words.map(w => {
+          if (w.id === word.id) return { ...w, end: currentEnd };
+          if (nextWord && w.id === nextWord.id) return { ...w, start: currentNextStart };
+          return w;
+        });
+        markEdit({ ...p, words: updatedWords }, false);
+        seek(currentEnd);
+      }
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      const latestProj = projectRef.current;
+      if (!latestProj) return;
+
+      const finalWords = latestProj.words.map(w => {
+        if (w.id === word.id) return { ...w, start: currentStart, end: currentEnd };
+        if (prevWord && w.id === prevWord.id) return { ...w, end: currentPrevEnd };
+        if (nextWord && w.id === nextWord.id) return { ...w, start: currentNextStart };
+        return w;
+      });
+      ensureValidIntervals(finalWords, duration);
+      markEdit({ ...latestProj, words: finalWords }, true);
+      notify(`Adjusted "${word.text}" duration: ${(currentEnd - currentStart).toFixed(2)}s`);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
+  function startWordDividerDrag(
+    e: React.MouseEvent,
+    wordA: Word,
+    wordB: Word
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    setTimelinePopover(null);
+
+    const p = projectRef.current;
+    if (!p || !duration || !timelineTrackRef.current) return;
+
+    const vp = timelineViewportRef.current;
+    const track = timelineTrackRef.current;
+    const scrollWidth = track.offsetWidth || vp?.scrollWidth || 1;
+
+    const startX = e.clientX;
+    const origSplit = wordA.end;
+    const minSplit = wordA.start + 0.03;
+    const maxSplit = wordB.end - 0.03;
+
+    let currentSplit = origSplit;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const dt = (deltaX / scrollWidth) * duration;
+      const targetSplit = Number((origSplit + dt).toFixed(3));
+      currentSplit = Math.max(minSplit, Math.min(maxSplit, targetSplit));
+
+      const updatedWords = p.words.map(w => {
+        if (w.id === wordA.id) return { ...w, end: currentSplit };
+        if (w.id === wordB.id) return { ...w, start: currentSplit };
+        return w;
+      });
+      markEdit({ ...p, words: updatedWords }, false);
+      seek(currentSplit);
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      const latestProj = projectRef.current;
+      if (!latestProj) return;
+
+      const finalWords = latestProj.words.map(w => {
+        if (w.id === wordA.id) return { ...w, end: currentSplit };
+        if (w.id === wordB.id) return { ...w, start: currentSplit };
+        return w;
+      });
+      ensureValidIntervals(finalWords, duration);
+      markEdit({ ...latestProj, words: finalWords }, true);
+      notify(`Adjusted boundary between "${wordA.text}" and "${wordB.text}" to ${currentSplit.toFixed(2)}s`);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
+  function startWordDrag(
+    e: React.MouseEvent,
+    word: Word
+  ) {
+    if ((e.target as HTMLElement).closest('.timeline-word-edge-handle') || (e.target as HTMLElement).closest('.timeline-word-handle') || (e.target as HTMLElement).closest('.timeline-word-divider')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const p = projectRef.current;
+    if (!p || !duration || !timelineTrackRef.current) return;
+
+    const vp = timelineViewportRef.current;
+    const track = timelineTrackRef.current;
+    const scrollWidth = track.offsetWidth || vp?.scrollWidth || 1;
+
+    const wordIdx = p.words.findIndex(w => w.id === word.id);
+    if (wordIdx === -1) return;
+
+    const prevWord = wordIdx > 0 ? p.words[wordIdx - 1] : null;
+    const nextWord = wordIdx < p.words.length - 1 ? p.words[wordIdx + 1] : null;
+
+    const wordDur = Number((word.end - word.start).toFixed(3));
+    const minStart = prevWord ? Number((prevWord.end + 0.005).toFixed(3)) : 0;
+    const maxEnd = nextWord ? Number((nextWord.start - 0.005).toFixed(3)) : duration;
+    const maxStart = Number((maxEnd - wordDur).toFixed(3));
+
+    const startX = e.clientX;
+    const targetRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const origStart = word.start;
+    let clampedStart = origStart;
+    let clampedEnd = word.end;
+    let hasMoved = false;
+
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      if (Math.abs(deltaX) > 3) {
+        hasMoved = true;
+        setTimelinePopover(null);
+      }
+
+      const dt = (deltaX / scrollWidth) * duration;
+      const targetStart = origStart + dt;
+      clampedStart = Number(Math.max(minStart, Math.min(maxStart, targetStart)).toFixed(3));
+      clampedEnd = Number((clampedStart + wordDur).toFixed(3));
+
+      const updatedWords = p.words.map(w =>
+        w.id === word.id ? { ...w, start: clampedStart, end: clampedEnd } : w
+      );
+      markEdit({ ...p, words: updatedWords }, false);
+      seek(clampedStart);
+    };
+
+    const onMouseUp = (upEvent: MouseEvent) => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      if (!hasMoved) {
+        // Left-click without dragging: select word, seek, and open the editing popover!
+        selectWord(word.id, upEvent);
+        seek(word.start);
+        setTimelinePopover({
+          word,
+          rect: targetRect,
+          draftText: word.text,
+          emphasis: !!word.emphasis,
+          spotlight: !!word.spotlight,
+          behind: !!word.behind,
+        });
+        return;
+      }
+
+      const latestProj = projectRef.current;
+      if (!latestProj) return;
+
+      const finalWords = latestProj.words.map(w =>
+        w.id === word.id ? { ...w, start: clampedStart, end: clampedEnd } : w
+      );
+      ensureValidIntervals(finalWords, duration);
+      markEdit({ ...latestProj, words: finalWords }, true);
+      notify(`Shifted "${word.text}" timing to ${timecode(clampedStart)}`);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
+  function startGroupTrim(
+    e: React.MouseEvent,
+    group: Word[],
+    edge: 'left' | 'right'
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    setTimelinePopover(null);
+
+    const p = projectRef.current;
+    if (!p || !duration || !group.length || !timelineTrackRef.current) return;
+
+    const vp = timelineViewportRef.current;
+    const track = timelineTrackRef.current;
+    const scrollWidth = track.offsetWidth || vp?.scrollWidth || 1;
+
+    const firstWord = group[0];
+    const lastWord = group[group.length - 1];
+
+    const firstIdx = p.words.findIndex(w => w.id === firstWord.id);
+    const lastIdx = p.words.findIndex(w => w.id === lastWord.id);
+    if (firstIdx === -1 || lastIdx === -1) return;
+
+    const prevWord = firstIdx > 0 ? p.words[firstIdx - 1] : null;
+    const nextWord = lastIdx < p.words.length - 1 ? p.words[lastIdx + 1] : null;
+
+    const origGStart = firstWord.start;
+    const origGEnd = lastWord.end;
+    const origDur = Math.max(0.04, origGEnd - origGStart);
+
+    const minAllowedStart = prevWord ? Number((prevWord.end + 0.01).toFixed(3)) : 0;
+    const maxAllowedEnd = nextWord ? Number((nextWord.start - 0.01).toFixed(3)) : duration;
+
+    const startX = e.clientX;
+    const initialWords = group.map(w => ({ id: w.id, start: w.start, end: w.end }));
+    const gIds = new Set(group.map(w => w.id));
+
+    let currentGStart = origGStart;
+    let currentGEnd = origGEnd;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const dt = (deltaX / scrollWidth) * duration;
+
+      if (edge === 'left') {
+        const rawTargetStart = origGStart + dt;
+        currentGStart = Math.max(minAllowedStart, Math.min(origGEnd - 0.08, rawTargetStart));
+        currentGStart = Number(currentGStart.toFixed(3));
+        const newDur = origGEnd - currentGStart;
+        const ratio = newDur / origDur;
+
+        const updatedWords = p.words.map(w => {
+          if (gIds.has(w.id)) {
+            const init = initialWords.find(iw => iw.id === w.id);
+            if (init) {
+              const s = origGEnd - (origGEnd - init.start) * ratio;
+              const e = origGEnd - (origGEnd - init.end) * ratio;
+              return {
+                ...w,
+                start: Number(s.toFixed(3)),
+                end: Number(e.toFixed(3)),
+              };
+            }
+          }
+          return w;
+        });
+
+        markEdit({ ...p, words: updatedWords }, false);
+        seek(currentGStart);
+      } else {
+        const rawTargetEnd = origGEnd + dt;
+        currentGEnd = Math.min(maxAllowedEnd, Math.max(origGStart + 0.08, rawTargetEnd));
+        currentGEnd = Number(currentGEnd.toFixed(3));
+        const newDur = currentGEnd - origGStart;
+        const ratio = newDur / origDur;
+
+        const updatedWords = p.words.map(w => {
+          if (gIds.has(w.id)) {
+            const init = initialWords.find(iw => iw.id === w.id);
+            if (init) {
+              const s = origGStart + (init.start - origGStart) * ratio;
+              const e = origGStart + (init.end - origGStart) * ratio;
+              return {
+                ...w,
+                start: Number(s.toFixed(3)),
+                end: Number(e.toFixed(3)),
+              };
+            }
+          }
+          return w;
+        });
+
+        markEdit({ ...p, words: updatedWords }, false);
+        seek(currentGEnd);
+      }
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      const latestProj = projectRef.current;
+      if (!latestProj) return;
+
+      const newDur = edge === 'left' ? origGEnd - currentGStart : currentGEnd - origGStart;
+      const ratio = newDur / origDur;
+
+      const finalWords = latestProj.words.map(w => {
+        if (gIds.has(w.id)) {
+          const init = initialWords.find(iw => iw.id === w.id);
+          if (init) {
+            const s = edge === 'left'
+              ? origGEnd - (origGEnd - init.start) * ratio
+              : origGStart + (init.start - origGStart) * ratio;
+            const e = edge === 'left'
+              ? origGEnd - (origGEnd - init.end) * ratio
+              : origGStart + (init.end - origGStart) * ratio;
+            return {
+              ...w,
+              start: Number(s.toFixed(3)),
+              end: Number(e.toFixed(3)),
+            };
+          }
+        }
+        return w;
+      });
+
+      ensureValidIntervals(finalWords, duration);
+      markEdit({ ...latestProj, words: finalWords }, true);
+      notify(`Adjusted sentence length: ${(currentGEnd - currentGStart).toFixed(2)}s`);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
+  function startGroupDrag(
+    e: React.MouseEvent,
+    group: Word[]
+  ) {
+    if ((e.target as HTMLElement).closest('.timeline-group-handle') || (e.target as HTMLElement).closest('.timeline-group-bracket')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    setTimelinePopover(null);
+
+    const p = projectRef.current;
+    if (!p || !duration || !group.length || !timelineTrackRef.current) return;
+
+    const vp = timelineViewportRef.current;
+    const track = timelineTrackRef.current;
+    const scrollWidth = track.offsetWidth || vp?.scrollWidth || 1;
+
+    const gIds = new Set(group.map(w => w.id));
+    const firstWord = group[0];
+    const lastWord = group[group.length - 1];
+
+    const firstIdx = p.words.findIndex(w => w.id === firstWord.id);
+    const lastIdx = p.words.findIndex(w => w.id === lastWord.id);
+    if (firstIdx === -1 || lastIdx === -1) return;
+
+    const prevWord = firstIdx > 0 ? p.words[firstIdx - 1] : null;
+    const nextWord = lastIdx < p.words.length - 1 ? p.words[lastIdx + 1] : null;
+
+    const gStart = firstWord.start;
+    const gEnd = lastWord.end;
+
+    const minAllowedStart = prevWord ? Number((prevWord.end + 0.01).toFixed(3)) : 0;
+    const maxAllowedEnd = nextWord ? Number((nextWord.start - 0.01).toFixed(3)) : duration;
+
+    const minShift = minAllowedStart - gStart;
+    const maxShift = maxAllowedEnd - gEnd;
+
+    const startX = e.clientX;
+    const initialWords = group.map(w => ({ id: w.id, start: w.start, end: w.end }));
+
+    let clampedDt = 0;
+    let hasMoved = false;
+
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      if (Math.abs(deltaX) > 2) {
+        hasMoved = true;
+      }
+
+      const rawDt = (deltaX / scrollWidth) * duration;
+      clampedDt = Math.max(minShift, Math.min(maxShift, rawDt));
+
+      const updatedWords = p.words.map(w => {
+        if (gIds.has(w.id)) {
+          const init = initialWords.find(iw => iw.id === w.id);
+          if (init) {
+            return {
+              ...w,
+              start: Number((init.start + clampedDt).toFixed(3)),
+              end: Number((init.end + clampedDt).toFixed(3)),
+            };
+          }
+        }
+        return w;
+      });
+
+      markEdit({ ...p, words: updatedWords }, false);
+      seek(Number((gStart + clampedDt).toFixed(3)));
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      if (!hasMoved) {
+        seek(gStart);
+        return;
+      }
+
+      const latestProj = projectRef.current;
+      if (!latestProj) return;
+
+      const finalWords = latestProj.words.map(w => {
+        if (gIds.has(w.id)) {
+          const init = initialWords.find(iw => iw.id === w.id);
+          if (init) {
+            return {
+              ...w,
+              start: Number((init.start + clampedDt).toFixed(3)),
+              end: Number((init.end + clampedDt).toFixed(3)),
+            };
+          }
+        }
+        return w;
+      });
+
+      ensureValidIntervals(finalWords, duration);
+      markEdit({ ...latestProj, words: finalWords }, true);
+      notify(`Shifted caption line timing by ${clampedDt >= 0 ? '+' : ''}${clampedDt.toFixed(2)}s`);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   }
   function handleMergeWithNext(group: Word[]) {
     const p = projectRef.current; if (!p || !group.length) return;
@@ -676,11 +1371,14 @@ function App() {
         if (editingWordId) { setEditingWordId(null); return; }
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); void flushSave().catch(()=>{}); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); handleSplitAtCurrent(); return; }
       if ((e.target as HTMLElement)?.closest('input, textarea, select, dialog, button, a, [contenteditable]')) return;
+      if (e.key === 'ArrowUp') { e.preventDefault(); setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2)))); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2)))); return; }
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener('keydown',onKey); return () => window.removeEventListener('keydown',onKey);
-  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId]);
+  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId,selectedWord,time,project]);
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
@@ -690,13 +1388,60 @@ function App() {
       await flushSave();
       const result = await upload(file,script,language,setUploadProgress);
       result.name = file.name || result.filename || result.name;
-      result.settings = result.settings || defaults; setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
+      result.settings = result.settings || defaults;
+      result.words = autoDetectHighlights(result.words || [], result.settings?.wordsPerLine || 4);
+      setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
       setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
   }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDraggingOver(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingOver(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      void importFile(files[0]);
+    }
+  };
   async function openProject(p: Project) {
-    try { await flushSave(); const result=await request<Project>(`/projects/${p.id}`); const projectScript = result.script || 'roman'; const projectLanguage = result.language || 'auto'; const normalized = { ...result, script: projectScript, language: projectLanguage }; setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null); }
+    try {
+      await flushSave();
+      const result=await request<Project>(`/projects/${p.id}`);
+      const projectScript = result.script || 'roman';
+      const projectLanguage = result.language || 'auto';
+      const wordsPerLine = result.settings?.wordsPerLine || 4;
+      const hasSpotlight = (result.words || []).some(w => w.spotlight);
+      const normalizedWords = hasSpotlight ? (result.words || []) : autoDetectHighlights(result.words || [], wordsPerLine);
+      const normalized = { ...result, words: normalizedWords, script: projectScript, language: projectLanguage };
+      setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null);
+    }
     catch(e) { notify((e as Error).message); }
   }
   async function startExport() {
@@ -794,526 +1539,61 @@ function App() {
 
     <div className="studio">
       <main className="editor-grid">
-        <section className="transcript-panel panel">
-          <div className="captions-header">
-            <div className="captions-header-left">
-              <Subtitles size={16} />
-              <h2 className="captions-title">Lyrics Editor</h2>
-              {project?.words.length && !busy ? <span className="count">{project.words.length}</span> : null}
+        <section className="style-panel panel">
+          <div className="sidebar-header">
+            <div className="sidebar-header-left">
+              <span className="sidebar-brand-tag">
+                <Subtitles size={15} />
+                <span>STUDIO</span>
+              </span>
+              {project?.words.length ? (
+                <span className="sidebar-word-count">{project.words.length} words</span>
+              ) : null}
             </div>
-            <div className="captions-header-right">
+            <div className="sidebar-header-right">
               {!!(project?.words.length && !busy) && (
                 <>
                   <button
                     type="button"
-                    className={`caption-search-btn ${showSearchBar ? 'active' : ''}`}
-                    title="Search captions"
-                    aria-label="Search captions"
-                    onClick={() => setShowSearchBar(prev => !prev)}
+                    className="sidebar-tool-btn"
+                    title="Find & Replace words"
+                    onClick={() => {
+                      setSearchFindText('');
+                      setSearchReplaceText('');
+                      setModal('search-replace');
+                    }}
                   >
-                    <Search size={16} />
+                    <Search size={14} />
+                    <span>Find</span>
                   </button>
-                  <div className="caption-tools-wrap">
-                    <button
-                      type="button"
-                      className={`caption-sparkles-btn ${captionToolsOpen ? 'active' : ''}`}
-                      title="Word emphasis (Magic star)"
-                      aria-label="Word emphasis"
-                      onClick={() => setCaptionToolsOpen(prev => !prev)}
-                    >
-                      <Sparkles size={16} />
-                    </button>
-                    {captionToolsOpen && (
-                      <>
-                        <div className="dropdown-backdrop" onClick={() => setCaptionToolsOpen(false)} />
-                        <div className="caption-tools-dropdown">
-                          <button
-                            type="button"
-                            className="caption-tools-item"
-                            onClick={() => {
-                              setCaptionToolsOpen(false);
-                              handleAutoStar();
-                            }}
-                          >
-                            <Sparkles size={14} />
-                            <span>Auto Emphasize</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="caption-tools-item"
-                            onClick={() => {
-                              setCaptionToolsOpen(false);
-                              handleClearAllEmphasis();
-                            }}
-                          >
-                            <RotateCcw size={14} />
-                            <span>Clear All Stars</span>
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    className="sidebar-tool-btn"
+                    title="Auto-Emphasize key words"
+                    onClick={handleAutoStar}
+                  >
+                    <Sparkles size={14} />
+                    <span>Auto Star</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="sidebar-tool-btn"
+                    title="Clear all emphasis stars"
+                    onClick={handleClearAllEmphasis}
+                  >
+                    <RotateCcw size={14} />
+                  </button>
                 </>
               )}
             </div>
           </div>
 
-          {showSearchBar && !!(project?.words.length && !busy) && (
-            <div className="caption-search-bar">
-              <Search size={14} color="#6b7280" />
-              <input
-                autoFocus
-                placeholder="Search words..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  className="icon-button tiny"
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                >
-                  <X size={13} />
-                </button>
-              )}
-              <button
-                type="button"
-                className="caption-search-replace-btn"
-                title="Find & Replace all"
-                onClick={() => {
-                  setSearchFindText(searchQuery);
-                  setSearchReplaceText('');
-                  setModal('search-replace');
-                }}
-              >
-                <Replace size={13} />
-                <span>Replace</span>
-              </button>
-            </div>
-          )}
-
-              <div className={`transcript-content ${!project ? 'empty-content' : ''}`}>
-                {!project && (
-                  <>
-                    <div
-                      className={`upload-card ${dragging ? 'dragging' : ''}`}
-                      onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                      onDragLeave={() => setDragging(false)}
-                      onDrop={e => { e.preventDefault(); setDragging(false); void importFile(e.dataTransfer.files[0]); }}
-                    >
-                      <div className="upload-symbol"><Upload size={27} /><span><Sparkles size={12} /></span></div>
-                      <h2>Drop it. Caption it.</h2>
-                      <p>Your video, your voice.<br />We’ll find the right words.</p>
-                      <button className="button primary full" onClick={() => input.current?.click()} disabled={uploadProgress !== null}>
-                        {uploadProgress !== null ? <><LoaderCircle className="spin" size={16} />Uploading {uploadProgress}%</> : <>Choose a file <ArrowRight size={16} /></>}
-                      </button>
-                      <span className="upload-formats">MP4, MOV, MP3, WAV + more<br />Up to 1 GB · 20 minutes</span>
-                    </div>
-                    <div className="upload-preferences">
-                      <label>Spoken language
-                        <select value={language} onChange={e => setLanguage(e.target.value)}>
-                          <option value="auto">Hindi + English · Auto</option>
-                          <option value="hi">Hindi + English</option>
-                          <option value="en">English</option>
-                        </select>
-                      </label>
-                      <label>Write captions in
-                        <select value={script} onChange={e => setScript(e.target.value)}>
-                          <option value="roman">Hinglish · Roman</option>
-                          <option value="native">Hindi · Devanagari</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="privacy-note"><MonitorPlay size={17} /><span>Your files stay on your computer.<br />No subscription. No watermark.</span></div>
-                  </>
-                )}
-                {project && busy && (
-                  <div className="processing-state">
-                    <div className="processing-orb"><AudioLines size={32} /></div>
-                    <h2>Listening to your story</h2>
-                    <p>{project.message || 'Preparing your audio…'}</p>
-                    <progress value={project.progress} max={100} />
-                    <span>{project.progress}%</span>
-                    <div className="process-steps">
-                      <span className="done"><Check size={14} />Upload complete</span>
-                      <span><LoaderCircle size={14} className="spin" />Transcribing & timing words</span>
-                      <span><Sparkles size={14} />Finding words to emphasize</span>
-                    </div>
-                    <small>The first run loads the speech model. Longer files take more time.</small>
-                  </div>
-                )}
-                {project && !busy && project.status === 'error' && (
-                  <div className="processing-state error-state">
-                    <CircleHelp size={28} />
-                    <h2>Let’s try that again</h2>
-                    <p>{project.message}</p>
-                    <button className="button primary" onClick={() => void retryTranscription()}>
-                      <RotateCcw size={16} /> Retry transcription
-                    </button>
-                  </div>
-                )}
-                {project && !busy && project.status !== 'error' && (!project.words.length ? (
-                  <div className="processing-state">
-                    <AudioLines size={30} />
-                    <h2>No speech found</h2>
-                    <p>Try a recording with a clearer voice, or write captions manually.</p>
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                      <button className="button secondary" onClick={() => input.current?.click()}>Choose another file</button>
-                      <button className="button primary" onClick={handleAddNewLine}>
-                        <Plus size={15} /> Add line manually
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="caption-rows-list">
-                    {filteredGroups.length === 0 && searchQuery ? (
-                      <div className="lyrics-empty-search">No words matching "{searchQuery}"</div>
-                    ) : (
-                      <>
-                        {filteredGroups.map((group, groupIdx) => {
-                          const isCurrentGroup = time >= group[0].start && time <= group.at(-1)!.end;
-                          return (
-                            <div key={group[0].id} className={`caption-row ${isCurrentGroup ? 'is-current' : ''}`}>
-                              <div className="caption-row-left">
-                                <div className="caption-num-pill">{groupIdx + 1}</div>
-                                <div className="caption-row-words">
-                                  {group.map(word => {
-                                    const isEditing = editingWordId === word.id;
-                                    const isMenuOpen = wordMenu?.word.id === word.id;
-                                    const isSpeaking = activeWord?.id === word.id;
-
-                                    if (isEditing) {
-                                      return (
-                                        <input
-                                          key={word.id}
-                                          autoFocus
-                                          className="word-inline-input"
-                                          value={editingText}
-                                          onChange={e => setEditingText(e.target.value)}
-                                          onKeyDown={e => {
-                                            if (e.key === 'Enter') commitInlineEdit();
-                                            else if (e.key === 'Escape') cancelInlineEdit();
-                                          }}
-                                          onBlur={commitInlineEdit}
-                                        />
-                                      );
-                                    }
-
-                                    return (
-                                      <button
-                                        key={word.id}
-                                        type="button"
-                                        className={`caption-word-btn ${word.emphasis ? 'is-emphasized' : ''} ${word.spotlight ? 'is-spotlight' : ''} ${word.behind ? 'is-behind' : ''} ${isMenuOpen ? 'is-menu-open' : ''} ${isSpeaking ? 'is-active-word' : ''}`}
-                                        onClick={e => handleWordClick(e, word)}
-                                        title={`Click to customize "${word.text}"`}
-                                      >
-                                        {word.text}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                              <div className="caption-row-actions">
-                                <button
-                                  type="button"
-                                  className="caption-row-action-btn"
-                                  title="Play this caption line"
-                                  aria-label="Play caption line"
-                                  onClick={() => playInterval(group[0].start, group.at(-1)!.end)}
-                                >
-                                  <Accessibility size={16} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="caption-row-action-btn"
-                                  title="Split caption line"
-                                  aria-label="Split line"
-                                  onClick={() => {
-                                    const targetWord = group[Math.floor((group.length - 1) / 2)];
-                                    handleSplitLine(targetWord.id);
-                                  }}
-                                >
-                                  <Rows2 size={16} />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {!searchQuery && (
-                          <button
-                            type="button"
-                            className="caption-add-line-btn"
-                            onClick={handleAddNewLine}
-                          >
-                            <Plus size={14} />
-                            <span>Add line</span>
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {selected && !busy ? (
-                <div className="word-inspector">
-                  <div className="inspector-heading">
-                    <span>TIMING &amp; FINE-TUNE</span>
-                    <div className="lyrics-card-meta">
-                      <span className="inspector-heading-sub">{(selected.end - selected.start).toFixed(2)}s</span>
-                      <button
-                        type="button"
-                        className="icon-button tiny"
-                        aria-label="Close word inspector"
-                        onClick={() => setSelectedWord(null)}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="timing-grid">
-                    <div className="timing-field">
-                      <div className="timing-field-label">
-                        <span>START</span>
-                        <span>{selected.start.toFixed(2)}s</span>
-                      </div>
-                      <div className="timing-stepper">
-                        <button
-                          type="button"
-                          className="nudge-btn"
-                          title="Nudge start -0.05s"
-                          onClick={() => handleNudgeWordTiming(selected, 'start', -0.05)}
-                        >
-                          -0.05
-                        </button>
-                        <input
-                          aria-label="Word start time"
-                          type="number"
-                          step="0.01"
-                          key={`${selected.id}-start-${selected.start}`}
-                          defaultValue={selected.start.toFixed(2)}
-                          onBlur={e => changeTiming(selected, 'start', Number(e.target.value))}
-                        />
-                        <button
-                          type="button"
-                          className="nudge-btn"
-                          title="Nudge start +0.05s"
-                          onClick={() => handleNudgeWordTiming(selected, 'start', 0.05)}
-                        >
-                          +0.05
-                        </button>
-                      </div>
-                    </div>
-                    <div className="timing-field">
-                      <div className="timing-field-label">
-                        <span>END</span>
-                        <span>{selected.end.toFixed(2)}s</span>
-                      </div>
-                      <div className="timing-stepper">
-                        <button
-                          type="button"
-                          className="nudge-btn"
-                          title="Nudge end -0.05s"
-                          onClick={() => handleNudgeWordTiming(selected, 'end', -0.05)}
-                        >
-                          -0.05
-                        </button>
-                        <input
-                          aria-label="Word end time"
-                          type="number"
-                          step="0.01"
-                          key={`${selected.id}-end-${selected.end}`}
-                          defaultValue={selected.end.toFixed(2)}
-                          onBlur={e => changeTiming(selected, 'end', Number(e.target.value))}
-                        />
-                        <button
-                          type="button"
-                          className="nudge-btn"
-                          title="Nudge end +0.05s"
-                          onClick={() => handleNudgeWordTiming(selected, 'end', 0.05)}
-                        >
-                          +0.05
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-        </section>
-
-        <section className="preview-panel">
-          <div className="preview-toolbar"><div><span className="section-label">PREVIEW</span></div>{project&&<div className="preview-tools">{hasVideoLayer&&!busy&&<button className={`media-toggle ${videoEnabled?'':'removed'}`} aria-pressed={videoEnabled} aria-label={videoEnabled?'Remove video layer':'Restore video layer'} onClick={()=>setVideoEnabled(!videoEnabled)}>{videoEnabled?<Trash2 size={13}/>:<RotateCcw size={13}/>}<span>{videoEnabled?'Remove video':'Restore video'}</span></button>}<select aria-label="Video aspect ratio" value={settings.aspect} onChange={e=>updateSettings({aspect:e.target.value as Settings['aspect']})} disabled={busy}><option value="original">Original</option><option value="9:16">9:16 · Reel</option><option value="1:1">1:1 · Square</option><option value="16:9">16:9 · Landscape</option></select><button className="icon-button tiny" aria-label="Fullscreen preview" onClick={()=>void preview.current?.requestFullscreen().catch(()=>notify('Fullscreen is unavailable in this browser.'))}><Maximize2 size={15}/></button></div>}</div>
-          <div className="preview-stage"><div ref={preview} className={`video-frame ${!project?'empty-frame':''} ${hasVideoLayer&&!videoEnabled?'video-removed':''}`} style={{aspectRatio:`${size.width}/${size.height}`}}>
-            {project?<video ref={media} className={project.mediaType==='audio'||(hasVideoLayer&&!videoEnabled)?'audio-media':''} key={`${project.id}-${busy?'processing':'ready'}-${videoEnabled?'video':'audio'}`} src={busy?undefined:`${API}/api/projects/${project.id}/media`} playsInline preload="metadata" muted={muted} onPlay={()=>setPlaying(true)} onPause={()=>setPlaying(false)} onEnded={()=>setPlaying(false)} onSeeked={()=>setTime(media.current?.currentTime??0)} onError={()=>notify('The preview could not load. The file may still be processing.')}/>:null}
-            {project?.mediaType==='audio'&&<div className="audio-backdrop"><AudioLines size={48}/><span>AUDIO PROJECT</span></div>}
-            {project&&<canvas ref={canvas} width={size.width} height={size.height} aria-label="Animated caption preview"/>}
-            {busy&&<div className="preview-processing"><LoaderCircle size={18} className="spin"/>Captions are on their way</div>}
-          </div></div>
-          <div className="playback-controls"><button className="icon-button" aria-label={muted?'Unmute':'Mute'} onClick={()=>setMuted(!muted)} disabled={!project}>{muted?<VolumeX size={18}/>:<Volume2 size={18}/>}</button><div className="transport"><button className="icon-button" aria-label="Back three seconds" onClick={()=>seek(time-3)} disabled={!project}><ChevronLeft size={21}/></button><button className="play-button" aria-label={playing?'Pause':'Play'} onClick={togglePlay} disabled={!project}>{playing?<Pause size={18} fill="currentColor"/>:<Play size={18} fill="currentColor"/>}</button><button className="icon-button" aria-label="Forward three seconds" onClick={()=>seek(time+3)} disabled={!project}><ChevronRight size={21}/></button></div><span className="playback-time">{timecode(time)} <span>/ {timecode(duration)}</span></span></div>
-          <div ref={timelineContainerRef} className="timeline-container">
-            <div className="timeline-top-bar">
-              <div className="timeline-track-tag">
-                <span>Main</span>
-                {project ? <small>{project.words.length} words</small> : null}
-              </div>
-              <div className="timeline-zoom-controls">
-                <button
-                  type="button"
-                  className="icon-button tiny"
-                  aria-label="Zoom out"
-                  title="Zoom out timeline (-)"
-                  disabled={!project || timelineZoom <= 1}
-                  onClick={() => setTimelineZoom(z => Math.max(1, Number((z - 0.5).toFixed(1))))}
-                >
-                  <ZoomOut size={13} />
-                </button>
-                <span className="timeline-zoom-level">{Math.round(timelineZoom * 100)}%</span>
-                <button
-                  type="button"
-                  className="icon-button tiny"
-                  aria-label="Zoom in"
-                  title="Zoom in timeline (+)"
-                  disabled={!project || timelineZoom >= 6}
-                  onClick={() => setTimelineZoom(z => Math.min(6, Number((z + 0.5).toFixed(1))))}
-                >
-                  <ZoomIn size={13} />
-                </button>
-                {timelineZoom > 1 && (
-                  <button
-                    type="button"
-                    className="icon-button tiny"
-                    aria-label="Reset zoom"
-                    title="Reset zoom to 100%"
-                    onClick={() => setTimelineZoom(1)}
-                  >
-                    <RotateCcw size={12} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div
-              ref={timelineViewportRef}
-              className="timeline-viewport"
-            >
-              <div
-                ref={timelineTrackRef}
-                className="timeline-track-content"
-                style={{
-                  width: `${timelineZoom * 100}%`,
-                  minWidth: '100%',
-                }}
-                onMouseDown={(e) => {
-                  setIsScrubbing(true);
-                  handleTimelineTrackClick(e);
-                }}
-              >
-                {/* 1. Dynamic Ruler with Ticks & Timecode Numbers */}
-                <div className="timeline-ruler">
-                  {rulerTicks.map((tick, i) => (
-                    <div
-                      key={i}
-                      className={`timeline-ruler-tick ${tick.isMajor ? 'major' : 'minor'}`}
-                      style={{ left: `${duration ? (tick.time / duration) * 100 : 0}%` }}
-                    >
-                      {tick.isMajor && <span className="tick-label">{tick.label}</span>}
-                      <span className="tick-line" />
-                    </div>
-                  ))}
-                </div>
-
-                {/* 2. Waveform track (integrated sleek audio wave) */}
-                {project?.waveform?.length ? (
-                  <div className="timeline-waveform" aria-hidden="true">
-                    {project.waveform.map((v, i) => (
-                      <i
-                        key={i}
-                        style={{
-                          height: `${Math.max(12, v * 100)}%`,
-                          opacity: i / project.waveform!.length <= (duration ? time / duration : 0) ? 0.7 : 0.22,
-                        }}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-
-                {/* 3. Word Chips Row (exact word placement and text) */}
-                <div className="timeline-words-lane">
-                  {project && words.map((w) => {
-                    const isCurrentWord = time >= w.start && time < w.end;
-                    const leftPct = duration ? (w.start / duration) * 100 : 0;
-                    const widthPct = duration ? Math.max(0.4, ((w.end - w.start) / duration) * 100) : 0;
-
-                    return (
-                      <button
-                        key={w.id}
-                        type="button"
-                        className={`timeline-word-chip ${isCurrentWord ? 'is-active' : ''} ${w.emphasis ? 'is-emphasized' : ''}`}
-                        style={{
-                          left: `${leftPct}%`,
-                          width: `${widthPct}%`,
-                        }}
-                        title={`${w.text} (${timecode(w.start)} - ${timecode(w.end)}) · Click to edit`}
-                        onClick={(e) => handleTimelineWordClick(e, w)}
-                      >
-                        <span className="timeline-word-text">{w.text}</span>
-                        {w.emphasis && <span className="timeline-word-star">★</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* 4. Sentence / Group Indicator Bars directly beneath the words */}
-                <div className="timeline-groups-lane">
-                  {project && groups.map((g) => {
-                    const gStart = g[0].start;
-                    const gEnd = g.at(-1)!.end;
-                    const isCurrentGroup = time >= gStart && time <= gEnd;
-                    const leftPct = duration ? (gStart / duration) * 100 : 0;
-                    const widthPct = duration ? Math.max(0.5, ((gEnd - gStart) / duration) * 100) : 0;
-
-                    return (
-                      <div
-                        key={g[0].id}
-                        className={`timeline-group-bar ${isCurrentGroup ? 'is-active' : ''}`}
-                        style={{
-                          left: `${leftPct}%`,
-                          width: `${widthPct}%`,
-                        }}
-                        title={`Caption line: ${g.map(w => w.text).join(' ')}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          seek(gStart);
-                        }}
-                      />
-                    );
-                  })}
-                </div>
-
-                {/* 5. Vertical Red Playhead Line */}
-                {project && duration > 0 ? (
-                  <div
-                    className="timeline-playhead"
-                    style={{ left: `${(time / duration) * 100}%` }}
-                  >
-                    <div className="playhead-needle" />
-                    <div className="playhead-line" />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-          <div className="preview-foot"><span><span className="keyboard-key">space</span> play / pause</span><span>{project?`${project.words.length} words · 30 fps export`:''}</span></div>
-        </section>
-
-        <section className="style-panel panel">
           <div className="panel-tabs">
             <button className={rightTab === 'templates' ? 'active' : ''} onClick={() => setRightTab('templates')}>
-              <Layers size={16} /> Templates
+              <Layers size={15} /> Templates
             </button>
             <button className={rightTab === 'customize' ? 'active' : ''} onClick={() => setRightTab('customize')}>
-              <Settings2 size={16} /> Caption Settings
+              <Settings2 size={15} /> Caption Settings
             </button>
           </div>
           <div className="style-content">
@@ -1517,8 +1797,464 @@ function App() {
             )}
             <div className="tip-card">
               <div className="tip-icon"><Star size={17} /></div>
-              <strong>Word-by-word spotlight</strong>
-              <p>Star any word in the Lyrics Editor to highlight it with the accent color. The entire sentence stays visible while words come alive.</p>
+              <strong>Timeline word editor</strong>
+              <p>Click any word on the bottom timeline to open its editor, adjust duration dividers, and feature keywords with vibrant spotlighting.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="preview-panel">
+          <div className="preview-toolbar"><div><span className="section-label">PREVIEW</span></div>{project&&<div className="preview-tools">{hasVideoLayer&&!busy&&<button className={`media-toggle ${videoEnabled?'':'removed'}`} aria-pressed={videoEnabled} aria-label={videoEnabled?'Remove video layer':'Restore video layer'} onClick={()=>setVideoEnabled(!videoEnabled)}>{videoEnabled?<Trash2 size={13}/>:<RotateCcw size={13}/>}<span>{videoEnabled?'Remove video':'Restore video'}</span></button>}<select aria-label="Video aspect ratio" value={settings.aspect} onChange={e=>updateSettings({aspect:e.target.value as Settings['aspect']})} disabled={busy}><option value="original">Original</option><option value="9:16">9:16 · Reel</option><option value="1:1">1:1 · Square</option><option value="16:9">16:9 · Landscape</option></select><button className="icon-button tiny" aria-label="Fullscreen preview" onClick={()=>void preview.current?.requestFullscreen().catch(()=>notify('Fullscreen is unavailable in this browser.'))}><Maximize2 size={15}/></button></div>}</div>
+          <div
+            className={`preview-stage ${isDraggingOver ? 'stage-dragging-over' : ''}`}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {!project ? (
+              <div
+                className={`media-upload-dropzone ${isDraggingOver ? 'is-dragging' : ''}`}
+                onClick={() => input.current?.click()}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    input.current?.click();
+                  }
+                }}
+                aria-label="Drag your media or click to upload"
+              >
+                <div className="upload-dropzone-inner">
+                  <div className="upload-icon-circle">
+                    {uploadProgress !== null ? (
+                      <LoaderCircle size={30} className="spin text-accent" />
+                    ) : (
+                      <UploadCloud size={28} color="#09090b" />
+                    )}
+                  </div>
+                  <div className="upload-dropzone-text">
+                    <h3 className="upload-dropzone-title">
+                      {uploadProgress !== null
+                        ? `Uploading media… ${uploadProgress}%`
+                        : 'Drag your media or click to upload'}
+                    </h3>
+                    <p className="upload-dropzone-desc">
+                      {uploadProgress !== null
+                        ? 'Syncing audio waveform and transcribing speech…'
+                        : 'Supports MP4, MOV, WebM, MP3, WAV, M4A up to 1 GB'}
+                    </p>
+                  </div>
+                  {uploadProgress !== null ? (
+                    <div className="upload-progress-container">
+                      <div className="upload-progress-bar" style={{ width: `${uploadProgress}%` }} />
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="upload-main-btn"
+                        onClick={e => {
+                          e.stopPropagation();
+                          input.current?.click();
+                        }}
+                      >
+                        <Upload size={16} />
+                        <span>Upload media</span>
+                        <ChevronDown size={15} />
+                      </button>
+
+
+                      <div className="upload-divider">
+                        <span className="upload-divider-line" />
+                        <span className="upload-divider-text">Or try a sample</span>
+                        <span className="upload-divider-line" />
+                      </div>
+
+                      <div className="upload-samples-grid">
+                        {SAMPLE_ITEMS.map((sample, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            className="upload-sample-card"
+                            title={`Load sample: ${sample.title}`}
+                            onClick={e => {
+                              e.stopPropagation();
+                              loadSample(idx);
+                            }}
+                          >
+                            <img src={sample.thumbnail} alt={sample.title} className="upload-sample-img" />
+                            <span className="upload-sample-duration">{sample.duration}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div
+                ref={preview}
+                className={`video-frame ${hasVideoLayer && !videoEnabled ? 'video-removed' : ''}`}
+                style={{ aspectRatio: `${size.width}/${size.height}` }}
+              >
+                <video
+                  ref={media}
+                  className={project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''}
+                  key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}`}
+                  src={busy ? undefined : `${API}/api/projects/${project.id}/media`}
+                  playsInline
+                  preload="metadata"
+                  muted={muted}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onEnded={() => setPlaying(false)}
+                  onSeeked={() => setTime(media.current?.currentTime ?? 0)}
+                  onError={() => notify('The preview could not load. The file may still be processing.')}
+                />
+                {project.mediaType === 'audio' && (
+                  <div className="audio-backdrop">
+                    <AudioLines size={48} />
+                    <span>AUDIO PROJECT</span>
+                  </div>
+                )}
+                <canvas ref={canvas} width={size.width} height={size.height} aria-label="Animated caption preview" />
+                {busy && (
+                  <div className="preview-processing">
+                    <LoaderCircle size={18} className="spin" />
+                    Captions are on their way
+                  </div>
+                )}
+                {isDraggingOver && (
+                  <div className="stage-drag-overlay">
+                    <UploadCloud size={36} />
+                    <span>Drop to import media</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Clean White Timeline matching Image 2 */}
+          <div ref={timelineContainerRef} className="timeline-container clean-white">
+            {/* Top Control Bar */}
+            <div className="timeline-top-bar">
+              {/* Left: Timecode Display */}
+              <div className="timeline-time-display">
+                <span className="time-current">{timecode(time)}</span>
+                <span className="time-sep">/</span>
+                <span className="time-total">{timecode(duration)}</span>
+              </div>
+
+              {/* Center: Transport Controls (< ▶ >) */}
+              <div className="timeline-transport">
+                <button
+                  type="button"
+                  className="icon-button tiny transport-nav"
+                  aria-label="Back three seconds"
+                  onClick={() => seek(time - 3)}
+                  disabled={!project}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  className="timeline-play-btn"
+                  aria-label={playing ? 'Pause' : 'Play'}
+                  onClick={togglePlay}
+                  disabled={!project}
+                >
+                  {playing ? (
+                    <Pause size={17} fill="#ffffff" color="#ffffff" />
+                  ) : (
+                    <Play size={17} fill="#ffffff" color="#ffffff" style={{ marginLeft: 2 }} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button tiny transport-nav"
+                  aria-label="Forward three seconds"
+                  onClick={() => seek(time + 3)}
+                  disabled={!project}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+
+              {/* Right: Tools (Split, Zoom Slider, Search, Fullscreen) */}
+              <div className="timeline-actions">
+                <button
+                  type="button"
+                  className="timeline-action-btn"
+                  aria-label="Split caption line"
+                  title="Split caption line (Cmd+B)"
+                  onClick={handleSplitAtCurrent}
+                  disabled={!project}
+                >
+                  <Scissors size={14} />
+                  <span>Split</span>
+                </button>
+
+                <div className="timeline-zoom-slider-wrap">
+                  <button
+                    type="button"
+                    className="icon-button tiny"
+                    aria-label="Zoom out"
+                    disabled={!project || timelineZoom <= 1}
+                    onClick={() => setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2))))}
+                  >
+                    <Minus size={13} />
+                  </button>
+                  <input
+                    type="range"
+                    min={1}
+                    max={32}
+                    step={0.5}
+                    aria-label="Timeline zoom"
+                    value={timelineZoom}
+                    disabled={!project}
+                    onChange={e => setTimelineZoom(Number(e.target.value))}
+                    className="timeline-zoom-slider"
+                  />
+                  <button
+                    type="button"
+                    className="icon-button tiny"
+                    aria-label="Zoom in"
+                    disabled={!project || timelineZoom >= 32}
+                    onClick={() => setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2))))}
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className={`icon-button tiny ${showSearchBar ? 'active' : ''}`}
+                  aria-label="Search and replace"
+                  title="Find & Replace"
+                  onClick={() => setShowSearchBar(s => !s)}
+                  disabled={!project}
+                >
+                  <Search size={15} />
+                </button>
+
+                <button
+                  type="button"
+                  className="icon-button tiny"
+                  aria-label="Fullscreen preview"
+                  title="Fullscreen preview"
+                  onClick={() => void preview.current?.requestFullscreen().catch(() => notify('Fullscreen is unavailable.'))}
+                  disabled={!project}
+                >
+                  <Maximize2 size={15} />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewport with Waveform & Clean White Caption Cards */}
+            <div ref={timelineViewportRef} className="timeline-viewport">
+              <div
+                ref={timelineTrackRef}
+                className="timeline-track-content"
+                style={{
+                  width: `${timelineZoom * 100}%`,
+                  minWidth: '100%',
+                }}
+                onMouseDown={(e) => {
+                  setIsScrubbing(true);
+                  handleTimelineTrackClick(e);
+                }}
+              >
+                {/* 1. Light Dynamic Ruler */}
+                <div className="timeline-ruler">
+                  {rulerTicks.map((tick, i) => (
+                    <div
+                      key={i}
+                      className={`timeline-ruler-tick ${tick.isMajor ? 'major' : 'minor'}`}
+                      style={{ left: `${duration ? (tick.time / duration) * 100 : 0}%` }}
+                    >
+                      {tick.isMajor && <span className="tick-label">{tick.label}</span>}
+                      <span className="tick-line" />
+                    </div>
+                  ))}
+                </div>
+
+                {/* 2. Waveform track with green progress bars */}
+                {project?.waveform?.length ? (
+                  <div className="timeline-waveform" aria-hidden="true">
+                    {project.waveform.map((v, i) => {
+                      const isPlayed = i / project.waveform!.length <= (duration ? time / duration : 0);
+                      return (
+                        <i
+                          key={i}
+                          className={isPlayed ? 'is-played' : ''}
+                          style={{
+                            height: `${Math.max(14, v * 100)}%`,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                {/* 3. Clean White Caption Cards Lane */}
+                <div className="timeline-groups-lane">
+                  {project && duration > 0 && groups.map((g, gIdx) => {
+                    const gStart = g[0].start;
+                    const gEnd = g.at(-1)!.end;
+                    const isCurrentGroup = time >= gStart && time <= gEnd;
+                    const gDur = Math.max(0.04, gEnd - gStart);
+                    const leftPct = (gStart / duration) * 100;
+                    const widthPct = (gDur / duration) * 100;
+
+                    return (
+                      <div
+                        key={g[0].id || gIdx}
+                        className={`timeline-group-container white-card ${isCurrentGroup ? 'is-active' : ''}`}
+                        style={{
+                          left: `${leftPct}%`,
+                          width: `calc(${widthPct}% - 2px)`,
+                        }}
+                        title={`Caption line: "${g.map(w => w.text).join(' ')}"`}
+                      >
+                        {/* Group Left Trim Bracket */}
+                        <div
+                          className="timeline-group-bracket left"
+                          title="Drag to adjust sentence start"
+                          onMouseDown={(e) => startGroupTrim(e, g, 'left')}
+                        />
+
+                        {/* Words inside this sentence card */}
+                        <div className="timeline-group-words">
+                          {g.map((w, wIdx) => {
+                            const isCurrentWord = time >= w.start && time < w.end;
+                            const wDur = Math.max(0.01, w.end - w.start);
+                            const wLeftPct = ((w.start - gStart) / gDur) * 100;
+                            const wWidthPct = (wDur / gDur) * 100;
+                            const isWordSelected = selectedWordIds.has(w.id);
+
+                            return (
+                              <React.Fragment key={w.id}>
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  className={`timeline-word-cell white-cell ${isWordSelected ? 'is-selected' : ''} ${isCurrentWord ? 'is-active' : ''} ${w.spotlight ? 'is-spotlight' : (w.emphasis ? 'is-emphasized' : '')}`}
+                                  style={{
+                                    left: `${wLeftPct}%`,
+                                    width: `calc(${wWidthPct}% - 1px)`,
+                                  }}
+                                  title={`${w.text} (${timecode(w.start)} - ${timecode(w.end)})`}
+                                  onMouseDown={(e) => startWordDrag(e, w)}
+                                  onContextMenu={(e) => handleWordContextMenu(e, w)}
+                                >
+                                  {/* Left trim handle */}
+                                  <div
+                                    className="timeline-word-edge-handle left"
+                                    title="Trim word start"
+                                    onMouseDown={(e) => startWordHandleDrag(e, w, 'left')}
+                                  />
+
+                                  <span className="timeline-word-cell-text">{w.text}</span>
+                                  {w.spotlight ? (
+                                    <span className="timeline-word-spotlight-badge" title="Spotlight Hero Keyword">⚡</span>
+                                  ) : w.emphasis ? (
+                                    <span className="timeline-word-star" title="Emphasized Keyword">★</span>
+                                  ) : null}
+
+                                  {/* Right trim handle */}
+                                  <div
+                                    className="timeline-word-edge-handle right"
+                                    title="Trim word end"
+                                    onMouseDown={(e) => startWordHandleDrag(e, w, 'right')}
+                                  />
+                                </div>
+
+                                {/* Divider handle */}
+                                {wIdx < g.length - 1 && (
+                                  <div
+                                    className="timeline-word-divider"
+                                    style={{
+                                      left: `${((g[wIdx].end - gStart) / gDur) * 100}%`,
+                                    }}
+                                    title={`Drag boundary`}
+                                    onMouseDown={(e) => startWordDividerDrag(e, w, g[wIdx + 1])}
+                                  >
+                                    <span className="divider-line" />
+                                  </div>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </div>
+
+                        {/* Bottom Drag Strip */}
+                        <div
+                          className="timeline-group-drag-strip"
+                          title="Drag sentence to move"
+                          onMouseDown={(e) => startGroupDrag(e, g)}
+                        >
+                          <span className="drag-dots">············································</span>
+                        </div>
+
+                        {/* Group Right Trim Bracket */}
+                        <div
+                          className="timeline-group-bracket right"
+                          title="Drag to adjust sentence end"
+                          onMouseDown={(e) => startGroupTrim(e, g, 'right')}
+                        />
+                      </div>
+                    );
+                  })}
+
+                  {/* "+ Add" button at end of line track */}
+                  {project && duration > 0 && (() => {
+                    const lastW = project.words.length > 0 ? project.words[project.words.length - 1] : null;
+                    const addLeftPct = lastW ? (lastW.end / duration) * 100 : 0;
+                    return (
+                      <button
+                        type="button"
+                        className="timeline-add-line-btn"
+                        style={{ left: `calc(${addLeftPct}% + 10px)` }}
+                        title="Add caption"
+                        onClick={handleAddWord}
+                      >
+                        <Plus size={14} />
+                        <span>Add</span>
+                      </button>
+                    );
+                  })()}
+                </div>
+
+                {/* 4. Playhead with Green Line & Triangle Marker */}
+                {project && duration > 0 ? (
+                  <div
+                    className="timeline-playhead green-playhead"
+                    style={{ left: `${(time / duration) * 100}%` }}
+                  >
+                    <div className="playhead-marker" />
+                    <div className="playhead-line" />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Bottom Shortcut Footer */}
+            <div className="timeline-footer-strip">
+              <div className="timeline-shortcut-item">
+                <kbd>space</kbd>
+                <span>play / pause</span>
+              </div>
+              <div className="timeline-shortcut-right">
+                <div className="timeline-shortcut-item">
+                  <kbd>↑ ↓</kbd>
+                  <span>Zoom timeline</span>
+                </div>
+                <div className="timeline-shortcut-item">
+                  <kbd>cmd + B</kbd>
+                  <span>Split</span>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1544,7 +2280,7 @@ function App() {
     </div>
 
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
-    {uploadProgress!==null&&project&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading new file… {uploadProgress}%</div>}
+    {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
     {modal==='projects'&&<Modal title="Your workspace" onClose={()=>setModal(null)}><p className="modal-description">Projects are saved on this computer, ready whenever you are.</p><button className="button primary full" onClick={()=>{setModal(null);input.current?.click();}}><Plus size={16}/>New upload</button><div className="project-list">{projects.length?projects.map(p=><button key={p.id} onClick={()=>void openProject(p)}><span className="project-list-icon">{p.mediaType==='audio'?<FileAudio size={21}/>:<Film size={21}/>}</span><span><strong>{p.name}</strong><small>{timecode(p.duration)} · {p.status==='ready'?`${p.words?.length??0} words`:p.status}</small></span><ChevronRight size={17}/></button>):<div className="empty-projects"><FolderOpen size={32}/><p>Your first story is one upload away.</p></div>}</div></Modal>}
     {modal==='export'&&<Modal title="Ready for the spotlight?" onClose={()=>setModal(null)}><p className="modal-description">Your captions, animated exactly as you see them.</p><div className="export-options"><button className={exportMode==='burned'?'selected':''} onClick={()=>setExportMode('burned')}><MonitorPlay size={25}/><strong>{project?.mediaType==='audio'?'Caption video':'Captioned video'}</strong><span>MP4 with your audio</span>{exportMode==='burned'&&<Check size={15}/>}</button><button className={exportMode==='green'?'selected':''} onClick={()=>setExportMode('green')}><Layers size={25}/><strong>Green screen</strong><span>Silent MP4 for your editor</span>{exportMode==='green'&&<Check size={15}/>}</button></div><label className="export-resolution">Resolution<select value={resolution} onChange={e=>setResolution(Number(e.target.value))}><option value="720">720p · Faster export</option><option value="1080">1080p · Full HD</option></select></label><div className="export-detail"><span>H.264 · 30 fps</span><span>{project?`${dimensions(settings,project.width,project.height,resolution).width} × ${dimensions(settings,project.width,project.height,resolution).height}`:''}</span><span>No watermark</span></div>{exportMode==='green'&&<p className="export-note">Key out pure green (#00FF00) in Premiere, After Effects, or your editor. Pick a non-green highlight for a cleaner key.</p>}
       {hasExportRunning?<div className="export-progress"><div><LoaderCircle size={16} className="spin"/><span>{latestExport?.message||'Rendering your captions…'}</span><strong>{latestExport?.progress??0}%</strong></div><progress value={latestExport?.progress??0} max={100}/></div>:<button className="button primary full" onClick={()=>void startExport()} disabled={exporting||!project?.words.length}>{exporting?<LoaderCircle size={17} className="spin"/>:<Download size={17}/>}Export {exportMode==='green'?'green screen':'video'}</button>}
@@ -1657,6 +2393,8 @@ function App() {
       </Modal>
     )}
 
+
+
     {wordMenu && (
       <>
         <div
@@ -1670,29 +2408,60 @@ function App() {
             left: `${wordMenu.position.left}px`,
           }}
         >
+          <div className="word-menu-header">
+            {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+              ? `${selectedWordIds.size} words selected`
+              : `"${wordMenu.word.text}"`}
+          </div>
+
           <button
             type="button"
-            className={`word-menu-item ${wordMenu.word.emphasis ? 'active' : ''}`}
+            className={`word-menu-item ${
+              selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                ? (Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.emphasis) ? 'active' : '')
+                : (wordMenu.word.emphasis ? 'active' : '')
+            }`}
             onClick={() => {
-              updateWord(wordMenu.word.id, { emphasis: !wordMenu.word.emphasis });
+              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
+                const allEmphasized = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.emphasis);
+                const next = !allEmphasized;
+                updateWords(selectedWordIds, { emphasis: next, spotlight: false });
+              } else {
+                const next = !wordMenu.word.emphasis;
+                updateWord(wordMenu.word.id, { emphasis: next, spotlight: false });
+              }
               setWordMenu(null);
             }}
           >
             <div className="word-menu-item-icon">
-              <Zap size={18} fill={wordMenu.word.emphasis ? 'currentColor' : 'none'} />
+              <Zap size={18} fill={(selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id) ? Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.emphasis) : wordMenu.word.emphasis) ? 'currentColor' : 'none'} />
             </div>
             <div className="word-menu-item-content">
               <span className="word-menu-item-title">Emphasize</span>
-              <span className="word-menu-item-desc">Make this word stand out</span>
+              <span className="word-menu-item-desc">
+                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                  ? `Toggle star on ${selectedWordIds.size} words`
+                  : 'Make this word stand out'}
+              </span>
             </div>
           </button>
 
           <button
             type="button"
-            className={`word-menu-item ${wordMenu.word.spotlight ? 'active' : ''}`}
+            className={`word-menu-item ${
+              selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                ? (Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight) ? 'active' : '')
+                : (wordMenu.word.spotlight ? 'active' : '')
+            }`}
             onClick={() => {
-              const next = !wordMenu.word.spotlight;
-              updateWord(wordMenu.word.id, { spotlight: next, emphasis: next || wordMenu.word.emphasis });
+              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
+                const allSpotlight = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight);
+                const next = !allSpotlight;
+                updateWords(selectedWordIds, { spotlight: next, emphasis: false });
+              } else {
+                const next = !wordMenu.word.spotlight;
+                updateWord(wordMenu.word.id, { spotlight: next, emphasis: false });
+              }
               setWordMenu(null);
             }}
           >
@@ -1701,15 +2470,28 @@ function App() {
             </div>
             <div className="word-menu-item-content">
               <span className="word-menu-item-title">Spotlight</span>
-              <span className="word-menu-item-desc">Feature for maximum impact</span>
+              <span className="word-menu-item-desc">
+                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                  ? `Feature ${selectedWordIds.size} words in spotlight`
+                  : 'Feature for maximum impact'}
+              </span>
             </div>
           </button>
 
           <button
             type="button"
-            className={`word-menu-item ${wordMenu.word.behind ? 'active' : ''}`}
+            className={`word-menu-item ${
+              selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                ? (Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.behind) ? 'active' : '')
+                : (wordMenu.word.behind ? 'active' : '')
+            }`}
             onClick={() => {
-              updateWord(wordMenu.word.id, { behind: !wordMenu.word.behind });
+              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
+                const allBehind = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.behind);
+                updateWords(selectedWordIds, { behind: !allBehind });
+              } else {
+                updateWord(wordMenu.word.id, { behind: !wordMenu.word.behind });
+              }
               setWordMenu(null);
             }}
           >
@@ -1718,52 +2500,73 @@ function App() {
             </div>
             <div className="word-menu-item-content">
               <span className="word-menu-item-title">Send Behind</span>
-              <span className="word-menu-item-desc">Move this word behind the subject</span>
+              <span className="word-menu-item-desc">
+                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                  ? `Send ${selectedWordIds.size} words behind subject`
+                  : 'Move this word behind the subject'}
+              </span>
             </div>
           </button>
 
           <hr className="word-menu-divider" />
 
-          <button
-            type="button"
-            className="word-menu-item"
-            onClick={() => {
-              setEditingWordId(wordMenu.word.id);
-              setEditingText(wordMenu.word.text);
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Pencil size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Edit</span>
-              <span className="word-menu-item-desc">Modify the text</span>
-            </div>
-          </button>
+          {(!selectedWordIds.has(wordMenu.word.id) || selectedWordIds.size <= 1) && (
+            <>
+              <button
+                type="button"
+                className="word-menu-item"
+                onClick={() => {
+                  setEditingWordId(wordMenu.word.id);
+                  setEditingText(wordMenu.word.text);
+                  setWordMenu(null);
+                }}
+              >
+                <div className="word-menu-item-icon">
+                  <Pencil size={18} />
+                </div>
+                <div className="word-menu-item-content">
+                  <span className="word-menu-item-title">Edit</span>
+                  <span className="word-menu-item-desc">Modify the text</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                className="word-menu-item"
+                onClick={() => {
+                  handleSplitLine(wordMenu.word.id);
+                  setWordMenu(null);
+                }}
+              >
+                <div className="word-menu-item-icon">
+                  <Split size={18} />
+                </div>
+                <div className="word-menu-item-content">
+                  <span className="word-menu-item-title">Split</span>
+                  <span className="word-menu-item-desc">Split caption here</span>
+                </div>
+              </button>
+            </>
+          )}
 
           <button
             type="button"
             className="word-menu-item"
             onClick={() => {
-              handleSplitLine(wordMenu.word.id);
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Split size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Split</span>
-              <span className="word-menu-item-desc">Split caption here</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="word-menu-item"
-            onClick={() => {
-              handleMoveToPreviousLine(wordMenu.word.id);
+              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
+                const p = projectRef.current;
+                if (p) {
+                  const sorted = p.words.filter(w => selectedWordIds.has(w.id));
+                  let cur = p.words;
+                  for (const w of sorted) {
+                    cur = moveWordToPreviousLine(cur, w.id, settings.wordsPerLine);
+                  }
+                  markEdit({ ...p, words: cur });
+                  notify(`Moved ${sorted.length} words to previous line.`);
+                }
+              } else {
+                handleMoveToPreviousLine(wordMenu.word.id);
+              }
               setWordMenu(null);
             }}
           >
@@ -1780,7 +2583,20 @@ function App() {
             type="button"
             className="word-menu-item"
             onClick={() => {
-              handleMoveToNextLine(wordMenu.word.id);
+              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
+                const p = projectRef.current;
+                if (p) {
+                  const sorted = p.words.filter(w => selectedWordIds.has(w.id)).reverse();
+                  let cur = p.words;
+                  for (const w of sorted) {
+                    cur = moveWordToNextLine(cur, w.id);
+                  }
+                  markEdit({ ...p, words: cur });
+                  notify(`Moved ${sorted.length} words to next line.`);
+                }
+              } else {
+                handleMoveToNextLine(wordMenu.word.id);
+              }
               setWordMenu(null);
             }}
           >
@@ -1821,7 +2637,11 @@ function App() {
             type="button"
             className="word-menu-item danger"
             onClick={() => {
-              handleDeleteWord(wordMenu.word.id);
+              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
+                handleDeleteWords(selectedWordIds);
+              } else {
+                handleDeleteWord(wordMenu.word.id);
+              }
               setWordMenu(null);
             }}
           >
@@ -1830,7 +2650,11 @@ function App() {
             </div>
             <div className="word-menu-item-content">
               <span className="word-menu-item-title">Delete</span>
-              <span className="word-menu-item-desc">Remove this word</span>
+              <span className="word-menu-item-desc">
+                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
+                  ? `Remove ${selectedWordIds.size} words`
+                  : 'Remove this word'}
+              </span>
             </div>
           </button>
         </div>
@@ -1840,7 +2664,7 @@ function App() {
       <>
         <div
           className="timeline-popover-backdrop"
-          onClick={() => setTimelinePopover(null)}
+          onClick={saveTimelineWordEdit}
         />
         <div
           className="timeline-word-popover"
@@ -1848,34 +2672,38 @@ function App() {
         >
           <div className="popover-header">
             <span className="popover-title">Highlight</span>
-            <div className="popover-style-group">
-              <select
-                aria-label="Highlight style"
-                className="popover-style-select"
-                value={timelinePopover.spotlight ? 'spotlight' : timelinePopover.emphasis ? 'emphasis' : 'default'}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === 'default') {
-                    setTimelinePopover(p => p ? { ...p, emphasis: false, spotlight: false } : null);
-                  } else if (val === 'emphasis') {
-                    setTimelinePopover(p => p ? { ...p, emphasis: true, spotlight: false } : null);
-                  } else if (val === 'spotlight') {
-                    setTimelinePopover(p => p ? { ...p, emphasis: true, spotlight: true } : null);
-                  }
-                }}
-              >
-                <option value="default">Default</option>
-                <option value="emphasis">Emphasize</option>
-                <option value="spotlight">Spotlight</option>
-              </select>
+            <div className="popover-style-group" role="group" aria-label="Highlight style">
               <button
                 type="button"
-                className={`popover-palette-btn ${timelinePopover.emphasis ? 'active' : ''}`}
-                title="Toggle Highlight / Emphasis"
-                aria-label="Toggle highlight"
-                onClick={() => setTimelinePopover(p => p ? { ...p, emphasis: !p.emphasis } : null)}
+                className={`popover-icon-btn btn-emphasize ${timelinePopover.emphasis && !timelinePopover.spotlight ? 'active' : ''}`}
+                title="Emphasize"
+                aria-label="Emphasize"
+                aria-pressed={timelinePopover.emphasis && !timelinePopover.spotlight}
+                onClick={() => setWordHighlight('emphasize')}
               >
-                <Palette size={14} />
+                <Star size={14} fill={timelinePopover.emphasis && !timelinePopover.spotlight ? 'currentColor' : 'none'} />
+              </button>
+
+              <button
+                type="button"
+                className={`popover-icon-btn btn-spotlight ${timelinePopover.spotlight ? 'active' : ''}`}
+                title="Spotlight"
+                aria-label="Spotlight"
+                aria-pressed={timelinePopover.spotlight}
+                onClick={() => setWordHighlight('spotlight')}
+              >
+                <Sparkles size={14} />
+              </button>
+
+              <button
+                type="button"
+                className={`popover-icon-btn btn-clear ${!timelinePopover.emphasis && !timelinePopover.spotlight ? 'active' : ''}`}
+                title="Clear"
+                aria-label="Clear highlight"
+                aria-pressed={!timelinePopover.emphasis && !timelinePopover.spotlight}
+                onClick={() => setWordHighlight('clear')}
+              >
+                <Ban size={14} />
               </button>
             </div>
           </div>

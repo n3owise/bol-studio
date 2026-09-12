@@ -75,26 +75,51 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
   const scriptTemplate = settings.template === 'editorial' || settings.template === 'soft-focus' || settings.template === 'glow-script' || settings.template === 'mumbai';
   const uppercaseTemplate = settings.template === 'welcome-stack' || settings.template === 'double-trouble' || settings.template === 'mumbai';
 
-  const emphasisCount = group.filter(w => w.emphasis).length;
-  const isStackLockup = settings.template === 'welcome-stack' || (emphasisCount >= 1 && emphasisCount <= 2 && settings.template !== 'kinetic');
+  const spotlightWordsList = group.filter(w => w.spotlight);
+  const emphasisWordsList = group.filter(w => w.emphasis);
+  const spotlightCount = spotlightWordsList.length;
+  const emphasisCount = emphasisWordsList.length;
+  const isStackLockup = settings.template === 'welcome-stack';
 
   if (isStackLockup) {
-    let heroIdx = group.findIndex(w => w.emphasis);
-    if (heroIdx === -1) {
+    let heroWords: Word[] = [];
+    let prefixWords: Word[] = [];
+    let suffixWords: Word[] = [];
+
+    const spotlightIndices = group.map((w, i) => (w.spotlight ? i : -1)).filter(i => i !== -1);
+    const emphasisIndices = group.map((w, i) => (w.emphasis ? i : -1)).filter(i => i !== -1);
+
+    const primaryIndices = spotlightIndices.length > 0 ? spotlightIndices : emphasisIndices;
+
+    if (primaryIndices.length > 0) {
+      // Check if primary indices form a contiguous sequence
+      const isContiguous = primaryIndices[primaryIndices.length - 1] - primaryIndices[0] === primaryIndices.length - 1;
+      if (isContiguous) {
+        const startIdx = primaryIndices[0];
+        const endIdx = primaryIndices[primaryIndices.length - 1];
+        heroWords = group.slice(startIdx, endIdx + 1);
+        prefixWords = group.slice(0, startIdx);
+        suffixWords = group.slice(endIdx + 1);
+      } else {
+        // Non-contiguous: center hero is the first primary word, remaining primary words retain styling in prefix/suffix
+        const heroIdx = primaryIndices[0];
+        heroWords = [group[heroIdx]];
+        prefixWords = group.slice(0, heroIdx);
+        suffixWords = group.slice(heroIdx + 1);
+      }
+    } else {
       let maxScore = -1;
       let best = Math.floor((group.length - 1) / 2);
       for (let i = 0; i < group.length; i++) {
         const s = group[i].emphasisScore ?? 0;
         if (s > maxScore) { maxScore = s; best = i; }
       }
-      heroIdx = best;
+      heroWords = [group[best]];
+      prefixWords = group.slice(0, best);
+      suffixWords = group.slice(best + 1);
     }
 
-    const heroWord = group[heroIdx];
-    const prefixWords = group.slice(0, heroIdx);
-    const suffixWords = group.slice(heroIdx + 1);
-
-    const heroScale = 1.85;
+    const heroScale = heroWords.length > 1 ? 1.55 : 1.85;
     const subScale = 0.88;
     const heroSize = base * heroScale;
     const subSize = base * subScale;
@@ -102,30 +127,45 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
     const heroFont = font(heroSize, 'sans', false, 900);
     const subFont = font(subSize, 'sans', false, 700);
 
-    const heroText = (settings.uppercase || heroWord.emphasis) ? heroWord.text.toUpperCase() : heroWord.text;
-    ctx.font = heroFont;
-    const heroWidth = ctx.measureText(heroText).width;
-
     ctx.font = subFont;
     const spaceWidth = ctx.measureText(' ').width;
 
+    ctx.font = heroFont;
+    const heroSpaceWidth = ctx.measureText(' ').width;
+
+    const heroItems = heroWords.map(w => {
+      const text = (settings.uppercase || w.emphasis || w.spotlight) ? w.text.toUpperCase() : w.text;
+      const wWidth = ctx.measureText(text).width;
+      return { w, text, width: wWidth, centerX: 0 };
+    });
+    const heroTotalWidth = heroItems.reduce((acc, it) => acc + it.width, 0) + Math.max(0, heroItems.length - 1) * heroSpaceWidth;
+
+    ctx.font = subFont;
     const prefixItems = prefixWords.map(w => {
-      const text = settings.uppercase ? w.text.toUpperCase() : w.text;
+      const text = (settings.uppercase || w.emphasis || w.spotlight) ? w.text.toUpperCase() : w.text;
+      ctx.font = (w.spotlight || w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
       const wWidth = ctx.measureText(text).width;
       return { w, text, width: wWidth, centerX: 0 };
     });
     const prefixTotalWidth = prefixItems.reduce((acc, it) => acc + it.width, 0) + Math.max(0, prefixItems.length - 1) * spaceWidth;
 
     const suffixItems = suffixWords.map(w => {
-      const text = settings.uppercase ? w.text.toUpperCase() : w.text;
+      const text = (settings.uppercase || w.emphasis || w.spotlight) ? w.text.toUpperCase() : w.text;
+      ctx.font = (w.spotlight || w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
       const wWidth = ctx.measureText(text).width;
       return { w, text, width: wWidth, centerX: 0 };
     });
     const suffixTotalWidth = suffixItems.reduce((acc, it) => acc + it.width, 0) + Math.max(0, suffixItems.length - 1) * spaceWidth;
 
     const heroCenterX = width / 2;
-    const heroLeftX = heroCenterX - heroWidth / 2;
-    const heroRightX = heroCenterX + heroWidth / 2;
+    const heroLeftX = heroCenterX - heroTotalWidth / 2;
+    const heroRightX = heroCenterX + heroTotalWidth / 2;
+
+    let hCurrX = heroLeftX;
+    for (const item of heroItems) {
+      item.centerX = hCurrX + item.width / 2;
+      hCurrX += item.width + heroSpaceWidth;
+    }
 
     let currX = heroLeftX;
     for (const item of prefixItems) {
@@ -164,7 +204,7 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
     ctx.scale(fitScale, fitScale);
     ctx.translate(-heroCenterX, -centerY);
 
-    // Draw prefix words (top-left aligned, white)
+    // Draw prefix words (top-left aligned)
     for (const item of prefixItems) {
       const pHasStarted = settings.motion === 0 || time >= item.w.start;
       const pLocal = Math.max(0, time - item.w.start);
@@ -176,42 +216,58 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
       ctx.translate(item.centerX, yPrefix);
       ctx.scale(pPop, pPop);
       ctx.globalAlpha = pAlpha;
-      ctx.font = subFont;
+      ctx.font = (item.w.spotlight || item.w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       ctx.strokeStyle = '#000000dd';
       ctx.lineWidth = subSize * 0.08;
       if (pAlpha > 0) ctx.strokeText(item.text, 0, 0);
-      ctx.fillStyle = '#ffffff';
+
+      if (item.w.spotlight) {
+        ctx.shadowColor = pAlpha > 0 ? settings.accent : 'transparent';
+        ctx.shadowBlur = pAlpha > 0 ? subSize * 0.65 : 0;
+        ctx.fillStyle = settings.accent;
+      } else if (item.w.emphasis) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = settings.accent;
+      } else {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+      }
       ctx.fillText(item.text, 0, 0);
       ctx.restore();
     }
 
-    // Draw hero word (centered, big, colorful with radiant ambient glow)
-    {
-      const hasStarted = settings.motion === 0 || time >= heroWord.start;
-      const local = Math.max(0, time - heroWord.start);
+    // Draw hero word(s) (centered, big, colorful with radiant ambient glow)
+    for (const item of heroItems) {
+      const hasStarted = settings.motion === 0 || time >= item.w.start;
+      const local = Math.max(0, time - item.w.start);
       const entry = settings.motion === 0 ? 1 : Math.min(1, local / 0.16);
       const popScale = settings.motion === 0 ? 1 : 0.85 + 0.15 * easeOutBack(entry);
       const alpha = hasStarted ? (settings.motion === 0 ? 1 : Math.min(1, entry * 2.5)) : 0;
 
       ctx.save();
-      ctx.translate(heroCenterX, yHero);
+      ctx.translate(item.centerX, yHero);
       ctx.scale(popScale, popScale);
       ctx.globalAlpha = alpha;
       ctx.font = heroFont;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      ctx.shadowColor = alpha > 0 ? settings.accent : 'transparent';
-      ctx.shadowBlur = alpha > 0 ? heroSize * 0.65 : 0;
-      ctx.fillStyle = settings.accent;
-      ctx.fillText(heroText, 0, 0);
+      const isActualSpotlight = !!item.w.spotlight;
+      const isActualEmphasis = !!item.w.emphasis;
+      const isHighlighted = isActualSpotlight || isActualEmphasis;
+      ctx.shadowColor = alpha > 0 ? (isActualSpotlight ? settings.accent : 'rgba(0, 0, 0, 0.4)') : 'transparent';
+      ctx.shadowBlur = alpha > 0 ? (isActualSpotlight ? heroSize * 0.65 : heroSize * 0.12) : 0;
+      ctx.fillStyle = isHighlighted ? settings.accent : '#ffffff';
+      ctx.fillText(item.text, 0, 0);
       ctx.restore();
     }
 
-    // Draw suffix words (bottom-right aligned, white)
+    // Draw suffix words (bottom-right aligned)
     for (const item of suffixItems) {
       const sHasStarted = settings.motion === 0 || time >= item.w.start;
       const sLocal = Math.max(0, time - item.w.start);
@@ -223,14 +279,27 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
       ctx.translate(item.centerX, ySuffix);
       ctx.scale(sPop, sPop);
       ctx.globalAlpha = sAlpha;
-      ctx.font = subFont;
+      ctx.font = (item.w.spotlight || item.w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       ctx.strokeStyle = '#000000dd';
       ctx.lineWidth = subSize * 0.08;
       if (sAlpha > 0) ctx.strokeText(item.text, 0, 0);
-      ctx.fillStyle = '#ffffff';
+
+      if (item.w.spotlight) {
+        ctx.shadowColor = sAlpha > 0 ? settings.accent : 'transparent';
+        ctx.shadowBlur = sAlpha > 0 ? subSize * 0.65 : 0;
+        ctx.fillStyle = settings.accent;
+      } else if (item.w.emphasis) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = settings.accent;
+      } else {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+      }
       ctx.fillText(item.text, 0, 0);
       ctx.restore();
     }
@@ -239,16 +308,17 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
     return;
   }
   const itemFont = (w: Word, size: number) => {
-    if ((settings.template === 'editorial' || settings.template === 'soft-focus') && w.emphasis) return font(size * 1.05, 'serif', true, 400);
-    if ((settings.template === 'glow-script' || settings.template === 'mumbai') && w.emphasis) return font(size * 1.08, 'serif', true, 400);
+    const isSpecial = w.emphasis || w.spotlight;
+    if ((settings.template === 'editorial' || settings.template === 'soft-focus') && isSpecial) return font(size * 1.05, 'serif', true, 400);
+    if ((settings.template === 'glow-script' || settings.template === 'mumbai') && isSpecial) return font(size * 1.08, 'serif', true, 400);
     if (settings.template === 'double-trouble') return font(size * .96, 'condensed', true, 700);
-    if (settings.template === 'welcome-stack') return font(size, 'sans', false, w.emphasis ? 800 : 600);
-    return font(size, scriptTemplate && w.emphasis ? 'serif' : 'sans', scriptTemplate && w.emphasis, w.emphasis ? 800 : 700);
+    if (settings.template === 'welcome-stack') return font(size, 'sans', false, isSpecial ? 800 : 600);
+    return font(size, scriptTemplate && isSpecial ? 'serif' : 'sans', scriptTemplate && isSpecial, isSpecial ? 800 : 700);
   };
   const data = group.map((w, i) => {
-    const text = (settings.uppercase || (uppercaseTemplate && !w.emphasis)) ? w.text.toLocaleUpperCase() : w.text;
+    const text = (settings.uppercase || (uppercaseTemplate && !w.emphasis && !w.spotlight)) ? w.text.toLocaleUpperCase() : w.text;
     const emphasisScale = settings.template === 'welcome-stack' ? 1.36 : settings.template === 'editing-school' ? 1.32 : settings.template === 'pop-up' ? 1.34 : 1.29;
-    const size = base * (w.emphasis ? emphasisScale : settings.template === 'welcome-stack' ? .82 : 1);
+    const size = base * ((w.emphasis || w.spotlight) ? emphasisScale : settings.template === 'welcome-stack' ? .82 : 1);
     ctx.font = itemFont(w, size);
     return { w, text, size, width: ctx.measureText(text).width, active: i === activeIndex };
   });
@@ -298,13 +368,14 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
       ctx.scale(fit*animationScale*(settings.motion ? .86 + .14 * wordEntry : 1), fit*animationScale*(settings.motion ? .86 + .14 * wordEntry : 1));
       if (settings.template === 'bounce' && active && settings.motion) ctx.translate(0, -Math.sin(Math.min(1,local/.25)*Math.PI)*base*.18);
       if (settings.template === 'kinetic' && settings.motion) ctx.scale(.82+.18*ease, .82+.18*ease);
-      if (settings.template === 'pop-up' && w.emphasis && settings.motion) ctx.rotate(Math.sin(local * 11) * .025);
+      if (settings.template === 'pop-up' && (w.emphasis || w.spotlight) && settings.motion) ctx.rotate(Math.sin(local * 11) * .025);
+      if (w.spotlight && settings.motion) ctx.scale(1.08, 1.08);
       ctx.font = itemFont(w, size); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
       const accent = settings.accent;
       const isBoxed = (settings.template === 'karaoke' && active)
         || (settings.template === 'bounce' && active)
-        || (settings.template === 'bubble-highlight' && (active || w.emphasis))
-        || (settings.template === 'editing-school' && (active || w.emphasis));
+        || (settings.template === 'bubble-highlight' && (active || w.emphasis || w.spotlight))
+        || (settings.template === 'editing-school' && (active || w.emphasis || w.spotlight));
 
       if (isBoxed) {
         ctx.fillStyle = accent;
@@ -319,20 +390,21 @@ export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, heigh
         ctx.fillStyle = getContrastColor(accent);
         ctx.fillText(text, 0, 0);
       } else {
-        if (settings.template === 'double-trouble' && w.emphasis) {
+        if (settings.template === 'double-trouble' && (w.emphasis || w.spotlight)) {
           ctx.strokeStyle = accent; ctx.lineWidth = base * .08; ctx.beginPath(); ctx.ellipse(0, 0, item.width / 2 + base * .28, size * .72, -.08, 0, Math.PI * 2); ctx.stroke();
         }
         const shadow = settings.template === 'kalakar-shadow' ? accent : '#000000cc';
-        ctx.shadowColor = shadow; ctx.shadowBlur = settings.template === 'glow-script' || settings.template === 'neon' || settings.template === 'soft-focus' ? base * .42 : base * .14;
+        ctx.shadowColor = w.spotlight ? accent : shadow;
+        ctx.shadowBlur = w.spotlight ? base * 0.45 : (settings.template === 'glow-script' || settings.template === 'neon' || settings.template === 'soft-focus' ? base * .42 : base * .14);
         ctx.shadowOffsetY = settings.template === 'kalakar-shadow' ? base * .14 : base * .055;
         const noStroke = settings.template === 'editorial' || settings.template === 'soft-focus' || settings.template === 'glow-script' || settings.template === 'mumbai';
-        ctx.strokeStyle = settings.template === 'pop-up' && w.emphasis ? '#101511' : '#111318';
+        ctx.strokeStyle = settings.template === 'pop-up' && (w.emphasis || w.spotlight) ? '#101511' : '#111318';
         ctx.lineWidth = noStroke ? 0 : base * .08;
         if (ctx.lineWidth > 0) ctx.strokeText(text, 0, 0);
-        if (settings.template === 'kalakar-shadow' && w.emphasis) {
+        if (settings.template === 'kalakar-shadow' && (w.emphasis || w.spotlight)) {
           ctx.save(); ctx.shadowColor = '#000000ee'; ctx.shadowBlur = base * .1; ctx.shadowOffsetY = base * .11; ctx.fillStyle = accent; ctx.fillText(text, 0, 0); ctx.restore();
         }
-        const highlight = active || w.emphasis;
+        const highlight = active || w.emphasis || w.spotlight;
         ctx.fillStyle = highlight ? (settings.template === 'soft-focus' ? '#ffffff' : accent) : '#ffffff';
         ctx.fillText(text, 0, 0);
         if ((settings.template === 'editorial' || settings.template === 'soft-focus') && active) {
@@ -368,6 +440,21 @@ export function ensureValidIntervals(words: Word[], duration: number): void {
       words[i].end = Number(Math.min(nextStart - 0.002, words[i].start + 0.25).toFixed(3));
       if (words[i].end <= words[i].start) {
         words[i].end = Number((words[i].start + 0.03).toFixed(3));
+      }
+    }
+  }
+
+  // Clip duration upper boundary constraint (server validates: end <= duration + .0001)
+  if (words.length > 0 && duration > 0) {
+    const lastIdx = words.length - 1;
+    if (words[lastIdx].end > duration) {
+      const overflow = Number((words[lastIdx].end - duration).toFixed(3));
+      for (let i = words.length - 1; i >= 0; i--) {
+        words[i].end = Number(Math.max(0.04, words[i].end - overflow).toFixed(3));
+        words[i].start = Number(Math.max(0, words[i].start - overflow).toFixed(3));
+        if (i < words.length - 1 && words[i].end > words[i + 1].start) {
+          words[i].end = Number((words[i + 1].start - 0.002).toFixed(3));
+        }
       }
     }
   }
@@ -571,6 +658,190 @@ export function moveWordToNextLine(words: Word[], wordId: string): Word[] {
   return newWords;
 }
 
+function moveSingleWordToLine(
+  words: Word[],
+  wordId: string,
+  targetGroupIdx: number,
+  targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' },
+  maxWordsPerLine = 5
+): Word[] {
+  const sourceWord = words.find(w => w.id === wordId);
+  if (!sourceWord) return words;
+
+  const groups = groupWords(words, maxWordsPerLine);
+  const sourceGroupIdx = groups.findIndex(g => g.some(w => w.id === wordId));
+  if (sourceGroupIdx === -1) return words;
+  if (targetGroupIdx < 0 || targetGroupIdx >= groups.length) return words;
+
+  const targetGroup = groups[targetGroupIdx];
+  if (!targetGroup.length) return words;
+
+  if (typeof targetPosition === 'object' && targetPosition.targetWordId === wordId) {
+    return words;
+  }
+
+  const newWords = words.map(w => ({ ...w }));
+  const sourceIdx = newWords.findIndex(w => w.id === wordId);
+  const movingWord = { ...newWords[sourceIdx] };
+
+  let refWordId: string;
+  let insertBefore = false;
+
+  if (typeof targetPosition === 'object') {
+    refWordId = targetPosition.targetWordId;
+    insertBefore = targetPosition.insert === 'before';
+  } else if (targetPosition === 'start') {
+    refWordId = targetGroup[0].id;
+    insertBefore = true;
+  } else {
+    refWordId = targetGroup[targetGroup.length - 1].id;
+    insertBefore = false;
+  }
+
+  if (refWordId === wordId) return words;
+
+  const sourceGroupWords = groups[sourceGroupIdx];
+  const sourceWordIdxInGroup = sourceGroupWords.findIndex(w => w.id === wordId);
+
+  newWords.splice(sourceIdx, 1);
+
+  if (sourceWordIdxInGroup === sourceGroupWords.length - 1 && sourceGroupWords.length > 1) {
+    const priorWordId = sourceGroupWords[sourceGroupWords.length - 2].id;
+    const priorWordIdx = newWords.findIndex(w => w.id === priorWordId);
+    if (priorWordIdx !== -1) {
+      const clean = newWords[priorWordIdx].text.trim();
+      if (!/[.!?।]$/.test(clean)) {
+        newWords[priorWordIdx].text = `${clean}.`;
+      }
+    }
+  }
+
+  const refIdx = newWords.findIndex(w => w.id === refWordId);
+  if (refIdx === -1) return words;
+
+  const insertIdx = insertBefore ? refIdx : refIdx + 1;
+  newWords.splice(insertIdx, 0, movingWord);
+
+  const prevWord = insertIdx > 0 ? newWords[insertIdx - 1] : null;
+  const nextWord = insertIdx < newWords.length - 1 ? newWords[insertIdx + 1] : null;
+
+  const dur = Math.max(0.08, Number((movingWord.end - movingWord.start).toFixed(3)));
+
+  const alreadyBetween = (!prevWord || movingWord.start >= prevWord.end) &&
+                         (!nextWord || movingWord.end <= nextWord.start);
+
+  if (alreadyBetween) {
+    // Word was already in this slot in speech: preserve its natural timestamps
+    if (prevWord && targetGroup.some(w => w.id === prevWord.id)) {
+      const gap = movingWord.start - prevWord.end;
+      if (gap > 0.18) {
+        const shift = gap - 0.08;
+        movingWord.start = Number((movingWord.start - shift).toFixed(3));
+        movingWord.end = Number((movingWord.end - shift).toFixed(3));
+      }
+    } else if (nextWord && targetGroup.some(w => w.id === nextWord.id)) {
+      const gap = nextWord.start - movingWord.end;
+      if (gap > 0.18) {
+        const shift = gap - 0.08;
+        movingWord.start = Number((movingWord.start + shift).toFixed(3));
+        movingWord.end = Number((movingWord.end + shift).toFixed(3));
+      }
+    }
+  } else {
+    // Word moved from elsewhere: fit it locally between prevWord and nextWord
+    const minStart = prevWord ? Number((prevWord.end + 0.01).toFixed(3)) : 0;
+    const maxEnd = nextWord ? Number((nextWord.start - 0.01).toFixed(3)) : (minStart + dur);
+
+    if (maxEnd >= minStart + 0.04) {
+      if (insertBefore) {
+        movingWord.end = maxEnd;
+        movingWord.start = Number(Math.max(minStart, movingWord.end - dur).toFixed(3));
+      } else {
+        movingWord.start = minStart;
+        movingWord.end = Number(Math.min(maxEnd, movingWord.start + dur).toFixed(3));
+      }
+    } else {
+      movingWord.start = minStart;
+      movingWord.end = Number((minStart + Math.max(0.04, dur * 0.5)).toFixed(3));
+      // Only nudge words in the immediate target group if needed
+      if (nextWord && nextWord.start < movingWord.end + 0.01) {
+        const shift = Number((movingWord.end + 0.01 - nextWord.start).toFixed(3));
+        for (let j = insertIdx + 1; j < newWords.length; j++) {
+          if (!targetGroup.some(tw => tw.id === newWords[j].id)) break;
+          newWords[j].start = Number((newWords[j].start + shift).toFixed(3));
+          newWords[j].end = Number((newWords[j].end + shift).toFixed(3));
+        }
+      }
+    }
+  }
+
+  // Ensure all intervals in newWords strictly satisfy start < end and non-overlapping
+  ensureValidIntervals(newWords, 9999);
+
+  if (prevWord) {
+    const isPrevInTarget = targetGroup.some(w => w.id === prevWord.id);
+    if (isPrevInTarget) {
+      prevWord.text = prevWord.text.replace(/[.!?।]+$/, '');
+    }
+  }
+
+  const isAtEndOfTargetLine = !nextWord || !targetGroup.some(w => w.id === nextWord.id);
+  if (isAtEndOfTargetLine) {
+    if (nextWord) {
+      const clean = movingWord.text.trim();
+      if (!/[.!?।]$/.test(clean)) {
+        movingWord.text = `${clean}.`;
+      }
+    }
+  } else {
+    movingWord.text = movingWord.text.replace(/[.!?।]+$/, '');
+  }
+
+  return newWords;
+}
+
+export function moveWordsToLine(
+  words: Word[],
+  wordIds: string[],
+  targetGroupIdx: number,
+  targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' },
+  maxWordsPerLine = 5
+): Word[] {
+  const movingWords = words.filter(w => wordIds.includes(w.id));
+  if (!movingWords.length) return words;
+
+  if (movingWords.length === 1) {
+    return moveSingleWordToLine(words, movingWords[0].id, targetGroupIdx, targetPosition, maxWordsPerLine);
+  }
+
+  // If targetPosition targets one of the moving words, abort
+  if (typeof targetPosition === 'object' && wordIds.includes(targetPosition.targetWordId)) {
+    return words;
+  }
+
+  let currentWords = [...words];
+  let currentTargetPos = targetPosition;
+
+  for (let i = 0; i < movingWords.length; i++) {
+    const wId = movingWords[i].id;
+    currentWords = moveSingleWordToLine(currentWords, wId, targetGroupIdx, currentTargetPos, maxWordsPerLine);
+    currentTargetPos = { targetWordId: wId, insert: 'after' };
+  }
+
+  ensureValidIntervals(currentWords, 9999);
+  return currentWords;
+}
+
+export function moveWordToLine(
+  words: Word[],
+  wordId: string,
+  targetGroupIdx: number,
+  targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' },
+  maxWordsPerLine = 5
+): Word[] {
+  return moveWordsToLine(words, [wordId], targetGroupIdx, targetPosition, maxWordsPerLine);
+}
+
 export function replaceAllOccurrences(words: Word[], findText: string, replaceText: string, caseSensitive = false): Word[] {
   const query = findText.trim();
   if (!query) return words;
@@ -592,4 +863,95 @@ export function replaceAllOccurrences(words: Word[], findText: string, replaceTe
     return w;
   });
 }
+
+export const STOP_WORDS = new Set([
+  'ke', 'ki', 'ka', 'ko', 'se', 'mein', 'par', 'pe', 'ne', 'aur', 'ya', 'bhi', 'hi', 'to', 'toh',
+  'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'is', 'are', 'was',
+  'were', 'it', 'this', 'that', 'these', 'those', 'am', 'be', 'been', 'being', 'have', 'has', 'had',
+  'do', 'does', 'did', 'but', 'if', 'then', 'else', 'when', 'up', 'down', 'out', 'off', 'over', 'under',
+  'ye', 'yeh', 'woh', 'kuch', 'kar', 'raha', 'rahi', 'rahe', 'karna', 'karne'
+]);
+
+export const HOOK_WORDS = new Set([
+  'step', 'rule', 'secret', 'trick', 'hack', 'point', 'formula', 'part', 'tip', 'lesson', 'method',
+  'best', 'worst', 'free', 'viral', 'huge', 'biggest', 'never', 'always', 'stop', 'wait',
+  'easy', 'fast', 'simple', 'crazy', 'insane', 'magic', 'important', 'great', 'bold',
+  'sabse', 'bada', 'badi', 'bade', 'asli', 'kamaal', 'bawal', 'sach', 'pakka', 'bilkul',
+  'shandaar', 'shaandaar', 'dhyaan', 'zaruri', 'zaroori', 'sahi', 'khatarnak', 'ekdam',
+  'power', 'super', 'money', 'crore', 'lakh', 'success', 'growth', 'master', 'hero'
+]);
+
+/**
+ * Automatically detects and synchronizes Spotlight (⚡ hero word) and Emphasize (★ power words)
+ * across caption groups so the video lyrics display and bottom timeline track match 100%.
+ */
+export function autoDetectHighlights(words: Word[], wordsPerLine = 4): Word[] {
+  if (!words || words.length === 0) return [];
+  const groups = groupWords(words, wordsPerLine);
+
+  return groups.flatMap(group => {
+    if (group.length === 0) return [];
+
+    // If this group already has explicit spotlight keywords set by the user, preserve them cleanly
+    const hasExistingSpotlight = group.some(w => w.spotlight);
+    if (hasExistingSpotlight) {
+      return group.map(w => ({
+        ...w,
+        spotlight: !!w.spotlight,
+        emphasis: !w.spotlight && !!w.emphasis,
+      }));
+    }
+
+    // Score words to select the primary Spotlight hero word for this line
+    let bestScore = -Infinity;
+    let bestIndex = -1;
+
+    group.forEach((w, idx) => {
+      const clean = w.text.replace(/\W/g, '').toLowerCase();
+      const hasNumber = /\d/.test(w.text);
+      const isHook = HOOK_WORDS.has(clean) || hasNumber;
+      const isStop = STOP_WORDS.has(clean);
+
+      let score = w.emphasisScore ?? 0.5;
+      if (w.emphasis) score += 0.35;
+      if (isHook) score += 0.45;
+      if (clean.length >= 4) score += 0.1;
+      if (isStop) score -= 0.65;
+
+      // Slight preference for content words away from very end punctuation
+      const centerDist = Math.abs(idx - (group.length - 1) / 2);
+      score -= centerDist * 0.05;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = idx;
+      }
+    });
+
+    if (bestIndex === -1) {
+      bestIndex = Math.floor((group.length - 1) / 2);
+    }
+
+    return group.map((w, idx) => {
+      if (idx === bestIndex) {
+        return {
+          ...w,
+          spotlight: true,
+          emphasis: false,
+        };
+      }
+      const clean = w.text.replace(/\W/g, '').toLowerCase();
+      const hasNumber = /\d/.test(w.text);
+      const isHook = HOOK_WORDS.has(clean) || hasNumber;
+      const isStop = STOP_WORDS.has(clean);
+      const isSecondaryEmphasis = !isStop && (w.emphasis || (w.emphasisScore ?? 0) >= 0.72 || isHook);
+      return {
+        ...w,
+        spotlight: false,
+        emphasis: isSecondaryEmphasis,
+      };
+    });
+  });
+}
+
 

@@ -343,6 +343,39 @@ def suggest_emphasis(words: list[dict], audio: np.ndarray, rate: int) -> None:
         score = 1 / (1 + math.exp(-float(1.7 * energy_signal + .8 * pitch_signal + .35 * duration_signal + 1.8 * lexical_signal)))
         word["emphasisScore"] = round(score, 3)
         word["emphasis"] = bool(len(words) >= 3 and rms > .003 and ((score >= .73 and not is_stop) or (is_hook and score >= .62)))
+        word["spotlight"] = False
+
+    # Group words into caption line chunks (pauses >= 0.22s or max 5 words)
+    # and designate the primary hero keyword in each line as spotlight
+    current_group: list[dict] = []
+    groups: list[list[dict]] = []
+    for w in words:
+        prev = current_group[-1] if current_group else None
+        if prev and (len(current_group) >= 5 or w["start"] - prev["end"] > 0.22 or re.search(r"[.!?।]$", str(prev.get("text", "")))):
+            groups.append(current_group)
+            current_group = []
+        current_group.append(w)
+    if current_group:
+        groups.append(current_group)
+
+    for grp in groups:
+        if not grp:
+            continue
+        best_candidate = None
+        best_score = -1.0
+        for w in grp:
+            clean_text = re.sub(r"\W", "", str(w.get("text", ""))).lower()
+            if clean_text in STOP_PARTICLES:
+                continue
+            s = float(w.get("emphasisScore", 0.5))
+            if w.get("emphasis"):
+                s += 0.3
+            if s > best_score:
+                best_score = s
+                best_candidate = w
+        if best_candidate is not None and (best_score >= 0.65 or best_candidate.get("emphasis")):
+            best_candidate["spotlight"] = True
+            best_candidate["emphasis"] = True
 
 
 def normalize_words(segments: list[dict], duration: float, script: str) -> list[dict]:
@@ -369,7 +402,7 @@ def normalize_words(segments: list[dict], duration: float, script: str) -> list[
             word = {"id": f"w{len(words)+1}", "original": original,
                     "text": romanize_hinglish(original) if script == "roman" else original,
                     "start": start, "end": end, "confidence": round(min(1, max(0, confidence)), 3),
-                    "emphasis": False, "emphasisScore": .5,
+                    "emphasis": False, "spotlight": False, "behind": False, "emphasisScore": .5,
                     "confidenceApproximate": bool(raw.get("confidenceApproximate", False)),
                     "timingApproximate": abs(start-raw_start) > .005 or abs(end-raw_end) > .005 or len(original.split()) > 1}
             words.append(word)

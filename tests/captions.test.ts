@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
 import {
-  appendWord, dimensions, drawCaptions, ensureValidIntervals, getContrastColor,
-  groupWords, insertWord, mergeLines, moveWordToNextLine, moveWordToPreviousLine,
+  appendWord, autoDetectHighlights, dimensions, drawCaptions, ensureValidIntervals, getContrastColor,
+  groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
   replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
 import { defaults, type Word } from '../src/lib/types.ts';
@@ -293,6 +293,54 @@ test('moveWordToPreviousLine shifts boundary so word joins previous line', () =>
   assert.deepEqual(groups[1].map(w => w.text), ['again']);
 });
 
+test('moveWordToLine drags and drops words onto any line changing caption groups accordingly', () => {
+  // Scenario matching user:
+  // Line 0: ['lag', 'jaate.']
+  // Line 1: ['the.']
+  // Line 2: ['Let', 'me', 'show', 'you.']
+  const words = [
+    word('lag', 10.0, 10.3),
+    word('jaate.', 10.35, 10.6),
+    word('the.', 10.65, 10.9),
+    word('Let', 11.0, 11.2),
+    word('me', 11.25, 11.4),
+    word('show', 11.45, 11.6),
+    word('you.', 11.65, 11.9),
+  ];
+
+  const initialGroups = groupWords(words, 5);
+  assert.equal(initialGroups.length, 3);
+  assert.deepEqual(initialGroups[0].map(w => w.text), ['lag', 'jaate.']);
+  assert.deepEqual(initialGroups[1].map(w => w.text), ['the.']);
+
+  // Drag 'the.' onto Line 0 at the end
+  const res1 = moveWordToLine(words, words[2].id, 0, 'end', 5);
+  const groups1 = groupWords(res1, 5);
+  assert.equal(groups1.length, 2);
+  assert.deepEqual(groups1[0].map(w => w.text), ['lag', 'jaate', 'the.']);
+  assert.deepEqual(groups1[1].map(w => w.text), ['Let', 'me', 'show', 'you.']);
+
+  // Drag 'you.' from Line 1 to Line 0 at start
+  const res2 = moveWordToLine(res1, res1.find(w => w.text.startsWith('you'))!.id, 0, 'start', 5);
+  const groups2 = groupWords(res2, 5);
+  assert.deepEqual(groups2[0].map(w => w.text), ['you', 'lag', 'jaate', 'the.']);
+
+  // Drag 'show' from Line 1 to between 'lag' and 'jaate' in Line 0
+  const showWord = res2.find(w => w.text.startsWith('show'))!;
+  const jaateWord = res2.find(w => w.text.startsWith('jaate'))!;
+  const res3 = moveWordToLine(res2, showWord.id, 0, { targetWordId: jaateWord.id, insert: 'before' }, 6);
+  const groups3 = groupWords(res3, 6);
+  assert.deepEqual(groups3[0].map(w => w.text), ['you', 'lag', 'show', 'jaate', 'the.']);
+
+  // Verify that words in later lines (e.g. Line 1 'Let', 'me') preserve their audio alignment
+  const letWord = res3.find(w => w.text.startsWith('Let'))!;
+  const meWord = res3.find(w => w.text.startsWith('me'))!;
+  assert.equal(letWord.start, 11.0);
+  assert.equal(letWord.end, 11.2);
+  assert.equal(meWord.start, 11.25);
+  assert.equal(meWord.end, 11.4);
+});
+
 test('replaceAllOccurrences replaces text while preserving trailing punctuation and timing', () => {
   const words = [
     word('Hello,', 0, 0.3),
@@ -384,5 +432,146 @@ test('3-tier lockup places hero in center, prefix on top-left, suffix on bottom-
   assert.ok(fMein.y > fEng.y, "Suffix 'mein' is below 'ENGLISH'");
   assert.ok(fYe.y > fEng.y, "Suffix 'ye' is below 'ENGLISH'");
 });
+
+test('multiple words in spotlight in a caption line are both rendered with accent color and glow', () => {
+  registerRenderFonts();
+  const width = 720, height = 1280;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  const words: Word[] = [
+    { id: 'w1', text: 'Yeh', original: 'Yeh', start: 0.1, end: 0.4, confidence: 1, emphasis: false, emphasisScore: 0.2 },
+    { id: 'w2', text: 'dil', original: 'dil', start: 0.4, end: 0.8, confidence: 1, emphasis: true, emphasisScore: 0.9, spotlight: true },
+    { id: 'w3', text: 'ki', original: 'ki', start: 0.8, end: 1.2, confidence: 1, emphasis: true, emphasisScore: 0.85, spotlight: true },
+    { id: 'w4', text: 'baat.', original: 'baat.', start: 1.2, end: 1.6, confidence: 1, emphasis: false, emphasisScore: 0.2 },
+  ];
+
+  const fills: { text: string; fill: string; shadow: string }[] = [];
+  const origFillText = ctx.fillText.bind(ctx);
+  ctx.fillText = (text, x, y, maxWidth) => {
+    fills.push({
+      text: String(text),
+      fill: String(ctx.fillStyle),
+      shadow: String(ctx.shadowColor),
+    });
+    origFillText(text, x, y, maxWidth);
+  };
+
+  // 1. In welcome-stack template: both spotlight words should be rendered with accent color and glow
+  drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words, {
+    ...defaults,
+    template: 'welcome-stack',
+    accent: '#ff0077',
+    motion: 0,
+  }, 1.4);
+
+  const dilDraw = fills.find(f => f.text === 'DIL');
+  const kiDraw = fills.find(f => f.text === 'KI');
+  const yehDraw = fills.find(f => f.text === 'Yeh');
+  const baatDraw = fills.find(f => f.text === 'baat.');
+
+  assert.ok(dilDraw, 'DIL was rendered');
+  assert.ok(kiDraw, 'KI was rendered');
+  assert.equal(dilDraw.fill, '#ff0077', 'First spotlight word has accent color');
+  assert.equal(kiDraw.fill, '#ff0077', 'Second spotlight word has accent color (not forced to white)');
+  assert.equal(dilDraw.shadow, '#ff0077', 'First spotlight word has accent shadow glow');
+  assert.equal(kiDraw.shadow, '#ff0077', 'Second spotlight word has accent shadow glow');
+
+  assert.equal(yehDraw?.fill, '#ffffff', 'Non-spotlight prefix word is white');
+  assert.equal(baatDraw?.fill, '#ffffff', 'Non-spotlight suffix word is white');
+
+  // 2. In non-stack template (e.g. sukoon / default)
+  fills.length = 0;
+  drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words, {
+    ...defaults,
+    template: 'minimal',
+    accent: '#00e5ff',
+    motion: 0,
+  }, 1.4);
+
+  const dilMin = fills.find(f => f.text === 'dil');
+  const kiMin = fills.find(f => f.text === 'ki');
+  assert.ok(dilMin && kiMin, 'Both words rendered in minimal template');
+  assert.equal(dilMin.fill, '#00e5ff', 'First spotlight word has accent in minimal template');
+  assert.equal(kiMin.fill, '#00e5ff', 'Second spotlight word has accent in minimal template');
+});
+
+test('moveWordsToLine moves multiple selected words preserving order and valid intervals', () => {
+  const words: Word[] = [
+    { id: 'w1', text: 'Ek', original: 'Ek', start: 0.1, end: 0.4, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w2', text: 'do', original: 'do', start: 0.4, end: 0.7, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w3', text: 'teen.', original: 'teen.', start: 0.7, end: 1.0, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w4', text: 'Chaar', original: 'Chaar', start: 1.2, end: 1.5, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w5', text: 'paanch.', original: 'paanch.', start: 1.5, end: 1.8, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+  ];
+
+  // Move ['w1', 'w2'] ("Ek", "do") to the end of line 2 (targetGroupIdx = 1)
+  const moved = moveWordsToLine(words, ['w1', 'w2'], 1, 'end', 6);
+
+  // Grouping should show: line 1 has "teen.", line 2 has "Chaar paanch Ek do"
+  const groups = groupWords(moved, 6);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups[0].map(w => w.text), ['teen.']);
+  assert.deepEqual(groups[1].map(w => w.text), ['Chaar', 'paanch', 'Ek', 'do']);
+
+  // Timestamps must be strictly non-overlapping
+  for (let i = 0; i < moved.length - 1; i++) {
+    assert.ok(moved[i].start < moved[i].end, `Word ${moved[i].id} start < end`);
+    assert.ok(moved[i].end <= moved[i + 1].start, `Word ${moved[i].id} end <= next start`);
+  }
+});
+
+test('autoDetectHighlights assigns spotlight to hero keyword and aligns with timeline', () => {
+  const words: Word[] = [
+    { id: 'w1', text: 'Yeh', original: 'Yeh', start: 0.0, end: 0.3, confidence: 1, emphasis: false, emphasisScore: 0.4 },
+    { id: 'w2', text: 'Step', original: 'Step', start: 0.3, end: 0.6, confidence: 1, emphasis: false, emphasisScore: 0.6 },
+    { id: 'w3', text: '1', original: '1', start: 0.6, end: 0.9, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w4', text: 'hai.', original: 'hai.', start: 0.9, end: 1.2, confidence: 1, emphasis: false, emphasisScore: 0.3 },
+  ];
+
+  const highlighted = autoDetectHighlights(words, 4);
+  assert.equal(highlighted.length, 4);
+
+  // Hook word "Step" should be detected as hero spotlight keyword
+  const stepWord = highlighted.find(w => w.text === 'Step');
+  assert.ok(stepWord, 'Step word exists');
+  assert.equal(stepWord.spotlight, true, 'Hero hook keyword Step is marked with spotlight');
+  assert.equal(stepWord.emphasis, false, 'Hero keyword spotlight does not collide with emphasis');
+
+  // Secondary hook "1" should be marked as emphasis
+  const oneWord = highlighted.find(w => w.text === '1');
+  assert.ok(oneWord, '1 word exists');
+  assert.equal(oneWord.emphasis, true, 'Secondary keyword is marked with emphasis');
+  assert.equal(oneWord.spotlight, false, 'Secondary keyword is not spotlight');
+
+  // Stop particle "Yeh" is neither spotlight nor emphasized
+  const yehWord = highlighted.find(w => w.text === 'Yeh');
+  assert.ok(yehWord, 'Yeh word exists');
+  assert.equal(yehWord.spotlight, false, 'Stop particle is not spotlight');
+  assert.equal(yehWord.emphasis, false, 'Stop particle is not emphasized');
+
+  // Verify that rendering welcome-stack matches: Step word has accent color
+  const canvas = createCanvas(720, 1280);
+  const ctx = canvas.getContext('2d');
+  const fills: { text: string; fill: string }[] = [];
+  const origFillText = ctx.fillText.bind(ctx);
+  ctx.fillText = (text, x, y, maxWidth) => {
+    fills.push({ text: String(text), fill: String(ctx.fillStyle) });
+    origFillText(text, x, y, maxWidth);
+  };
+
+  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, highlighted, {
+    ...defaults,
+    template: 'welcome-stack',
+    accent: '#2ee368',
+    motion: 0,
+  }, 0.5);
+
+  const heroRender = fills.find(f => f.text === 'STEP');
+  assert.ok(heroRender, 'Hero word STEP was rendered');
+  assert.equal(heroRender.fill, '#2ee368', 'Hero word on canvas has accent color matching timeline spotlight');
+});
+
+
 
 
