@@ -17,6 +17,20 @@ export const PAGE_GAP = 0.22;
 export const MIN_PAGE_SECONDS = 0.9;
 /** How long a page lingers after its last word, before the next page starts. */
 export const PAGE_HOLD_SECONDS = 0.12;
+/** A word has to reach this to be promoted on its own merits. */
+export const HERO_THRESHOLD = 0.55;
+
+export type PageOptions = {
+  /**
+   * Whether a page must always promote a word.
+   *
+   * Stacked and single-word lockups are built around one big word, so they
+   * promote the best candidate even on a flat line — leaving the hero row empty
+   * would collapse the design. Row layouts promote only when a word earns it;
+   * forcing one there meant every caption had something shouting in it.
+   */
+  alwaysPromote?: boolean;
+};
 
 export type CaptionPage = {
   id: string;
@@ -114,7 +128,7 @@ export function isSecondaryEmphasis(word: Word): boolean {
  * With no spotlight, the auto pick is kept off both ends of a page of three or
  * more: the three-tier lockup needs words above *and* below its hero.
  */
-function pickHeroes(words: Word[]): number[] {
+function pickHeroes(words: Word[], alwaysPromote: boolean): number[] {
   if (!words.length) return [];
   const explicit = words.flatMap((w, i) => (w.spotlight ? [i] : []));
   if (explicit.length) return explicit;
@@ -125,7 +139,12 @@ function pickHeroes(words: Word[]): number[] {
     const score = scoreOf(word);
     if (score > best) { best = score; index = i; }
   });
-  if (index === -1) index = Math.floor(words.length / 2);
+
+  if (best < HERO_THRESHOLD) {
+    if (!alwaysPromote) return [];
+    // A lockup built around a hero still needs one, even on a flat line.
+    if (index === -1) index = Math.floor(words.length / 2);
+  }
   return [words.length >= 3 ? Math.max(1, Math.min(index, words.length - 2)) : index];
 }
 
@@ -168,7 +187,7 @@ function rebalanceCountSplits(runs: Word[][], maxWords: number): Word[][] {
   return out;
 }
 
-export function buildPages(words: Word[], wordsPerPage: number): CaptionPage[] {
+export function buildPages(words: Word[], wordsPerPage: number, options: PageOptions = {}): CaptionPage[] {
   if (!words.length) return [];
   const maxWords = Math.max(1, Math.round(wordsPerPage));
   const runs = maxWords === 1 ? splitRuns(words, 1) : rebalanceCountSplits(splitRuns(words, maxWords), maxWords);
@@ -184,7 +203,7 @@ export function buildPages(words: Word[], wordsPerPage: number): CaptionPage[] {
       id: run[0].id ?? `page-${i}`,
       words: run,
       ...(() => {
-        const heroIndices = maxWords === 1 ? [0] : pickHeroes(run);
+        const heroIndices = maxWords === 1 ? [0] : pickHeroes(run, !!options.alwaysPromote);
         return { heroIndices, heroIndex: heroIndices[0] ?? -1 };
       })(),
       start,

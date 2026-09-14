@@ -38,8 +38,15 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({ words, settings, bac
   useFontsReady();
 
   const resolved: Settings = { ...defaults, ...settings };
-  const perPage = treatmentFor(resolved.template).layout === 'single' ? 1 : resolved.wordsPerLine;
-  const pages = useMemo(() => buildPages(words ?? [], perPage), [words, perPage]);
+  const layout = treatmentFor(resolved.template).layout;
+  const perPage = layout === 'single' ? 1 : resolved.wordsPerLine;
+  // Lockups built around a hero always promote one; row layouts only do it when
+  // a word earns it, so the quieter templates stay quiet.
+  const alwaysPromote = layout !== 'rows';
+  const pages = useMemo(
+    () => buildPages(words ?? [], perPage, { alwaysPromote }),
+    [words, perPage, alwaysPromote],
+  );
 
   return (
     <AbsoluteFill style={{ background: background ?? 'transparent' }}>

@@ -807,15 +807,18 @@ test('validateRenderProject accepts positionX and align, rejects out-of-bound va
   }), /settings/);
 });
 
-test('buildPages guarantees a hero word on every non-empty page', () => {
+test('a lockup always has a hero, even when every score is low', () => {
   const lowScoreWords = [
     { ...word('a', 0, 0.3), emphasisScore: 0.1 },
     { ...word('b', 0.3, 0.6), emphasisScore: 0.1 },
     { ...word('c', 0.6, 0.9), emphasisScore: 0.1 },
   ];
-  const pages = buildPages(lowScoreWords, 3);
+  // Stacked and single lockups are built around one big word, so they promote
+  // even on a flat line. Row layouts deliberately do not — see the flat-line
+  // test above — because forcing one there made every caption shout.
+  const pages = buildPages(lowScoreWords, 3, { alwaysPromote: true });
   assert.equal(pages.length, 1);
-  assert.ok(pages[0].heroIndex >= 0, 'every page has a hero word even if all scores are low');
+  assert.ok(pages[0].heroIndex >= 0, 'the hero row is never left empty');
   assert.ok(pages[0].heroIndices.length >= 1);
 });
 
@@ -928,4 +931,33 @@ test('the third-line control is limited to layouts that have a third line', () =
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
   assert.ok(/isStackedTemplate && \(/.test(editor), 'the third-line picker is gated on a stacked layout');
   assert.ok(/layout === 'stack'/.test(editor), 'and that gate reads the treatment, not a hardcoded id list');
+});
+
+test('a flat line promotes nothing in a row layout, but still fills a lockup', () => {
+  const flat = (text: string, start: number, end: number): Word =>
+    ({ ...word(text, start, end), emphasisScore: 0.3 });
+  // Nothing here clears the bar: no numbers, no hooks, no acoustic emphasis.
+  const words = [flat('to', 0, .3), flat('phir', .32, .6), flat('kya', .62, .95), flat('hua', .97, 1.4)];
+
+  const rows = buildPages(words, 5);
+  assert.deepEqual(rows[0].heroIndices, [],
+    'a row layout leaves a flat line alone — forcing a hero made every caption shout');
+
+  const lockup = buildPages(words, 5, { alwaysPromote: true });
+  assert.equal(lockup[0].heroIndices.length, 1,
+    'a stacked lockup still promotes one, or its hero row would be empty');
+});
+
+test('an emphatic word is promoted in a row layout too', () => {
+  const mk = (text: string, start: number, end: number, score: number): Word =>
+    ({ ...word(text, start, end), emphasisScore: score });
+  const words = [mk('ye', 0, .3, .3), mk('bilkul', .32, .7, .95), mk('sahi', .72, 1.1, .3)];
+  assert.equal(buildPages(words, 5)[0].heroIndices.length, 1,
+    'the threshold gates weak lines, it does not disable promotion');
+});
+
+test('the always-promote rule is keyed off the layout, not a template list', () => {
+  const track = readFileSync(new URL('../src/remotion/CaptionTrack.tsx', import.meta.url), 'utf8');
+  assert.ok(/alwaysPromote = layout !== 'rows'/.test(track),
+    'stacked and single lockups promote; row layouts earn it');
 });
