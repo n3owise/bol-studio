@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -8,13 +8,16 @@ import '@fontsource/dm-sans/700.css';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/700.css';
 import '@fontsource/noto-sans-devanagari/700.css';
+import '@fontsource/montserrat/800.css';
+import '@fontsource/montserrat/900.css';
 import './styles.css';
 import { API, fetchMediaAssets, request, upload } from './lib/api';
-import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
+import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { groupWords } from './lib/pages';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
+import { treatmentFor } from './remotion/treatments';
 import { CAPTION_FPS } from './remotion/Root';
 import { drawKeyedMedia } from './lib/chromakey';
 import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
@@ -30,7 +33,7 @@ type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> &
   canvasElements?: CanvasVisualElement[];
 };
 
-function TemplatePreview({ id }: { id: string }) {
+function TemplatePreview({ id, thirdLine }: { id: string; thirdLine?: string }) {
   if (id === 'kinetic') return <strong>BAWAAL.</strong>;
   if (id === 'editorial') return <span>dil se <b>bolo.</b></span>;
   if (id === 'bounce') return <span>thoda <b>extra</b></span>;
@@ -46,13 +49,24 @@ function TemplatePreview({ id }: { id: string }) {
   if (id === 'editing-school') return <span><b>USTAAD</b></span>;
   if (id === 'kalakar-shadow') return <span>Hello <b>KALAKAR</b></span>;
   if (id === 'pop-up') return <span>PATAKHA <b>DHAMAKA</b></span>;
+  // Composition 2 is the three-line preset, so its card shows three lines.
+  if (id === 'mogrt-triple') {
+    return (
+      <span className="mogrt-triple-art">
+        <i>creative</i>
+        <b>caption</b>
+        <u style={{ color: thirdLine }}>presets</u>
+      </span>
+    );
+  }
+  if (id.startsWith('mogrt-')) return <span>ye <b>SAB</b> kuch</span>;
   return <span>THINK <b>BIGGER.</b></span>;
 }
-function TemplateCard({ template, selected, onClick, disabled = false }: { template: typeof templates[number]; selected: boolean; onClick: () => void; disabled?: boolean }) {
+function TemplateCard({ template, selected, onClick, disabled = false, thirdLine }: { template: typeof templates[number]; selected: boolean; onClick: () => void; disabled?: boolean; thirdLine?: string }) {
   const pillColor = getContrastColor(template.accent);
   return <button className={`template-card ${selected ? 'selected' : ''}`} onClick={onClick} aria-pressed={selected} disabled={disabled}>
     <div className={`template-art art-${template.id}`} style={{ '--card-accent': template.accent, '--pill-text': pillColor } as React.CSSProperties}>
-      <TemplatePreview id={template.id}/>
+      <TemplatePreview id={template.id} thirdLine={thirdLine}/>
       {selected && <span className="template-tick"><Check size={12}/></span>}
     </div>
     <div className="template-label"><span>{template.name}</span><small>{template.tag.split(' · ')[1]}</small></div>
@@ -199,7 +213,11 @@ function App() {
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | null>(null);
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
-  const [resolution, setResolution] = useState(720);
+  const [resolution, setResolution] = useState<720 | 1080 | 2160>(720);
+  const [exportFps, setExportFps] = useState<24 | 25 | 30 | 50 | 60>(30);
+  const [activeExportId, setActiveExportId] = useState<string | null>(null);
+  const [lastDownloadedExportId, setLastDownloadedExportId] = useState<string | null>(null);
+  const downloadedExportIdsRef = useRef<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [saveStatus, setSaveStatus] = useState(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
   const [dirty, setDirty] = useState(0);
@@ -248,7 +266,8 @@ function App() {
   const preview = useRef<HTMLDivElement>(null);
   const duration = project?.duration || 0;
   const words = project?.words ?? [];
-  const groups = useMemo(() => groupWords(words, settings.template === 'kinetic' ? 1 : settings.wordsPerLine), [words, settings.wordsPerLine, settings.template]);
+  const isSingleWordTemplate = useCallback((tpl: string) => treatmentFor(tpl).layout === 'single', []);
+  const groups = useMemo(() => groupWords(words, isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine), [words, settings.wordsPerLine, settings.template, isSingleWordTemplate]);
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groups;
     const q = searchQuery.toLowerCase();
@@ -262,12 +281,14 @@ function App() {
       if (templateCategory === 'all') return true;
       if (templateCategory === 'minimal') return t.id === 'soft-focus' || t.id === 'editorial' || t.id === 'karaoke';
       if (templateCategory === 'bold') return t.id === 'welcome-stack' || t.id === 'double-trouble' || t.id === 'editing-school' || t.id === 'mumbai';
-      if (templateCategory === 'kinetic') return t.id === 'kinetic' || t.id === 'bounce' || t.id === 'pop-up';
+      if (templateCategory === 'kinetic') return t.id === 'kinetic' || t.id === 'bounce' || t.id === 'pop-up' || t.id.startsWith('mogrt-');
       if (templateCategory === 'editorial') return t.id === 'editorial' || t.id === 'soft-focus' || t.id === 'kalakar-shadow';
       if (templateCategory === 'fun') return t.id === 'scribble' || t.id === 'bubble-highlight' || t.id === 'neon' || t.id === 'glow-script';
       return true;
     });
   }, [templateSearch, templateCategory]);
+  // Only stacked lockups have a third line to colour.
+  const isStackedTemplate = treatmentFor(settings.template).layout === 'stack';
   const size = dimensions(settings, project?.width || 720, project?.height || 1280);
   const busy = !!project && ['queued','processing','transcribing','extracting'].includes(project.status);
   const hasVideoLayer = project?.mediaType === 'video';
@@ -537,6 +558,38 @@ function App() {
     }, 1400);
     return () => { cancelled = true; clearInterval(timer); };
   }, [project?.id, busy, !!hasExportRunning, notify]);
+
+  // Track active export if an export is running on mount/refresh
+  useEffect(() => {
+    if (activeExportId) return;
+    const running = project?.exports?.find(e => ['queued', 'processing', 'rendering'].includes(e.status));
+    if (running && !downloadedExportIdsRef.current.has(running.id)) {
+      setActiveExportId(running.id);
+    }
+  }, [project?.exports, activeExportId]);
+
+  // Trigger automatic download as soon as the active export is ready
+  useEffect(() => {
+    if (!project?.exports || !activeExportId) return;
+    const job = project.exports.find(e => e.id === activeExportId);
+    if (!job) return;
+    if ((job.status === 'ready' || job.status === 'complete') && !downloadedExportIdsRef.current.has(job.id)) {
+      downloadedExportIdsRef.current.add(job.id);
+      setActiveExportId(null);
+      setLastDownloadedExportId(job.id);
+      const downloadUrl = `${API}/api/projects/${project.id}/exports/${job.id}/download`;
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = job.filename || `${project.name || 'export'}-${job.mode}.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      notify('Export complete! Your video download has started.');
+    } else if (job.status === 'error') {
+      setActiveExportId(null);
+      notify(job.message || 'Export failed. Please check the logs.');
+    }
+  }, [project?.id, project?.exports, activeExportId, notify]);
 
   const flushSave = useCallback(() => {
     const action = saveChain.current.catch(() => {}).then(async () => {
@@ -1202,7 +1255,7 @@ function App() {
   const handleEditCaptionGroup = useCallback((groupIdx: number, newText: string, newStart: number, newEnd: number) => {
     const p = projectRef.current;
     if (!p) return;
-    const effectivePerLine = settings.template === 'kinetic' ? 1 : settings.wordsPerLine;
+    const effectivePerLine = isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine;
     const currentGroups = groupWords(p.words, effectivePerLine);
     if (groupIdx < 0 || groupIdx >= currentGroups.length) return;
 
@@ -1308,7 +1361,7 @@ function App() {
     const p = projectRef.current;
     if (!p || !sourceWordIds.length) return;
 
-    const effectivePerLine = settings.template === 'kinetic' ? 1 : settings.wordsPerLine;
+    const effectivePerLine = isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine;
     const currentGroups = groupWords(p.words, effectivePerLine);
     if (targetGroupIdx < 0 || targetGroupIdx >= currentGroups.length) return;
     const targetGroup = currentGroups[targetGroupIdx];
@@ -1325,13 +1378,13 @@ function App() {
     const wordsBeingAdded = validMovingIds.length - movingWordsAlreadyInTarget;
     const targetLineWordCount = targetGroup.length + wordsBeingAdded;
 
-    const neededMax = settings.template === 'kinetic'
+    const neededMax = isSingleWordTemplate(settings.template)
       ? 1
       : Math.min(12, Math.max(targetLineWordCount, settings.wordsPerLine));
 
     const updatedWords = moveWordsToLine(p.words, validMovingIds, targetGroupIdx, targetPosition, neededMax);
 
-    const nextSettings = neededMax > settings.wordsPerLine && settings.template !== 'kinetic'
+    const nextSettings = neededMax > settings.wordsPerLine && !isSingleWordTemplate(settings.template)
       ? { ...settings, wordsPerLine: neededMax }
       : settings;
 
@@ -2406,8 +2459,26 @@ function App() {
     if (!project) return;
     const currentProject = project;
     setExporting(true);
-    try { await flushSave(); await request(`/projects/${currentProject.id}/exports`,{ method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:exportMode,resolution}) }); const result=await request<Project>(`/projects/${currentProject.id}`); if (projectRef.current?.id === currentProject.id) setProject(p=>p?.id===currentProject.id?{...p,exports:result.exports}:p); }
-    catch(e) { notify((e as Error).message); } finally { setExporting(false); }
+    setLastDownloadedExportId(null);
+    try {
+      await flushSave();
+      const job = await request<ExportJob>(`/projects/${currentProject.id}/exports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: exportMode, resolution, fps: exportFps }),
+      });
+      if (job?.id) {
+        setActiveExportId(job.id);
+      }
+      const result = await request<Project>(`/projects/${currentProject.id}`);
+      if (projectRef.current?.id === currentProject.id) {
+        setProject(p => p?.id === currentProject.id ? { ...p, exports: result.exports } : p);
+      }
+    } catch (e) {
+      notify((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
   }
   function downloadTranscript(format: 'srt' | 'vtt' | 'json') {
     if(!project) return;
@@ -2691,6 +2762,7 @@ function App() {
                         template={template}
                         selected={settings.template === template.id}
                         disabled={busy}
+                        thirdLine={settings.accentSecondary || settings.textColor}
                         onClick={() => {
                           updateSettings({ template: template.id, accent: template.accent });
                         }}
@@ -2759,18 +2831,32 @@ function App() {
                     value={settings.position}
                     onChange={e => updateSettings({ position: Number(e.target.value) })}
                   />
+                </div>
+                <div className="setting-field">
+                  <label htmlFor="caption-position-x">Horizontal Position <span>{settings.positionX ?? 50}%</span></label>
+                  <input
+                    disabled={busy}
+                    id="caption-position-x"
+                    type="range"
+                    min="15"
+                    max="85"
+                    value={settings.positionX ?? 50}
+                    onChange={e => updateSettings({ positionX: Number(e.target.value) })}
+                  />
                   <div className="position-presets">
                     {[
-                      { name: 'Top', value: 22 },
-                      { name: 'Middle', value: 50 },
-                      { name: 'Bottom', value: 72 },
+                      { name: 'Top', x: 50, y: 22 },
+                      { name: 'Center', x: 50, y: 50 },
+                      { name: 'Left', x: 25, y: 50 },
+                      { name: 'Right', x: 75, y: 50 },
+                      { name: 'Bottom', x: 50, y: 72 },
                     ].map(p => (
                       <button
                         disabled={busy}
                         key={p.name}
                         type="button"
-                        onClick={() => updateSettings({ position: p.value })}
-                        className={settings.position === p.value ? 'active' : ''}
+                        onClick={() => updateSettings({ position: p.y, positionX: p.x })}
+                        className={(settings.position === p.y && (settings.positionX ?? 50) === p.x) ? 'active' : ''}
                       >
                         {p.name}
                       </button>
@@ -2823,6 +2909,89 @@ function App() {
                   />
                   <span className="toggle-track" />
                 </label>
+                {/*
+                  Three colours, three roles. These used to be two pickers that
+                  both wrote `accent`, while `textColor` had no control at all —
+                  which is why captions came out all one shade.
+                */}
+                <div className="accent-section">
+                  <div className="section-label">TEXT COLOR <span>{(settings.textColor || '#ffffff').toUpperCase()}</span></div>
+                  <div className="swatches">
+                    {['#ffffff', '#f4f4f5', '#bfa4ff', '#72e6ff', '#d4fa41', '#ff8bb5', '#ffd166', '#111318'].map(color => {
+                      const isSelected = (settings.textColor || '#ffffff').toLowerCase() === color.toLowerCase();
+                      return (
+                        <button
+                          disabled={busy}
+                          key={color}
+                          type="button"
+                          className={isSelected ? 'selected' : ''}
+                          style={{ background: color }}
+                          aria-label={`Text color ${color}`}
+                          aria-pressed={isSelected}
+                          onClick={() => updateSettings({ textColor: color })}
+                        >
+                          {isSelected && <Check size={16} />}
+                        </button>
+                      );
+                    })}
+                    <label className="custom-color" title="Custom text color">
+                      <Plus size={17} />
+                      <input
+                        disabled={busy}
+                        aria-label="Custom text color"
+                        type="color"
+                        value={settings.textColor || '#ffffff'}
+                        onChange={e => updateSettings({ textColor: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                </div>
+                {isStackedTemplate && (
+                  <div className="accent-section">
+                    <div className="section-label">
+                      THIRD LINE <span>{(settings.accentSecondary || 'MATCHES TEXT').toUpperCase()}</span>
+                    </div>
+                    <div className="swatches">
+                      {['#ffd166', '#ff8bb5', '#7ee7c7', '#c9a6ff', '#57c7ff', '#ff825c'].map(color => {
+                        const isSelected = (settings.accentSecondary || '').toLowerCase() === color.toLowerCase();
+                        return (
+                          <button
+                            disabled={busy}
+                            key={color}
+                            type="button"
+                            className={isSelected ? 'selected' : ''}
+                            style={{ background: color }}
+                            aria-label={`Third line color ${color}`}
+                            aria-pressed={isSelected}
+                            onClick={() => updateSettings({ accentSecondary: color })}
+                          >
+                            {isSelected && <Check size={16} />}
+                          </button>
+                        );
+                      })}
+                      <label className="custom-color" title="Custom third line color">
+                        <Plus size={17} />
+                        <input
+                          disabled={busy}
+                          aria-label="Custom third line color"
+                          type="color"
+                          value={settings.accentSecondary || '#ffd166'}
+                          onChange={e => updateSettings({ accentSecondary: e.target.value })}
+                        />
+                      </label>
+                      <button
+                        disabled={busy || !settings.accentSecondary}
+                        type="button"
+                        className="swatch-reset"
+                        title="Match the text colour"
+                        aria-label="Reset third line to the text colour"
+                        onClick={() => updateSettings({ accentSecondary: undefined })}
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="accent-section">
                   <div className="section-label">HIGHLIGHT / ACCENT COLOR <span>{settings.accent.toUpperCase()}</span></div>
                   <div className="swatches">
@@ -2863,6 +3032,8 @@ function App() {
                       ...defaults,
                       template: settings.template,
                       accent: tmpl?.accent ?? defaults.accent,
+                      textColor: undefined,
+                      accentSecondary: undefined,
                     });
                     notify('Reset to template defaults.');
                   }}
@@ -3805,11 +3976,210 @@ function App() {
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
     {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
     {modal==='projects'&&<Modal title="Your workspace" onClose={()=>setModal(null)}><p className="modal-description">Projects are saved on this computer, ready whenever you are.</p><button className="button primary full" onClick={()=>{setModal(null);input.current?.click();}}><Plus size={16}/>New upload</button><div className="project-list">{projects.length?projects.map(p=><button key={p.id} onClick={()=>void openProject(p)}><span className="project-list-icon">{p.mediaType==='audio'?<FileAudio size={21}/>:<Film size={21}/>}</span><span><strong>{p.name}</strong><small>{timecode(p.duration)} · {p.status==='ready'?`${p.words?.length??0} words`:p.status}</small></span><ChevronRight size={17}/></button>):<div className="empty-projects"><FolderOpen size={32}/><p>Your first story is one upload away.</p></div>}</div></Modal>}
-    {modal==='export'&&<Modal title="Ready for the spotlight?" onClose={()=>setModal(null)}><p className="modal-description">Your captions, animated exactly as you see them.</p><div className="export-options"><button className={exportMode==='burned'?'selected':''} onClick={()=>setExportMode('burned')}><MonitorPlay size={25}/><strong>{project?.mediaType==='audio'?'Caption video':'Captioned video'}</strong><span>MP4 with your audio</span>{exportMode==='burned'&&<Check size={15}/>}</button><button className={exportMode==='green'?'selected':''} onClick={()=>setExportMode('green')}><Layers size={25}/><strong>Green screen</strong><span>Silent MP4 for your editor</span>{exportMode==='green'&&<Check size={15}/>}</button></div><label className="export-resolution">Resolution<select value={resolution} onChange={e=>setResolution(Number(e.target.value))}><option value="720">720p · Faster export</option><option value="1080">1080p · Full HD</option></select></label><div className="export-detail"><span>H.264 · 30 fps</span><span>{project?`${dimensions(settings,project.width,project.height,resolution).width} × ${dimensions(settings,project.width,project.height,resolution).height}`:''}</span><span>No watermark</span></div>{exportMode==='green'&&<p className="export-note">Key out pure green (#00FF00) in Premiere, After Effects, or your editor. Pick a non-green highlight for a cleaner key.</p>}
-      {hasExportRunning?<div className="export-progress"><div><LoaderCircle size={16} className="spin"/><span>{latestExport?.message||'Rendering your captions…'}</span><strong>{latestExport?.progress??0}%</strong></div><progress value={latestExport?.progress??0} max={100}/></div>:<button className="button primary full" onClick={()=>void startExport()} disabled={exporting||!project?.words.length}>{exporting?<LoaderCircle size={17} className="spin"/>:<Download size={17}/>}Export {exportMode==='green'?'green screen':'video'}</button>}
-      {latestExport?.status==='error'&&<p className="error-message">{latestExport.message}</p>}
-      {!!project?.exports?.filter(e=>e.status==='ready'||e.status==='complete').length&&<div className="export-downloads">{project.exports.filter(e=>e.status==='ready'||e.status==='complete').slice(-3).reverse().map(e=><a key={e.id} href={`${API}/api/projects/${project.id}/exports/${e.id}/download`} download><Check size={16}/><span>{e.mode==='green'?'Green screen':'Captioned video'}</span><Download size={16}/></a>)}</div>}
-      <div className="subtitle-downloads"><span>Just need the words?</span><div><button onClick={()=>downloadTranscript('srt')}>.SRT</button><button onClick={()=>downloadTranscript('vtt')}>.VTT</button><button onClick={()=>downloadTranscript('json')}>Word timings .JSON</button></div></div></Modal>}
+    {modal === 'export' && (
+      <Modal title="Export Video" onClose={() => setModal(null)} wide>
+        <p className="modal-description">
+          Choose your format, resolution, and frame rate. Your video exports and downloads automatically in one step.
+        </p>
+
+        {/* Step 1: Two Main Sections (Captioned Video vs Green Screen) */}
+        <div className="export-section-group">
+          <label className="export-section-title">
+            <span className="export-step-num">1</span>
+            <span>Choose Export Type</span>
+          </label>
+          <div className="export-type-grid">
+            <button
+              type="button"
+              className={`export-type-card ${exportMode === 'burned' ? 'selected' : ''}`}
+              onClick={() => setExportMode('burned')}
+            >
+              <div className="export-type-icon-box burned">
+                <MonitorPlay size={24} />
+              </div>
+              <div className="export-type-details">
+                <div className="export-type-heading">
+                  <strong>{project?.mediaType === 'audio' ? 'Caption Video' : 'Captioned Video'}</strong>
+                  {exportMode === 'burned' && (
+                    <span className="export-badge-active">
+                      <Check size={13} /> Selected
+                    </span>
+                  )}
+                </div>
+                <span className="export-type-desc">
+                  Complete MP4 with original audio, visuals, and burned-in animated captions.
+                </span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className={`export-type-card ${exportMode === 'green' ? 'selected' : ''}`}
+              onClick={() => setExportMode('green')}
+            >
+              <div className="export-type-icon-box green">
+                <Layers size={24} />
+              </div>
+              <div className="export-type-details">
+                <div className="export-type-heading">
+                  <strong>Green Screen</strong>
+                  {exportMode === 'green' && (
+                    <span className="export-badge-active">
+                      <Check size={13} /> Selected
+                    </span>
+                  )}
+                </div>
+                <span className="export-type-desc">
+                  Chroma-key backdrop (#00FF00) for Premiere, Final Cut Pro, DaVinci & CapCut.
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {exportMode === 'green' && (
+          <p className="export-note">
+            💡 <strong>Pro-Tip:</strong> Key out pure green (#00FF00) in your video editor. Pick an accent color other than green in Settings for clean chroma keying.
+          </p>
+        )}
+
+        {/* Step 2: Resolution Selection */}
+        <div className="export-section-group">
+          <div className="export-section-header-row">
+            <label className="export-section-title">
+              <span className="export-step-num">2</span>
+              <span>Resolution</span>
+            </label>
+            <span className="export-detail-pill">
+              {project ? `${dimensions(settings, project.width, project.height, resolution).width} × ${dimensions(settings, project.width, project.height, resolution).height} px` : ''}
+            </span>
+          </div>
+          <div className="export-option-pills">
+            <button
+              type="button"
+              className={`export-option-pill ${resolution === 720 ? 'selected' : ''}`}
+              onClick={() => setResolution(720)}
+            >
+              <strong>720p</strong>
+              <span>Fast Export</span>
+            </button>
+            <button
+              type="button"
+              className={`export-option-pill ${resolution === 1080 ? 'selected' : ''}`}
+              onClick={() => setResolution(1080)}
+            >
+              <strong>1080p</strong>
+              <span>Full HD</span>
+            </button>
+            <button
+              type="button"
+              className={`export-option-pill ${resolution === 2160 ? 'selected' : ''}`}
+              onClick={() => setResolution(2160)}
+            >
+              <strong>4K</strong>
+              <span>Ultra HD (2160p)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Step 3: Frame Rate Selection */}
+        <div className="export-section-group">
+          <div className="export-section-header-row">
+            <label className="export-section-title">
+              <span className="export-step-num">3</span>
+              <span>Frame Rate</span>
+            </label>
+            <span className="export-detail-pill">
+              {exportFps === 24 ? '24 fps · Cinematic' : exportFps === 25 ? '25 fps · PAL / Film' : exportFps === 30 ? '30 fps · Standard' : exportFps === 50 ? '50 fps · PAL High' : '60 fps · Smooth'}
+            </span>
+          </div>
+          <div className="export-fps-pills">
+            {([24, 25, 30, 50, 60] as const).map(fpsOption => (
+              <button
+                key={fpsOption}
+                type="button"
+                className={`export-fps-pill ${exportFps === fpsOption ? 'selected' : ''}`}
+                onClick={() => setExportFps(fpsOption)}
+              >
+                <strong>{fpsOption}</strong>
+                <span>fps</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Live details summary */}
+        <div className="export-summary-bar">
+          <span>H.264 MP4</span>
+          <span>{resolution === 2160 ? '4K Ultra HD' : `${resolution}p`}</span>
+          <span>{exportFps} FPS</span>
+          <span>{project ? `${dimensions(settings, project.width, project.height, resolution).width}×${dimensions(settings, project.width, project.height, resolution).height}` : ''}</span>
+          <span>No watermark</span>
+        </div>
+
+        {/* Step 4: Export & Auto-Download Execution */}
+        {hasExportRunning ? (
+          <div className="export-progress-card">
+            <div className="export-progress-top">
+              <div className="export-progress-status">
+                <LoaderCircle size={18} className="spin" />
+                <span>{latestExport?.message || 'Rendering video frames…'}</span>
+              </div>
+              <strong className="export-progress-percent">{latestExport?.progress ?? 0}%</strong>
+            </div>
+            <div className="export-progress-track">
+              <div
+                className="export-progress-fill"
+                style={{ width: `${Math.max(4, latestExport?.progress ?? 0)}%` }}
+              />
+            </div>
+            <p className="export-auto-download-hint">
+              ⚡ <strong>Auto-download enabled:</strong> Your video will start downloading automatically the moment rendering completes.
+            </p>
+          </div>
+        ) : (
+          <div className="export-action-block">
+            <button
+              className="button primary full export-submit-btn"
+              onClick={() => void startExport()}
+              disabled={exporting || !project?.words.length}
+            >
+              {exporting ? (
+                <>
+                  <LoaderCircle size={18} className="spin" />
+                  <span>Preparing render…</span>
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  <span>Export & Download {exportMode === 'green' ? 'Green Screen' : 'Video'}</span>
+                </>
+              )}
+            </button>
+
+            {lastDownloadedExportId && (
+              <div className="export-download-success">
+                <Check size={16} />
+                <span>Download started! Check your browser's download folder.</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {latestExport?.status === 'error' && (
+          <p className="error-message export-error-alert">{latestExport.message}</p>
+        )}
+
+        <div className="subtitle-downloads">
+          <span>Need text subtitles only?</span>
+          <div>
+            <button type="button" onClick={() => downloadTranscript('srt')}>.SRT</button>
+            <button type="button" onClick={() => downloadTranscript('vtt')}>.VTT</button>
+            <button type="button" onClick={() => downloadTranscript('json')}>Word timings .JSON</button>
+          </div>
+        </div>
+      </Modal>
+    )}
     {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word. Review names, slang, and spellings. Underlined words have lower model confidence.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest words to highlight. These are suggestions: click any word and toggle its star.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
 
     {modal === 'search-replace' && (

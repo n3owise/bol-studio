@@ -26,6 +26,12 @@ export const theme = {
   timing: {
     heroIn: 0.22,
     subIn: 0.14,
+    /**
+     * The Premiere presets are display animations: they travel further and take
+     * longer than a plain caption entrance, which is what makes each one
+     * readable as its own preset rather than a variation of the last.
+     */
+    presetIn: 0.42,
     /** Exits are faster than entrances. */
     pageOut: 0.13,
   },
@@ -41,8 +47,11 @@ export const theme = {
   },
   type: {
     display: '"DM Sans", "Noto Sans Devanagari", system-ui, sans-serif',
-    serif: 'Georgia, "Times New Roman", serif',
-    condensed: 'Oswald, "Archivo Narrow", "Arial Narrow", sans-serif',
+    serif: 'Georgia, "Noto Serif Devanagari", "Noto Sans Devanagari", "Times New Roman", serif',
+    condensed: 'Oswald, "Archivo Narrow", "Noto Sans Devanagari", "Arial Narrow", sans-serif',
+    montserrat: '"Montserrat", "Noto Sans Devanagari", "DM Sans", system-ui, sans-serif',
+    /** The serif on the middle line of Premiere composition 2. */
+    stix: '"STIX Two Text", "Noto Serif Devanagari", "Noto Sans Devanagari", Georgia, serif',
     /** Heavy grotesques ship loose; display sizes need tightening. */
     heroTracking: '-0.035em',
     subTracking: '-0.01em',

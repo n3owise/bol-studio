@@ -139,6 +139,29 @@ def test_exports_snapshot_before_later_edits(client, project):
     assert client.get(url + f"/exports/{response.json()['id']}/download").status_code == 409
 
 
+def test_export_options_4k_and_custom_fps(client, project):
+    url = f"/api/projects/{project['id']}"
+    # Test valid 4K 60fps export request
+    resp = client.post(url + "/exports", json={"mode": "burned", "resolution": 2160, "fps": 60})
+    assert resp.status_code == 202
+    job_data = resp.json()
+    assert job_data["resolution"] == 2160
+    assert job_data["fps"] == 60
+    job_call = backend.EXECUTOR.jobs[-1]
+    assert job_call[1][3] == "burned"
+    assert job_call[1][4] == 2160
+    assert job_call[1][5] == 60
+
+    # Test rejection of invalid resolution (e.g. 480)
+    invalid_res = client.post(url + "/exports", json={"mode": "burned", "resolution": 480, "fps": 30})
+    assert invalid_res.status_code == 422
+
+    # Test rejection of invalid fps (e.g. 120)
+    invalid_fps = client.post(url + "/exports", json={"mode": "burned", "resolution": 1080, "fps": 120})
+    assert invalid_fps.status_code == 422
+
+
+
 def test_concurrent_atomic_updates_keep_all_changes(client, project):
     def increment(_):
         backend.update_project(project["id"], lambda value: value.update(counter=value.get("counter", 0) + 1))
@@ -379,4 +402,33 @@ def test_caption_defaults_are_shared_with_the_browser():
         (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
     )
     assert backend.DEFAULT_SETTINGS == shared
-    assert backend.Settings().model_dump() == shared
+    # Optional extras (accentSecondary and friends) may exist beyond the shared
+    # defaults; what must not drift are the values both sides do define.
+    produced = backend.Settings().model_dump()
+    assert {k: produced[k] for k in shared} == shared
+
+
+def test_backend_accepts_every_template_the_picker_offers():
+    """app.py and the caption picker must agree on the template list.
+
+    The backend used to carry its own hardcoded Literal, so a template added in
+    the editor was rejected on save with a validation error.
+    """
+    import json
+    from pathlib import Path
+
+    listed = {
+        t["id"]
+        for t in json.loads(
+            (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-templates.json").read_text()
+        )
+    }
+    assert listed == backend.TEMPLATE_IDS
+    for template_id in sorted(listed):
+        assert backend.Settings(template=template_id).template == template_id
+
+
+def test_exports_default_to_60fps():
+    """A 0.42s preset entrance is 25 frames at 60 and 12 at 30."""
+    assert backend.ExportRequest(mode="burned", resolution=720).fps == 60
+    assert backend.ExportRequest(mode="burned", resolution=720, fps=30).fps == 30

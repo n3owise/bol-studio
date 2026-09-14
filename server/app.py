@@ -35,6 +35,13 @@ LOGGER = logging.getLogger("bol")
 # Shared with the browser: src/lib/types.ts imports this same file. Keeping two
 # hand-written copies meant a project created here opened with a different
 # template, accent and words-per-line than one created in the editor.
+TEMPLATE_IDS = {
+    t["id"]
+    for t in json.loads(
+        (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-templates.json").read_text()
+    )
+}
+
 DEFAULT_SETTINGS = json.loads(
     (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
 )
@@ -171,7 +178,7 @@ def mark_export(project_id: str, export_id: str, **changes) -> None:
     update_project(project_id, mutate)
 
 
-def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resolution: int) -> None:
+def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resolution: int, fps: int = 60) -> None:
     directory = project_dir(project_id)
     snapshot_path = directory / f"export-{export_id}.json"
     output_path = directory / f"export-{export_id}.mp4"
@@ -185,7 +192,7 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
         error_path = directory / f"export-{export_id}.log"
         with error_path.open("w+") as error_file:
             process = subprocess.Popen(["node", "--import", "tsx", "server/render.ts", str(snapshot_path), str(media_path),
-                                        str(output_path), mode, str(resolution)], cwd=ROOT, stdout=subprocess.PIPE, stderr=error_file, text=True)
+                                        str(output_path), mode, str(resolution), str(fps)], cwd=ROOT, stdout=subprocess.PIPE, stderr=error_file, text=True)
             # Bound even a renderer that hangs without emitting another progress line.
             timer = threading.Timer(7200, process.kill)
             timer.daemon = True
@@ -209,7 +216,8 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
                 LOGGER.error("Renderer failed: %s", error_file.read()[-3000:])
                 raise ValueError("Export failed. Verify FFmpeg and the rendering dependencies, then retry.")
         name = re.sub(r"[^\w .-]", "", snapshot["name"]).strip()[:70] or "bol-captions"
-        mark_export(project_id, export_id, status="ready", progress=100, message="Your video is ready.", filename=f"{name}-{mode}.mp4")
+        res_label = "4k" if resolution == 2160 else f"{resolution}p"
+        mark_export(project_id, export_id, status="ready", progress=100, message="Your video is ready.", filename=f"{name}-{mode}-{res_label}-{fps}fps.mp4")
     except Exception:
         LOGGER.exception("Export failed for %s", project_id)
         output_path.unlink(missing_ok=True)
@@ -275,13 +283,20 @@ class Word(ValidatedModel):
         return value
 
 
-class Settings(ValidatedModel):
-    template: Literal[
-        "karaoke", "editorial", "bounce", "kinetic", "neon", "glow-script", "scribble",
-        "welcome-stack", "soft-focus", "double-trouble", "bubble-highlight", "mumbai",
-        "editing-school", "kalakar-shadow", "pop-up"
-    ] = DEFAULT_SETTINGS["template"]
+class Settings(BaseModel):
+    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
+
+    template: str = Field(default=DEFAULT_SETTINGS["template"])
+
+    @field_validator("template")
+    @classmethod
+    def _known_template(cls, value: str) -> str:
+        if value not in TEMPLATE_IDS:
+            raise ValueError(f"Unknown caption template: {value}")
+        return value
     accent: str = Field(default=DEFAULT_SETTINGS["accent"], pattern=r"^#[0-9a-fA-F]{6}$")
+    # Third line colour for stacked lockups; see Settings.accentSecondary.
+    accentSecondary: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     fontSize: float = Field(default=DEFAULT_SETTINGS["fontSize"], ge=20, le=100)
     position: float = Field(default=DEFAULT_SETTINGS["position"], ge=10, le=90)
     wordsPerLine: StrictInt = Field(default=DEFAULT_SETTINGS["wordsPerLine"], ge=1, le=8)
@@ -307,7 +322,10 @@ class TranscribeRequest(ValidatedModel):
 
 class ExportRequest(ValidatedModel):
     mode: Literal["burned", "green"] = "burned"
-    resolution: Literal[720, 1080] = 720
+    resolution: Literal[720, 1080, 2160] = 720
+    # Captions enter word by word; a 0.42s preset entrance is 25 frames at 60
+    # and 12 at 30, where it reads as stepped. Lower rates stay available.
+    fps: Literal[24, 25, 30, 50, 60] = 60
 
 
 def validate_word_intervals(words: list[dict], duration: float) -> None:
@@ -450,10 +468,10 @@ def create_export(project_id: str, request: ExportRequest):
         if any(job["status"] in {"queued", "processing"} for job in project["exports"]):
             raise HTTPException(409, "An export for this clip is already in progress.")
         snapshot = copy.deepcopy(project)
-        job = {"id": export_id, "mode": request.mode, "resolution": request.resolution, "status": "queued", "progress": 0,
+        job = {"id": export_id, "mode": request.mode, "resolution": request.resolution, "fps": request.fps, "status": "queued", "progress": 0,
                "message": "Queued for rendering.", "revision": project["revision"]}
         update_project(project_id, lambda p: p["exports"].append(job))
-    EXECUTOR.submit(export_job, project_id, export_id, snapshot, request.mode, request.resolution)
+    EXECUTOR.submit(export_job, project_id, export_id, snapshot, request.mode, request.resolution, request.fps)
     return job
 
 

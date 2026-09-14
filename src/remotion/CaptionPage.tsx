@@ -1,7 +1,7 @@
 import React, { useLayoutEffect, useRef, useState } from 'react';
 import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { theme } from './theme';
-import { treatmentFor } from './treatments';
+import { treatmentFor, type FontRole } from './treatments';
 import { CaptionWord } from './CaptionWord';
 import { heroRun, type CaptionPage as Page } from '../lib/pages';
 import type { Settings, Word } from '../lib/types';
@@ -48,10 +48,19 @@ function rgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${Math.min(1, Math.max(0, alpha))})`;
 }
 
-const fontStack = (role: 'display' | 'serif' | 'condensed', custom?: string) => {
-  const stack = role === 'serif' ? theme.type.serif : role === 'condensed' ? theme.type.condensed : theme.type.display;
-  return custom ? `"${custom}", ${stack}` : stack;
+import '@fontsource/montserrat/800.css';
+import '@fontsource/montserrat/900.css';
+
+const FONT_STACKS: Record<FontRole, string> = {
+  display: theme.type.display,
+  serif: theme.type.serif,
+  condensed: theme.type.condensed,
+  montserrat: theme.type.montserrat,
+  stix: theme.type.stix,
 };
+
+const fontStack = (role: FontRole, custom?: string) =>
+  (custom ? `"${custom}", ${FONT_STACKS[role]}` : FONT_STACKS[role]);
 
 export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pageFrames }) => {
   const frame = useCurrentFrame();
@@ -78,17 +87,40 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     frame, [pageFrames - outFrames, pageFrames], [1, 0],
     { easing: theme.ease.in, extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
   );
+  // Words move on the way out as well as the way in. The exit runs a little
+  // longer than the opacity fade so the movement is visible rather than being
+  // over before the page has finished dimming.
+  const exitFrames = Math.max(3, Math.round(outFrames * 1.6));
+  const exitProgress = settings.motion <= 0 ? 0 : interpolate(
+    frame, [pageFrames - exitFrames, pageFrames], [0, 1],
+    { easing: theme.ease.in, extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+  );
 
   const enterFrameFor = (word: Word) => Math.max(0, Math.round((word.start - page.start) * fps));
 
-  const renderWord = (word: Word, role: 'hero' | 'sub', size: number, pill: boolean) => {
+  const renderWord = (
+    word: Word,
+    role: 'hero' | 'sub',
+    size: number,
+    pill: boolean,
+    row: 'prefix' | 'hero' | 'suffix' = role === 'hero' ? 'hero' : 'prefix',
+  ) => {
     const upper = settings.uppercase || (role === 'hero' && treatment.uppercaseHero);
-    // Accent follows the hero and any word the editor explicitly spotlighted.
-    // The *automatic* picker is budgeted to one word per page in pages.ts, which
-    // is what keeps emphasis rare enough to mean something; an explicit choice is
-    // never overruled. Where a moving pill already carries the highlight
-    // (karaoke, bounce), it is the accent and the hero stays in the text colour.
+    // Two colours, two jobs: `accent` marks the hero and anything the editor
+    // spotlighted, `textColor` carries every supporting word. A gradient
+    // template ramps the hero towards the accent but leaves the rest alone.
+    // Colouring every word from one value is what flattened whole captions into
+    // a single shade with no hierarchy left.
     const accented = (role === 'hero' || !!word.spotlight) && treatment.pill !== 'active';
+    // Composition 2 colours each of its three lines separately. The middle line
+    // takes the accent; the third line may take its own colour when one is set,
+    // and otherwise matches the first.
+    const wordColor = accented
+      ? accent
+      : (row === 'suffix' && settings.accentSecondary) ? settings.accentSecondary : textColor;
+    const rowWeight = row === 'prefix' ? treatment.prefixWeight
+      : row === 'suffix' ? treatment.suffixWeight
+        : undefined;
     return (
       <CaptionWord
         key={word.id}
@@ -96,13 +128,16 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         enterFrame={enterFrameFor(word)}
         role={role}
         size={size}
-        color={accented ? accent : textColor}
+        color={wordColor}
         treatment={treatment}
         frameWidth={width}
         motion={settings.motion}
         strokeColor={settings.strokeColor}
         strokeWidth={settings.strokeWidth}
         fontFamily={fontStack(role === 'hero' ? treatment.heroFont : treatment.subFont, settings.fontFamily)}
+        weight={rowWeight}
+        exitProgress={exitProgress}
+        italic={role === 'hero' ? treatment.heroItalic : treatment.subItalic}
         pill={pill}
         pillColor={accent}
         devanagari={devanagari}
@@ -125,7 +160,7 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   const now = page.start + frame / fps;
   const activeIndex = page.words.findIndex(w => now >= w.start && now < w.end);
 
-  const isStack = treatment.layout === 'stack' && page.heroIndex >= 0 && page.words.length >= 2;
+  const isStack = treatment.layout === 'stack' && page.words.length >= 1;
 
   // Tuck the supporting rows against the hero, the way the reference lockups do.
   const tuckTop = devanagari ? 0 : heroSize * 0.04;
@@ -134,49 +169,77 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   let content: React.ReactNode;
   let boxWidth: number;
   let boxHeight: number;
-  /** Distance from the top of the visual lockup down to the top of the hero row. */
-  let heroOffsetY = 0;
 
   if (isStack) {
-    const run = heroRun(page)!;
+    const run = heroRun(page) ?? { start: 0, end: 0 };
     const heroes = page.words.slice(run.start, run.end + 1);
     const prefix = page.words.slice(0, run.start);
     const suffix = page.words.slice(run.end + 1);
+    const hasPrefix = prefix.length > 0;
+    const hasSuffix = suffix.length > 0;
 
-    // The hero row sits in normal flow and therefore sizes the container; the
-    // supporting rows are taken out of flow and hung off its left and right
-    // edges. A plain flex column let the widest row size the container, which
-    // pushed the prefix away from the hero's left edge.
+    // 1. Spotlight word is the big word.
+    // 2. Remaining words on the left side of timeline -> top-left of spotlight word.
+    // 3. Words coming after spotlight word -> bottom-right of spotlight word.
+    // 4. Words read left-to-right, and the entire lockup is centered horizontally.
     content = (
-      <div style={{ position: 'relative', width: 'fit-content' }}>
-        {prefix.length > 0 && (
-          <div ref={set(0)} style={{ ...rowStyle, position: 'absolute', left: 0, bottom: `calc(100% - ${tuckTop}px)` }}>
-            {prefix.map(w => renderWord(w, 'sub', subSize, false))}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          width: 'max-content',
+        }}
+      >
+        {hasPrefix && (
+          <div
+            ref={set(0)}
+            style={{
+              ...rowStyle,
+              alignSelf: 'flex-start',
+              marginBottom: -tuckTop,
+            }}
+          >
+            {prefix.map(w => renderWord(w, 'sub', subSize, false, 'prefix'))}
           </div>
         )}
-        <div ref={set(1)} style={rowStyle}>
+        <div
+          ref={set(1)}
+          style={{
+            ...rowStyle,
+            alignSelf: !hasPrefix && hasSuffix ? 'flex-start' : hasPrefix && !hasSuffix ? 'flex-end' : 'center',
+          }}
+        >
           {heroes.map(w => renderWord(w, 'hero', heroRowSize, treatment.pill === 'hero'))}
         </div>
-        {suffix.length > 0 && (
-          <div ref={set(2)} style={{ ...rowStyle, position: 'absolute', right: 0, top: `calc(100% - ${tuckBottom}px)` }}>
-            {suffix.map(w => renderWord(w, 'sub', subSize, false))}
+        {hasSuffix && (
+          <div
+            ref={set(2)}
+            style={{
+              ...rowStyle,
+              alignSelf: 'flex-end',
+              marginTop: -tuckBottom,
+            }}
+          >
+            {suffix.map(w => renderWord(w, 'sub', subSize, false, 'suffix'))}
           </div>
         )}
       </div>
     );
 
     const [pre, heroBox, suf] = boxes;
-    boxWidth = Math.max(pre.width, heroBox.width, suf.width) || heroBox.width;
-    heroOffsetY = Math.max(0, pre.height - tuckTop);
-    boxHeight = heroOffsetY + heroBox.height + Math.max(0, suf.height - tuckBottom);
+    boxWidth = Math.max(pre.width, heroBox.width, suf.width) || heroBox.width || (base * 5);
+    const preH = hasPrefix ? Math.max(0, pre.height - tuckTop) : 0;
+    const sufH = hasSuffix ? Math.max(0, suf.height - tuckBottom) : 0;
+    boxHeight = preH + heroBox.height + sufH || (base * 2);
   } else if (treatment.layout === 'single') {
     content = (
       <div ref={set(1)} style={{ ...rowStyle, width: 'fit-content' }}>
         {page.words.map(w => renderWord(w, 'hero', heroSize, treatment.pill !== 'none'))}
       </div>
     );
-    boxWidth = boxes[1].width;
-    boxHeight = boxes[1].height;
+    boxWidth = boxes[1].width || (base * 4);
+    boxHeight = boxes[1].height || base;
   } else {
     const justify = settings.align === 'left' ? 'flex-start' : settings.align === 'right' ? 'flex-end' : 'center';
     content = (
@@ -194,19 +257,24 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         })}
       </div>
     );
-    boxWidth = boxes[1].width;
-    boxHeight = boxes[1].height;
+    boxWidth = boxes[1].width || (base * 5);
+    boxHeight = boxes[1].height || base;
   }
+
+  const posX = settings.positionX ?? 50;
+  const posY = settings.position ?? 70;
 
   const maxWidth = width * theme.layout.maxWidth;
   const fit = boxWidth > maxWidth && boxWidth > 0 ? maxWidth / boxWidth : 1;
 
   const safe = Math.min(width, height) * theme.layout.safeMargin;
+  const scaledWidth = boxWidth * fit;
   const scaledHeight = boxHeight * fit;
-  const wanted = height * (settings.position / 100);
-  const centerY = Math.max(safe + scaledHeight / 2, Math.min(height - safe - scaledHeight / 2, wanted));
-  // `top` addresses the hero row, which is where the positioned wrapper starts.
-  const top = centerY - scaledHeight / 2 + heroOffsetY * fit;
+
+  const targetCenterX = width * (posX / 100);
+  const targetCenterY = height * (posY / 100);
+  const centerX = Math.max(safe + scaledWidth / 2, Math.min(width - safe - scaledWidth / 2, targetCenterX));
+  const centerY = Math.max(safe + scaledHeight / 2, Math.min(height - safe - scaledHeight / 2, targetCenterY));
 
   const plate: React.CSSProperties | undefined = settings.backgroundColor && (settings.backgroundOpacity ?? 0) > 0
     ? {
@@ -216,26 +284,20 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
       }
     : undefined;
 
-  const align = isStack || treatment.layout === 'single'
-    ? 'center'
-    : settings.align === 'left' ? 'flex-start' : settings.align === 'right' ? 'flex-end' : 'center';
-
   return (
     <div
       style={{
         position: 'absolute',
-        left: 0,
-        width,
-        top,
-        display: 'flex',
-        justifyContent: align,
-        padding: align === 'center' ? 0 : `0 ${safe}px`,
+        left: centerX,
+        top: centerY,
+        transform: `translate(-50%, -50%) scale(${fit})`,
+        transformOrigin: 'center center',
         opacity: pageOpacity,
+        pointerEvents: 'none',
+        ...plate,
       }}
     >
-      <div style={{ transform: `scale(${fit})`, transformOrigin: `${align === 'center' ? 'center' : align === 'flex-start' ? 'left' : 'right'} top`, ...plate }}>
-        {content}
-      </div>
+      {content}
     </div>
   );
 };

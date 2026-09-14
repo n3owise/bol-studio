@@ -4223,6 +4223,129 @@ progress::-moz-progress-bar {
   font-size: 17px;
   text-shadow: 0 0 10px var(--card-accent);
 }
+[class*="art-mogrt-"] > span {
+  font-family: 'Montserrat', sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  letter-spacing: -0.3px !important;
+  color: #ffffff;
+}
+[class*="art-mogrt-"] b {
+  font-family: 'Montserrat', sans-serif !important;
+  font-size: 19px;
+  font-weight: 900;
+  background: linear-gradient(180deg, #ffffff 15%, var(--card-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 8px var(--card-accent));
+}
+
+/* ---------------------------------------------------------------------------
+   Preset cards animate.
+
+   The nine Premiere presets share one look — Montserrat Black, gradient ramp,
+   glow — and differ only in how the type arrives, so nine static thumbnails are
+   necessarily identical. Each card loops its own entrance instead, mirroring
+   the Remotion motion, so the picker shows what actually separates them.
+   --------------------------------------------------------------------------- */
+[class*="art-mogrt-"] b {
+  display: inline-block;
+  animation-duration: 2.6s;
+  animation-iteration-count: infinite;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity, filter;
+}
+
+.art-mogrt-rise b { animation-name: mogrt-card-rise; }
+.art-mogrt-pop b { animation-name: mogrt-card-pop; }
+.art-mogrt-drop b { animation-name: mogrt-card-drop; }
+.art-mogrt-spread b { animation-name: mogrt-card-spread; }
+.art-mogrt-swing b { animation-name: mogrt-card-swing; transform-origin: left bottom; }
+.art-mogrt-wipe b { animation-name: mogrt-card-wipe; }
+.art-mogrt-flip b { animation-name: mogrt-card-flip; transform-origin: center bottom; }
+.art-mogrt-slide b { animation-name: mogrt-card-slide; }
+
+/* Each entrance takes the first ~20% of the loop, then holds, so the card is
+   readable at rest rather than permanently in motion. */
+@keyframes mogrt-card-rise {
+  0% { opacity: 0; transform: translateY(14px); filter: blur(5px) drop-shadow(0 0 8px var(--card-accent)); }
+  20%, 100% { opacity: 1; transform: translateY(0); filter: blur(0) drop-shadow(0 0 8px var(--card-accent)); }
+}
+@keyframes mogrt-card-pop {
+  0% { opacity: 0; transform: scale(0.3); }
+  14% { opacity: 1; transform: scale(1.14); }
+  22%, 100% { opacity: 1; transform: scale(1); }
+}
+@keyframes mogrt-card-drop {
+  0% { opacity: 0; transform: translateY(-16px) rotate(4deg); }
+  20%, 100% { opacity: 1; transform: translateY(0) rotate(0); }
+}
+@keyframes mogrt-card-spread {
+  0% { opacity: 0; letter-spacing: 0.5em; transform: scale(1.08); }
+  22%, 100% { opacity: 1; letter-spacing: -0.3px; transform: scale(1); }
+}
+@keyframes mogrt-card-swing {
+  0% { opacity: 0; transform: rotate(-16deg) translateY(6px); }
+  22%, 100% { opacity: 1; transform: rotate(0) translateY(0); }
+}
+@keyframes mogrt-card-wipe {
+  0% { clip-path: inset(-40% 100% -40% -10%); }
+  24%, 100% { clip-path: inset(-40% -10% -40% -10%); }
+}
+@keyframes mogrt-card-flip {
+  0% { opacity: 0; transform: perspective(70px) rotateX(78deg); }
+  24%, 100% { opacity: 1; transform: perspective(70px) rotateX(0); }
+}
+@keyframes mogrt-card-slide {
+  0% { opacity: 0; transform: translateX(-24px); filter: blur(4px) drop-shadow(0 0 8px var(--card-accent)); }
+  22%, 100% { opacity: 1; transform: translateX(0); filter: blur(0) drop-shadow(0 0 8px var(--card-accent)); }
+}
+
+/* Composition 2: three lines, three faces, three colours — and they cascade. */
+.mogrt-triple-art {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.02;
+  gap: 1px;
+}
+.mogrt-triple-art i,
+.mogrt-triple-art b,
+.mogrt-triple-art u {
+  display: inline-block;
+  font-size: 14px;
+  text-decoration: none;
+  font-style: normal;
+  animation: mogrt-card-rise 2.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+.mogrt-triple-art i {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 800;
+  font-style: italic;
+  color: #ffffff;
+}
+.mogrt-triple-art b {
+  font-family: 'STIX Two Text', Georgia, serif !important;
+  font-weight: 600;
+  font-size: 15px;
+  animation-delay: 0.14s;
+}
+.mogrt-triple-art u {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  font-style: italic;
+  color: #ffd166;
+  animation-delay: 0.28s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="art-mogrt-"] b,
+  .mogrt-triple-art i,
+  .mogrt-triple-art b,
+  .mogrt-triple-art u {
+    animation: none;
+  }
+}
 
 .template-tick {
   position: absolute;
@@ -4723,123 +4846,317 @@ progress::-moz-progress-bar {
   font-size: 13px;
 }
 
-.export-options {
+/* Streamlined Export Dialog */
+.export-section-group {
+  margin: 18px 0 14px;
+}
+.export-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 10px;
+}
+.export-section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.export-section-header-row .export-section-title {
+  margin-bottom: 0;
+}
+.export-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 700;
+}
+.export-detail-pill {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-surface-elevated, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+/* Step 1: Two Main Sections */
+.export-type-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin: 18px 0;
 }
-.export-options > button {
+.export-type-card {
   display: flex;
   align-items: flex-start;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  gap: 12px;
+  padding: 14px;
+  border: 1.5px solid var(--border-subtle);
+  border-radius: 12px;
   background: var(--color-card-bg);
-  position: relative;
+  cursor: pointer;
   text-align: left;
-  box-shadow: var(--shadow-sm);
   transition: all 0.15s ease;
+  box-shadow: var(--shadow-sm);
 }
-.export-options > button:hover {
+.export-type-card:hover {
   border-color: var(--border-medium);
   background: var(--color-card-hover);
 }
-.export-options > button.selected {
+.export-type-card.selected {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 1px var(--color-accent);
   background: var(--color-accent-dim);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
-.export-options > button > svg:first-child {
-  color: var(--color-text-primary);
+.export-type-icon-box {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
-.export-options strong {
+.export-type-icon-box.burned {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+.export-type-icon-box.green {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+.export-type-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+.export-type-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.export-type-heading strong {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--color-text-primary);
 }
-.export-options span {
-  font-size: 11.5px;
-  color: var(--text-muted);
-}
-.export-options > button > svg:last-child:not(:first-child) {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  color: var(--color-accent);
-}
-.export-resolution {
-  display: flex;
+.export-badge-active {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
+  gap: 3px;
+  font-size: 10.5px;
   font-weight: 600;
-  margin: 18px 0 12px;
-  color: var(--color-text-primary);
+  color: var(--color-accent);
+  background: var(--color-card-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
 }
-.export-detail {
-  display: flex;
-  gap: 10px;
-  color: var(--text-muted);
+.export-type-desc {
   font-size: 11.5px;
-  margin: 12px 0 20px;
-}
-.export-detail > span + span::before {
-  content: '·';
-  margin-right: 10px;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 .export-note {
   font-size: 11.5px;
   color: var(--text-muted);
   line-height: 1.6;
-  margin: -6px 0 18px;
-}
-.export-progress {
-  margin: 18px 0;
-}
-.export-progress > div {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  margin-bottom: 10px;
-}
-.export-progress strong {
-  margin-left: auto;
-  color: var(--color-text-primary);
-}
-.export-downloads {
-  margin-top: 16px;
-  display: grid;
-  gap: 8px;
-}
-.export-downloads > a {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--color-card-bg);
-  border: 1px solid var(--border-subtle);
+  margin: 8px 0 12px;
+  padding: 8px 12px;
   border-radius: 8px;
-  padding: 10px 12px;
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-primary);
+  background: var(--bg-surface-elevated, rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--border-subtle);
+}
+
+/* Step 2: Resolution Options */
+.export-option-pills {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.export-option-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--color-card-bg);
+  cursor: pointer;
+  transition: all 0.15s ease;
   box-shadow: var(--shadow-sm);
 }
-.export-downloads > a:hover {
+.export-option-pill:hover {
   border-color: var(--border-medium);
   background: var(--color-card-hover);
 }
-.export-downloads > a > svg:first-child {
-  color: var(--accent-light);
+.export-option-pill.selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+  box-shadow: 0 0 0 1px var(--color-accent);
 }
-.export-downloads > a > svg:last-child {
-  margin-left: auto;
+.export-option-pill strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.export-option-pill span {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Step 3: Frame Rate Options */
+.export-fps-pills {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.export-fps-pill {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  padding: 9px 4px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border-subtle);
+  background: var(--color-card-bg);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-sm);
+}
+.export-fps-pill:hover {
+  border-color: var(--border-medium);
+  background: var(--color-card-hover);
+}
+.export-fps-pill.selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+.export-fps-pill strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+.export-fps-pill span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Live details summary */
+.export-summary-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--bg-surface-elevated, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 18px 0 16px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+.export-summary-bar > span + span::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--text-muted);
+}
+
+/* Step 4: Execution & Auto-Download */
+.export-progress-card {
+  background: var(--color-card-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 14px 0 10px;
+  box-shadow: var(--shadow-sm);
+}
+.export-progress-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.export-progress-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+.export-progress-percent {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+.export-progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--border-subtle);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.export-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), #38bdf8);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+.export-auto-download-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-top: 10px;
+  text-align: center;
+}
+.export-action-block {
+  margin-top: 14px;
+}
+.export-submit-btn {
+  height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+}
+.export-download-success {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.export-error-alert {
+  margin-top: 12px;
+  font-size: 12px;
+  text-align: center;
+  color: #ef4444;
 }
 .subtitle-downloads {
   padding-top: 18px;
@@ -9486,3 +9803,19 @@ kbd {
   pointer-events: none;
   background: transparent;
 }
+
+
+
+/* Clears the third-line colour back to the text colour. Sits with the swatches
+   so the "no override" state is reachable, not just settable. */
+.swatches .swatch-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px dashed var(--rule, #3a3a42);
+  color: inherit;
+  opacity: 0.75;
+}
+.swatches .swatch-reset:hover:not(:disabled) { opacity: 1; }
+.swatches .swatch-reset:disabled { opacity: 0.3; cursor: default; }

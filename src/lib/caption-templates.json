@@ -1,0 +1,170 @@
+[
+  {
+    "id": "mogrt-rise",
+    "name": "Udaan",
+    "tag": "MOGRT \u00b7 RISE",
+    "accent": "#9de52e",
+    "description": "Montserrat Black jo neeche se smooth uthta hai."
+  },
+  {
+    "id": "mogrt-pop",
+    "name": "Dhamaka",
+    "tag": "MOGRT \u00b7 POP",
+    "accent": "#ff8a3d",
+    "description": "Ek dum se phoot-ta hua punch, spring ke saath."
+  },
+  {
+    "id": "mogrt-drop",
+    "name": "Barsaat",
+    "tag": "MOGRT \u00b7 DROP",
+    "accent": "#57c7ff",
+    "description": "Upar se girta hua lafz, halki si tilt ke saath."
+  },
+  {
+    "id": "mogrt-spread",
+    "name": "Phailaav",
+    "tag": "MOGRT \u00b7 SPREAD",
+    "accent": "#f5d547",
+    "description": "Letters khulte hue apni jagah lete hain."
+  },
+  {
+    "id": "mogrt-swing",
+    "name": "Jhoola",
+    "tag": "MOGRT \u00b7 SWING",
+    "accent": "#ff6b9d",
+    "description": "Ek pyaara sa jhoola, corner se ghoomta hua."
+  },
+  {
+    "id": "mogrt-wipe",
+    "name": "Parda",
+    "tag": "MOGRT \u00b7 WIPE",
+    "accent": "#7ee7c7",
+    "description": "Parda hatta aur lafz saamne \u2014 left se right."
+  },
+  {
+    "id": "mogrt-flip",
+    "name": "Palat",
+    "tag": "MOGRT \u00b7 FLIP",
+    "accent": "#c9a6ff",
+    "description": "3D palat ke saath lafz seedha khada hota hai."
+  },
+  {
+    "id": "mogrt-slide",
+    "name": "Sarkan",
+    "tag": "MOGRT \u00b7 SLIDE",
+    "accent": "#ffd166",
+    "description": "Side se sarak kar aata hua lafz."
+  },
+  {
+    "id": "mogrt-triple",
+    "name": "Teen Tehen",
+    "tag": "MOGRT \u00b7 3 LINE",
+    "accent": "#ff5470",
+    "description": "Teen line ka lockup \u2014 italic aur serif ka mel."
+  },
+  {
+    "id": "welcome-stack",
+    "name": "Hero Entry",
+    "tag": "SIGNATURE \u00b7 3-TIER LOCKUP",
+    "accent": "#9de52e",
+    "description": "Hero word centered & glowing, with top-left & bottom-right words."
+  },
+  {
+    "id": "karaoke",
+    "name": "Sur Taal",
+    "tag": "SMOOTH \u00b7 HIGHLIGHT",
+    "accent": "#c2a1ff",
+    "description": "Har syllable ke saath smooth flowing highlight."
+  },
+  {
+    "id": "editorial",
+    "name": "Shayari",
+    "tag": "CLEAN \u00b7 RISE",
+    "accent": "#f6d595",
+    "description": "Kam shabdon mein gehra aur shaandaar asar."
+  },
+  {
+    "id": "bounce",
+    "name": "Chulbul Pop",
+    "tag": "PLAYFUL \u00b7 SPRING",
+    "accent": "#ff8bb5",
+    "description": "Words ko thoda playful, bubbly bounce do."
+  },
+  {
+    "id": "kinetic",
+    "name": "Bawaal",
+    "tag": "ONE WORD \u00b7 ZOOM",
+    "accent": "#ff825c",
+    "description": "Har ek lafz ka apna full-screen hero moment."
+  },
+  {
+    "id": "neon",
+    "name": "Chamkeela",
+    "tag": "GLOW \u00b7 PULSE",
+    "accent": "#72e6ff",
+    "description": "Raat ke andhere mein bhi chamakne wala glow."
+  },
+  {
+    "id": "glow-script",
+    "name": "Jadoo Script",
+    "tag": "SCRIPT \u00b7 GLOW",
+    "accent": "#51e6b0",
+    "description": "Rang-birangi handwritten script ka glowing touch."
+  },
+  {
+    "id": "scribble",
+    "name": "Golmaal Orbit",
+    "tag": "DOODLE \u00b7 MOTION",
+    "accent": "#baff4a",
+    "description": "Khaas shabd ke ird-gird hand-drawn ghera."
+  },
+  {
+    "id": "soft-focus",
+    "name": "Sukoon",
+    "tag": "SERIF \u00b7 LIGHT",
+    "accent": "#f0f0f0",
+    "description": "Quiet serif style ek soft, elegant spotlight ke saath."
+  },
+  {
+    "id": "double-trouble",
+    "name": "Jodi No. 1",
+    "tag": "DOUBLE \u00b7 OUTLINE",
+    "accent": "#ff3e36",
+    "description": "Double weight typography, solid punchy rhythm."
+  },
+  {
+    "id": "bubble-highlight",
+    "name": "Tashan Highlight",
+    "tag": "PILL \u00b7 COLOR",
+    "accent": "#54be91",
+    "description": "Key words ko soft colored pill mein highlight karo."
+  },
+  {
+    "id": "mumbai",
+    "name": "Bambaiya",
+    "tag": "CONDENSED \u00b7 SCRIPT",
+    "accent": "#f3f52f",
+    "description": "Bold condensed caps aur street-style handwritten line."
+  },
+  {
+    "id": "editing-school",
+    "name": "Ustaad Box",
+    "tag": "BOX \u00b7 POP",
+    "accent": "#ff9000",
+    "description": "Ek lafz, ek bright popping badge card."
+  },
+  {
+    "id": "kalakar-shadow",
+    "name": "Rangeela Kalakar",
+    "tag": "DEPTH \u00b7 SHADOW",
+    "accent": "#ff9d00",
+    "description": "Warm drop shadow ke saath layered kalakar typography."
+  },
+  {
+    "id": "pop-up",
+    "name": "Patakha Pop",
+    "tag": "WORD \u00b7 FLASH",
+    "accent": "#16d943",
+    "description": "Emphasized shabd seedha screen pe jump karega."
+  }
+]

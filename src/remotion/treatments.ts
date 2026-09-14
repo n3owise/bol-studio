@@ -7,7 +7,7 @@
  * this table; the layout components read it and nothing else.
  */
 export type CaptionLayout = 'stack' | 'rows' | 'single';
-export type FontRole = 'display' | 'serif' | 'condensed';
+export type FontRole = 'display' | 'serif' | 'condensed' | 'montserrat' | 'stix';
 
 export type Treatment = {
   layout: CaptionLayout;
@@ -19,6 +19,15 @@ export type Treatment = {
   heroFont: FontRole;
   subFont: FontRole;
   heroItalic?: boolean;
+  /** Italic on the supporting rows, as composition 2's outer lines are. */
+  subItalic?: boolean;
+  /**
+   * Per-row weight overrides for the stacked lockup. Composition 2 sets its
+   * three lines to ExtraBold / SemiBold serif / SemiBold, all at one size — the
+   * contrast is weight and face, not scale, so `subWeight` alone cannot express it.
+   */
+  prefixWeight?: number;
+  suffixWeight?: number;
   /** Uppercase the hero word regardless of the global uppercase setting. */
   uppercaseHero?: boolean;
   /** Glow radius as a fraction of the hero font size. */
@@ -35,6 +44,26 @@ export type Treatment = {
   jitter?: boolean;
   /** A single hop on the word currently being spoken. */
   hop?: boolean;
+  /**
+   * Vertical white-to-accent ramp on the hero, matching the Gradient Ramp
+   * effect the Premiere presets use. Supporting words never take it — that is
+   * what keeps the hero readable as the hero.
+   */
+  gradientRamp?: boolean;
+  /**
+   * Which entrance the words use. The nine Premiere presets share one look —
+   * Montserrat Black, Color Control, Glow, Gradient Ramp — and differ only in
+   * how the type arrives, so the motion is the whole distinction between them.
+   */
+  enter?:
+    | 'rise' | 'pop' | 'drop' | 'spread' | 'swing' | 'wipe' | 'flip' | 'slide' | 'cascade'
+    | 'typewriter' | 'zoom' | 'blurIn' | 'stamp' | 'flicker';
+  /**
+   * How words leave. The page already fades out; this adds the movement, so a
+   * caption exits with the same intent it entered with instead of every
+   * template dissolving the same way.
+   */
+  exit?: 'fade' | 'fall' | 'lift' | 'shrink' | 'blur' | 'wipe';
 };
 
 const base: Treatment = {
@@ -52,24 +81,91 @@ const base: Treatment = {
 
 export const treatments: Record<string, Treatment> = {
   'welcome-stack': {
-    ...base, layout: 'stack', heroScale: 1.85, subScale: 0.88,
+    ...base, enter: 'rise', exit: 'lift', layout: 'stack', heroScale: 1.85, subScale: 0.88,
     heroWeight: 900, uppercaseHero: true, glow: 0.55, shadow: 'soft',
   },
-  karaoke: { ...base, pill: 'active', heroScale: 1.18 },
-  editorial: { ...base, heroFont: 'serif', heroItalic: true, heroScale: 1.32, heroWeight: 500, outline: false, shadow: 'soft' },
-  bounce: { ...base, pill: 'active', heroScale: 1.24, hop: true },
-  kinetic: { ...base, layout: 'single', heroScale: 2.1, subScale: 2.1, heroWeight: 900, uppercaseHero: true, glow: 0.35 },
-  neon: { ...base, glow: 0.8, heroScale: 1.3, outline: false, shadow: 'none' },
-  'glow-script': { ...base, heroFont: 'serif', heroItalic: true, glow: 0.7, heroScale: 1.36, heroWeight: 500, outline: false },
-  scribble: { ...base, ring: 'dashed', heroScale: 1.3 },
-  'soft-focus': { ...base, heroFont: 'serif', heroItalic: true, heroScale: 1.22, heroWeight: 400, subWeight: 400, outline: false, shadow: 'soft' },
-  'double-trouble': { ...base, heroFont: 'condensed', subFont: 'condensed', ring: 'solid', heroScale: 1.3, uppercaseHero: true },
-  'bubble-highlight': { ...base, pill: 'hero', heroScale: 1.2 },
-  mumbai: { ...base, layout: 'stack', heroFont: 'condensed', heroScale: 1.7, subScale: 0.86, uppercaseHero: true, heroWeight: 900, shadow: 'hard' },
-  'editing-school': { ...base, pill: 'hero', heroScale: 1.32, uppercaseHero: true },
-  'kalakar-shadow': { ...base, layout: 'stack', heroScale: 1.75, subScale: 0.88, shadow: 'hard', heroWeight: 900, uppercaseHero: true },
-  'pop-up': { ...base, heroScale: 1.34, jitter: true, uppercaseHero: true },
+  karaoke: { ...base, enter: 'rise', exit: 'fade', pill: 'active', heroScale: 1.18 },
+  editorial: { ...base, enter: 'typewriter', exit: 'blur', heroFont: 'serif', heroItalic: true, heroScale: 1.32, heroWeight: 500, outline: false, shadow: 'soft' },
+  bounce: { ...base, enter: 'pop', exit: 'shrink', pill: 'active', heroScale: 1.24, hop: true },
+  kinetic: { ...base, enter: 'zoom', exit: 'shrink', layout: 'single', heroScale: 2.1, subScale: 2.1, heroWeight: 900, uppercaseHero: true, glow: 0.35 },
+  neon: { ...base, enter: 'flicker', exit: 'blur', glow: 0.8, heroScale: 1.3, outline: false, shadow: 'none' },
+  'glow-script': { ...base, enter: 'spread', exit: 'lift', heroFont: 'serif', heroItalic: true, glow: 0.7, heroScale: 1.36, heroWeight: 500, outline: false },
+  scribble: { ...base, enter: 'swing', exit: 'fall', ring: 'dashed', heroScale: 1.3 },
+  'soft-focus': { ...base, enter: 'blurIn', exit: 'lift', heroFont: 'serif', heroItalic: true, heroScale: 1.22, heroWeight: 400, subWeight: 400, outline: false, shadow: 'soft' },
+  'double-trouble': { ...base, enter: 'stamp', exit: 'shrink', heroFont: 'condensed', subFont: 'condensed', ring: 'solid', heroScale: 1.3, uppercaseHero: true },
+  'bubble-highlight': { ...base, enter: 'drop', exit: 'fall', pill: 'hero', heroScale: 1.2 },
+  mumbai: { ...base, enter: 'slide', exit: 'wipe', layout: 'stack', heroFont: 'condensed', heroScale: 1.7, subScale: 0.86, uppercaseHero: true, heroWeight: 900, shadow: 'hard' },
+  'editing-school': { ...base, enter: 'stamp', exit: 'shrink', pill: 'hero', heroScale: 1.32, uppercaseHero: true },
+  'kalakar-shadow': { ...base, enter: 'drop', exit: 'fall', layout: 'stack', heroScale: 1.75, subScale: 0.88, shadow: 'hard', heroWeight: 900, uppercaseHero: true },
+  'pop-up': { ...base, enter: 'pop', exit: 'fall', heroScale: 1.34, jitter: true, uppercaseHero: true },
 };
+
+/**
+ * The nine Premiere text presets.
+ *
+ * Read out of the .mogrt files: every one is a single Montserrat Black text
+ * layer with the same three effects — Color Control, Glow, Gradient Ramp — at
+ * 209/246/282pt on a 3840x2160 comp. Only the animation differs between them,
+ * so they share this base and override `enter`.
+ */
+const mogrtBase: Treatment = {
+  ...base,
+  layout: 'rows',
+  heroFont: 'montserrat',
+  subFont: 'montserrat',
+  heroScale: 1.45,
+  subScale: 1.0,
+  heroWeight: 900,
+  subWeight: 800,
+  uppercaseHero: true,
+  glow: 0.7,
+  gradientRamp: true,
+  shadow: 'soft',
+  outline: false,
+};
+
+const mogrtTreatments: Record<string, Treatment> = {
+  'mogrt-rise': { ...mogrtBase, enter: 'rise', exit: 'lift' },
+  'mogrt-pop': { ...mogrtBase, enter: 'pop', exit: 'shrink', heroScale: 1.55 },
+  'mogrt-drop': { ...mogrtBase, enter: 'drop', exit: 'fall' },
+  'mogrt-spread': { ...mogrtBase, enter: 'spread', exit: 'blur', heroScale: 1.35 },
+  'mogrt-swing': { ...mogrtBase, enter: 'swing', exit: 'fall' },
+  // Parda reveals left to right on the way in. Wiping back out again reads as
+  // the reveal running in reverse, so it just fades — no exit movement.
+  'mogrt-wipe': { ...mogrtBase, enter: 'wipe', exit: 'fade' },
+  'mogrt-flip': { ...mogrtBase, enter: 'flip', exit: 'shrink' },
+  'mogrt-slide': { ...mogrtBase, enter: 'slide', exit: 'wipe' },
+  // The one multi-line preset: three text fields in Premiere, so a three-tier
+  // lockup here, and the only one that mixes italic with a serif accent.
+  /**
+   * Premiere composition 2, read from its After Effects project:
+   *   line 1  Montserrat ExtraBold Italic
+   *   line 2  STIX Two Text SemiBold   <- a serif, and the coloured line
+   *   line 3  Montserrat SemiBold Italic
+   * All three at 282pt, so the lines are the same size and the contrast comes
+   * entirely from face, weight and colour. Three Color Control effects drive
+   * the three lines independently, which is what `accentSecondary` restores.
+   */
+  'mogrt-triple': {
+    ...mogrtBase,
+    layout: 'stack',
+    enter: 'cascade',
+    exit: 'lift',
+    heroFont: 'stix',
+    heroWeight: 600,
+    heroItalic: false,
+    uppercaseHero: false,
+    heroScale: 1.5,
+    subFont: 'montserrat',
+    subScale: 1.5,
+    subItalic: true,
+    prefixWeight: 800,
+    suffixWeight: 600,
+    glow: 0.45,
+  },
+};
+
+Object.assign(treatments, mogrtTreatments);
 
 export const treatmentFor = (template: string): Treatment => treatments[template] ?? base;
 
@@ -81,4 +177,5 @@ export const treatmentFor = (template: string): Treatment => treatments[template
 export const SUPPORTED_TREATMENT_KEYS = [
   'layout', 'heroScale', 'subScale', 'heroWeight', 'subWeight', 'heroFont', 'subFont',
   'heroItalic', 'uppercaseHero', 'glow', 'shadow', 'outline', 'pill', 'ring', 'jitter', 'hop',
+  'gradientRamp', 'enter', 'exit',
 ] as const;

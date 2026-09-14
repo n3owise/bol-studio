@@ -115,6 +115,7 @@ export function isSecondaryEmphasis(word: Word): boolean {
  * more: the three-tier lockup needs words above *and* below its hero.
  */
 function pickHeroes(words: Word[]): number[] {
+  if (!words.length) return [];
   const explicit = words.flatMap((w, i) => (w.spotlight ? [i] : []));
   if (explicit.length) return explicit;
 
@@ -124,7 +125,7 @@ function pickHeroes(words: Word[]): number[] {
     const score = scoreOf(word);
     if (score > best) { best = score; index = i; }
   });
-  if (index === -1 || best < 0.55) return [];
+  if (index === -1) index = Math.floor(words.length / 2);
   return [words.length >= 3 ? Math.max(1, Math.min(index, words.length - 2)) : index];
 }
 

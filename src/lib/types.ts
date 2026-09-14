@@ -5,12 +5,18 @@ export type Settings = {
   accent: string;
   fontSize: number;
   position: number;
+  positionX?: number;
   wordsPerLine: number;
   uppercase: boolean;
   motion: number;
   aspect: 'original' | '9:16' | '1:1' | '16:9';
   fontFamily?: string;
   textColor?: string;
+  /**
+   * Third line colour for stacked lockups. Premiere composition 2 drives its
+   * three lines from three separate Color Control effects; this is the third.
+   */
+  accentSecondary?: string;
   backgroundColor?: string;
   backgroundOpacity?: number;
   strokeColor?: string;
@@ -18,7 +24,7 @@ export type Settings = {
   align?: 'left' | 'center' | 'right';
   showSafeArea?: boolean;
 };
-export type ExportJob = { id: string; mode: string; status: string; progress: number; message: string; filename?: string };
+export type ExportJob = { id: string; mode: string; resolution?: number; fps?: number; status: string; progress: number; message: string; filename?: string };
 export type GreenScreenSettings = {
   enabled: boolean;
   color: string;

@@ -11,7 +11,11 @@ import { drawTextElements } from '../src/lib/text.ts';
 import type { Project, Settings, Word } from '../src/lib/types.ts';
 
 const require = createRequire(import.meta.url);
-/** Captions enter word by word; at 30 fps a 0.14s entrance is four frames and reads as stepped. */
+/**
+ * Default and reference frame rate. Callers may pick 24/25/30/50/60, but 60 is
+ * the default because captions enter word by word: a 0.42s preset entrance is
+ * 25 frames at 60 and 12 at 30, where it reads as stepped.
+ */
 const FPS = 60;
 const BACKGROUND = '#111315';
 export type RenderMode = 'burned' | 'green';
@@ -25,6 +29,10 @@ export function registerRenderFonts() {
     ['@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-700-normal.woff', 'Noto Sans Devanagari'],
     ['@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff', 'Space Grotesk'],
     ['@fontsource/oswald/files/oswald-latin-700-normal.woff', 'Oswald'],
+    ['@fontsource/montserrat/files/montserrat-latin-900-normal.woff', 'Montserrat'],
+    ['@fontsource/stix-two-text/files/stix-two-text-latin-600-normal.woff', 'STIX Two Text'],
+    ['@fontsource/montserrat/files/montserrat-latin-900-normal.woff', 'Montserrat'],
+    ['@fontsource/montserrat/files/montserrat-latin-800-normal.woff', 'Montserrat'],
   ];
   for (const [file, family] of fonts) {
     try {
@@ -64,6 +72,8 @@ export function validateRenderProject(value: unknown): Project {
   if (!record(s) || !templates.some(t => t.id === s.template)
     || typeof s.accent !== 'string' || !/^#[\da-f]{6}$/i.test(s.accent)
     || !finiteBetween(s.fontSize, 12, 160) || !finiteBetween(s.position, 0, 100)
+    || (s.positionX !== undefined && !finiteBetween(s.positionX, 0, 100))
+    || (s.align !== undefined && !['left', 'center', 'right'].includes(String(s.align)))
     || !finiteBetween(s.wordsPerLine, 1, 12) || !Number.isInteger(s.wordsPerLine)
     || typeof s.uppercase !== 'boolean' || !finiteBetween(s.motion, 0, 3)
     || !['original', '9:16', '1:1', '16:9'].includes(String(s.aspect))) {
@@ -88,18 +98,18 @@ export function validateRenderProject(value: unknown): Project {
   return value as unknown as Project;
 }
 
-export function ffmpegArguments(project: Project, input: string, output: string, mode: RenderMode, resolution: number): string[] {
+export function ffmpegArguments(project: Project, input: string, output: string, mode: RenderMode, resolution: number, fps: number = 60): string[] {
   const { width, height } = dimensions(project.settings, project.width, project.height, resolution);
-  const frameCount = Math.ceil(project.duration * FPS);
+  const frameCount = Math.ceil(project.duration * fps);
   const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
     '-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', `${width}x${height}`,
-    '-framerate', String(FPS), '-i', 'pipe:0'];
+    '-framerate', String(fps), '-i', 'pipe:0'];
   if (mode === 'burned') {
     args.push('-i', input);
     if (project.mediaType.startsWith('video') && project.videoEnabled !== false) {
       // Match the preview's contain behavior, preserving the complete source image.
       args.push('-filter_complex',
-        `[1:v:0]setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${BACKGROUND},fps=${FPS},tpad=stop_mode=clone:stop_duration=1[base];[base][0:v:0]overlay=shortest=1:format=auto,format=yuv420p[out]`,
+        `[1:v:0]setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${BACKGROUND},fps=${fps},tpad=stop_mode=clone:stop_duration=1[base];[base][0:v:0]overlay=shortest=1:format=auto,format=yuv420p[out]`,
         '-map', '[out]');
     } else {
       args.push('-map', '0:v:0');
@@ -109,19 +119,25 @@ export function ffmpegArguments(project: Project, input: string, output: string,
     args.push('-map', '0:v:0', '-an');
   }
   args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
-    '-r', String(FPS), '-frames:v', String(frameCount), '-t', String(frameCount / FPS),
+    '-r', String(fps), '-frames:v', String(frameCount), '-t', String(frameCount / fps),
     '-movflags', '+faststart', '-f', 'mp4', output);
   return args;
 }
 
 export async function renderCaptionVideo(options: {
-  project: Project; input: string; output: string; mode: RenderMode; resolution: number;
+  project: Project; input: string; output: string; mode: RenderMode; resolution: number; fps?: number;
   onProgress?: (progress: number) => void;
 }) {
   const project = validateRenderProject(options.project);
   const { mode, resolution } = options;
+  const fps = options.fps ?? 60;
   if (mode !== 'burned' && mode !== 'green') throw new Error('Export mode must be burned or green.');
-  if (resolution !== 720 && resolution !== 1080) throw new Error('Export resolution must be 720 or 1080.');
+  if (resolution !== 720 && resolution !== 1080 && resolution !== 2160) {
+    throw new Error('Export resolution must be 720, 1080, or 2160.');
+  }
+  if (![24, 25, 30, 50, 60].includes(fps)) {
+    throw new Error('Export frame rate must be 24, 25, 30, 50, or 60 fps.');
+  }
   if (mode === 'green' && /^#00ff00$/i.test(project.settings.accent)) {
     throw new Error('Choose a caption accent other than #00ff00 before exporting a green screen video.');
   }
@@ -133,8 +149,8 @@ export async function renderCaptionVideo(options: {
   const { width, height } = dimensions(project.settings, project.width, project.height, resolution);
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  const frameCount = Math.ceil(project.duration * FPS);
-  const ffmpeg = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArguments(project, input, output, mode, resolution), {
+  const frameCount = Math.ceil(project.duration * fps);
+  const ffmpeg = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArguments(project, input, output, mode, resolution, fps), {
     stdio: ['pipe', 'ignore', 'pipe'],
   });
   let errorOutput = '';
@@ -185,13 +201,13 @@ export async function renderCaptionVideo(options: {
     await streamCaptionFrames({
       words: project.words as Word[],
       settings: project.settings as Settings,
-      width, height, fps: FPS, frameCount,
+      width, height, fps, frameCount,
       onFrame: async (frame, captionPng) => {
         if (processError || ffmpeg.exitCode !== null || ffmpeg.signalCode !== null) {
           throw processError ?? new Error('FFmpeg stopped before all caption frames were rendered.');
         }
         // Every frame uses an explicit media timestamp, independent of render speed.
-        const currentTime = frame / FPS;
+        const currentTime = frame / fps;
         ctx.clearRect(0, 0, width, height);
 
         // Draw placed visual elements on canvas
@@ -245,12 +261,17 @@ export async function renderCaptionVideo(options: {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length !== 5) throw new Error('Usage: node --import tsx server/render.ts SNAPSHOT_JSON INPUT_MEDIA OUTPUT_MP4 burned|green 720|1080');
-  const [snapshot, input, output, mode, resolution] = args;
+  if (args.length !== 5 && args.length !== 6) {
+    throw new Error('Usage: node --import tsx server/render.ts SNAPSHOT_JSON INPUT_MEDIA OUTPUT_MP4 burned|green 720|1080|2160 [fps]');
+  }
+  const [snapshot, input, output, mode, resolution, fpsStr] = args;
   if (resolve(snapshot) === resolve(output)) throw new Error('The output cannot overwrite the project snapshot.');
   const project = validateRenderProject(JSON.parse(await readFile(snapshot, 'utf8')));
-  await renderCaptionVideo({ project, input, output, mode: mode as RenderMode, resolution: Number(resolution),
-    onProgress: value => process.stdout.write(`${JSON.stringify({ progress: value })}\n`) });
+  const fps = fpsStr ? Number(fpsStr) : 60;
+  await renderCaptionVideo({
+    project, input, output, mode: mode as RenderMode, resolution: Number(resolution), fps,
+    onProgress: value => process.stdout.write(`${JSON.stringify({ progress: value })}\n`),
+  });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

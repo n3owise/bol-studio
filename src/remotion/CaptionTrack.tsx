@@ -3,12 +3,18 @@ import { AbsoluteFill, Sequence, continueRender, delayRender, useVideoConfig } f
 import { buildPages } from '../lib/pages';
 import { CaptionPage } from './CaptionPage';
 import { defaults, type Settings, type Word } from '../lib/types';
+import { treatmentFor } from './treatments';
 
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/700.css';
 import '@fontsource/space-grotesk/700.css';
 import '@fontsource/oswald/700.css';
 import '@fontsource/noto-sans-devanagari/700.css';
+import '@fontsource/montserrat/800.css';
+import '@fontsource/montserrat/900.css';
+import '@fontsource/montserrat/600-italic.css';
+import '@fontsource/montserrat/800-italic.css';
+import '@fontsource/stix-two-text/600.css';
 
 export type CaptionTrackProps = {
   words: Word[];
@@ -32,7 +38,7 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({ words, settings, bac
   useFontsReady();
 
   const resolved: Settings = { ...defaults, ...settings };
-  const perPage = resolved.template === 'kinetic' ? 1 : resolved.wordsPerLine;
+  const perPage = treatmentFor(resolved.template).layout === 'single' ? 1 : resolved.wordsPerLine;
   const pages = useMemo(() => buildPages(words ?? [], perPage), [words, perPage]);
 
   return (

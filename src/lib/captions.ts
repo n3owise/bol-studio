@@ -1,21 +1,12 @@
+import captionTemplates from './caption-templates.json';
 import type { Settings, Word } from './types';
-export const templates = [
-  { id: 'welcome-stack', name: 'Hero Entry', tag: 'SIGNATURE · 3-TIER LOCKUP', accent: '#9de52e', description: 'Hero word centered & glowing, with top-left & bottom-right words.' },
-  { id: 'karaoke', name: 'Sur Taal', tag: 'SMOOTH · HIGHLIGHT', accent: '#c2a1ff', description: 'Har syllable ke saath smooth flowing highlight.' },
-  { id: 'editorial', name: 'Shayari', tag: 'CLEAN · RISE', accent: '#f6d595', description: 'Kam shabdon mein gehra aur shaandaar asar.' },
-  { id: 'bounce', name: 'Chulbul Pop', tag: 'PLAYFUL · SPRING', accent: '#ff8bb5', description: 'Words ko thoda playful, bubbly bounce do.' },
-  { id: 'kinetic', name: 'Bawaal', tag: 'ONE WORD · ZOOM', accent: '#ff825c', description: 'Har ek lafz ka apna full-screen hero moment.' },
-  { id: 'neon', name: 'Chamkeela', tag: 'GLOW · PULSE', accent: '#72e6ff', description: 'Raat ke andhere mein bhi chamakne wala glow.' },
-  { id: 'glow-script', name: 'Jadoo Script', tag: 'SCRIPT · GLOW', accent: '#51e6b0', description: 'Rang-birangi handwritten script ka glowing touch.' },
-  { id: 'scribble', name: 'Golmaal Orbit', tag: 'DOODLE · MOTION', accent: '#baff4a', description: 'Khaas shabd ke ird-gird hand-drawn ghera.' },
-  { id: 'soft-focus', name: 'Sukoon', tag: 'SERIF · LIGHT', accent: '#f0f0f0', description: 'Quiet serif style ek soft, elegant spotlight ke saath.' },
-  { id: 'double-trouble', name: 'Jodi No. 1', tag: 'DOUBLE · OUTLINE', accent: '#ff3e36', description: 'Double weight typography, solid punchy rhythm.' },
-  { id: 'bubble-highlight', name: 'Tashan Highlight', tag: 'PILL · COLOR', accent: '#54be91', description: 'Key words ko soft colored pill mein highlight karo.' },
-  { id: 'mumbai', name: 'Bambaiya', tag: 'CONDENSED · SCRIPT', accent: '#f3f52f', description: 'Bold condensed caps aur street-style handwritten line.' },
-  { id: 'editing-school', name: 'Ustaad Box', tag: 'BOX · POP', accent: '#ff9000', description: 'Ek lafz, ek bright popping badge card.' },
-  { id: 'kalakar-shadow', name: 'Rangeela Kalakar', tag: 'DEPTH · SHADOW', accent: '#ff9d00', description: 'Warm drop shadow ke saath layered kalakar typography.' },
-  { id: 'pop-up', name: 'Patakha Pop', tag: 'WORD · FLASH', accent: '#16d943', description: 'Emphasized shabd seedha screen pe jump karega.' },
-];
+/**
+ * The caption picker, shared with the backend: server/app.py validates the
+ * template field against this same file. It used to be a literal here and a
+ * hardcoded `Literal[...]` in app.py, so adding a template meant editing two
+ * languages and forgetting one rejected every save.
+ */
+export const templates = captionTemplates as { id: string; name: string; tag: string; accent: string; description: string }[];
 /**
  * Re-exported so existing editor imports keep working. The implementation lives
  * in ./pages, which is also what the Remotion composition and the exporter use —

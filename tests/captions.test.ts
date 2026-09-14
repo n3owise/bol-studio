@@ -10,7 +10,7 @@ import {
 import { buildPages, heroRun } from '../src/lib/pages.ts';
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
-import { ffmpegArguments, registerRenderFonts, validateRenderProject } from '../server/render.ts';
+import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
 import {
   createDefaultTextElement,
   drawTextElements,
@@ -648,8 +648,15 @@ test('every template resolves to a layout treatment', () => {
   for (const t of templates) {
     const treatment = treatmentFor(t.id);
     assert.ok(['stack', 'rows', 'single'].includes(treatment.layout), `${t.id} has a layout`);
-    assert.ok(treatment.heroScale > treatment.subScale || treatment.layout === 'single',
-      `${t.id} renders its hero larger than supporting words`);
+    const distinguished = treatment.heroScale > treatment.subScale
+      || treatment.layout === 'single'
+      || treatment.heroFont !== treatment.subFont
+      || treatment.heroWeight !== treatment.subWeight
+      || !!treatment.pill || !!treatment.ring || !!treatment.gradientRamp;
+    assert.ok(distinguished,
+      `${t.id} sets its hero apart somehow — by size, face, weight, or a mark. `
+      + 'Premiere composition 2 keeps all three lines at one size and carries the '
+      + 'contrast in face and colour, so size alone is not the test.');
   }
 });
 
@@ -740,4 +747,185 @@ test('every template in the picker has its own treatment, not the fallback', () 
     assert.ok(Object.prototype.hasOwnProperty.call(treatments, t.id),
       `${t.id} has an explicit treatment`);
   }
+});
+
+test('export supports 4K (2160p) resolution and custom frame rates (24, 25, 30, 50, 60 fps)', () => {
+  const p = project([word('test', 0, 1)]);
+  
+  // Test 4K landscape (16:9 source): 3840x2160
+  const dim4kLandscape = dimensions(p.settings, 1280, 720, 2160);
+  assert.equal(dim4kLandscape.width, 3840);
+  assert.equal(dim4kLandscape.height, 2160);
+
+  // Test 4K portrait (9:16 source): 2160x3840
+  const dim4kPortrait = dimensions(p.settings, 720, 1280, 2160);
+  assert.equal(dim4kPortrait.width, 2160);
+  assert.equal(dim4kPortrait.height, 3840);
+
+  // Test ffmpeg arguments with 4K and 24 fps on landscape project
+  const args24 = ffmpegArguments(p, 'in.mp4', 'out.mp4', 'burned', 2160, 24);
+  assert.equal(args24[args24.indexOf('-r') + 1], '24');
+  assert.equal(args24[args24.indexOf('-framerate') + 1], '24');
+  assert.equal(args24[args24.indexOf('-video_size') + 1], '3840x2160');
+  assert.ok(args24.some(arg => arg.includes('fps=24')));
+
+  // Test ffmpeg arguments with 50 fps
+  const args50 = ffmpegArguments(p, 'in.mp4', 'out.mp4', 'burned', 1080, 50);
+  assert.equal(args50[args50.indexOf('-r') + 1], '50');
+  assert.equal(args50[args50.indexOf('-framerate') + 1], '50');
+  assert.ok(args50.some(arg => arg.includes('fps=50')));
+});
+
+test('renderCaptionVideo rejects unsupported resolutions and frame rates', async () => {
+  const p = project([word('hi', 0, 1)]);
+  await assert.rejects(
+    () => renderCaptionVideo({ project: p, input: 'in.mp4', output: 'out.mp4', mode: 'burned', resolution: 480, fps: 30 }),
+    /Export resolution must be 720, 1080, or 2160/
+  );
+  await assert.rejects(
+    () => renderCaptionVideo({ project: p, input: 'in.mp4', output: 'out.mp4', mode: 'burned', resolution: 1080, fps: 45 }),
+    /Export frame rate must be 24, 25, 30, 50, or 60 fps/
+  );
+});
+
+test('validateRenderProject accepts positionX and align, rejects out-of-bound values', () => {
+  const base = project([word('test', 0, 1)]);
+  const valid = validateRenderProject({
+    ...base,
+    settings: { ...base.settings, positionX: 50, align: 'center' },
+  });
+  assert.equal(valid.settings.positionX, 50);
+  assert.equal(valid.settings.align, 'center');
+
+  assert.throws(() => validateRenderProject({
+    ...base,
+    settings: { ...base.settings, positionX: -10 },
+  }), /settings/);
+  assert.throws(() => validateRenderProject({
+    ...base,
+    settings: { ...base.settings, positionX: 150 },
+  }), /settings/);
+});
+
+test('buildPages guarantees a hero word on every non-empty page', () => {
+  const lowScoreWords = [
+    { ...word('a', 0, 0.3), emphasisScore: 0.1 },
+    { ...word('b', 0.3, 0.6), emphasisScore: 0.1 },
+    { ...word('c', 0.6, 0.9), emphasisScore: 0.1 },
+  ];
+  const pages = buildPages(lowScoreWords, 3);
+  assert.equal(pages.length, 1);
+  assert.ok(pages[0].heroIndex >= 0, 'every page has a hero word even if all scores are low');
+  assert.ok(pages[0].heroIndices.length >= 1);
+});
+
+
+
+// --- the Premiere preset family ---------------------------------------------
+
+test('every mogrt preset has its own entrance, since that is all that separates them', () => {
+  const mogrt = templates.filter(t => t.id.startsWith('mogrt-'));
+  assert.equal(mogrt.length, 9, 'all nine Premiere presets are registered');
+  const enters = mogrt.map(t => treatmentFor(t.id).enter);
+  assert.ok(enters.every(Boolean), 'each declares an entrance variant');
+  assert.equal(new Set(enters).size, mogrt.length,
+    'no two presets share an entrance — they share everything else, so identical motion would make them the same template');
+});
+
+test('the mogrt family keeps the look the .mogrt files actually specify', () => {
+  for (const t of templates.filter(x => x.id.startsWith('mogrt-'))) {
+    const tr = treatmentFor(t.id);
+    // Read from each .mogrt's After Effects project: eight presets are a single
+    // Montserrat Black layer; composition 2 is three lines whose middle one is
+    // STIX Two Text SemiBold.
+    if (t.id === 'mogrt-triple') {
+      assert.equal(tr.heroFont, 'stix', 'composition 2 sets its middle line in STIX Two Text');
+      assert.equal(tr.heroWeight, 600, 'at SemiBold');
+      assert.equal(tr.subFont, 'montserrat', 'with Montserrat on the outer lines');
+      assert.equal(tr.prefixWeight, 800, 'line 1 is ExtraBold Italic');
+      assert.equal(tr.suffixWeight, 600, 'line 3 is SemiBold Italic');
+      assert.equal(tr.heroScale, tr.subScale, 'all three lines share one size, as in the AE comp');
+    } else {
+      assert.equal(tr.heroFont, 'montserrat', `${t.id} uses Montserrat, as the AE text layer does`);
+      assert.equal(tr.heroWeight, 900, `${t.id} is Black weight`);
+    }
+    assert.ok(tr.gradientRamp, `${t.id} carries the Gradient Ramp effect`);
+    assert.ok((tr.glow ?? 0) > 0, `${t.id} carries the Glow effect`);
+  }
+});
+
+test('gradient and glow stay on the hero so supporting words keep their own colour', () => {
+  const source = readFileSync(new URL('../src/remotion/CaptionWord.tsx', import.meta.url), 'utf8');
+  const gradient = source.match(/const isGradient = ([^;]+);/)?.[1] ?? '';
+  const glow = source.match(/const glow = ([^\n]+)/)?.[1] ?? '';
+  assert.ok(/isHero/.test(gradient),
+    'the ramp is gated on the hero — applying it to every word flattens a caption to one colour');
+  assert.ok(/isHero/.test(glow), 'the glow is gated on the hero too');
+});
+
+test('the hero colour and the supporting-word colour are separate settings', () => {
+  const page = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
+  assert.ok(/accented\s*\n?\s*\? accent/.test(page),
+    'an accented word takes the accent and nothing else decides its colour');
+  assert.ok(/settings\.accentSecondary/.test(page),
+    'the third line of a stacked lockup can carry its own colour, as composition 2 does');
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(!/textColor: color, accent: color/.test(editor),
+    'the colour picker must not write the same value into both fields');
+});
+
+test('exports default to 60fps, with lower rates available on request', () => {
+  const dflt = ffmpegArguments(project([word('a', 0, .5)]), 'in.mp4', 'out.mp4', 'burned', 720);
+  assert.equal(dflt[dflt.indexOf('-r') + 1], '60', 'no explicit rate means 60');
+  const chosen = ffmpegArguments(project([word('a', 0, .5)]), 'in.mp4', 'out.mp4', 'burned', 720, 30);
+  assert.equal(chosen[chosen.indexOf('-r') + 1], '30', 'an explicit rate is still honoured');
+});
+
+test('every template has both an entrance and an exit', () => {
+  for (const t of templates) {
+    const tr = treatmentFor(t.id);
+    assert.ok(tr.enter, `${t.id} declares how its words arrive`);
+    assert.ok(tr.exit, `${t.id} declares how they leave — captions used to all dissolve identically`);
+  }
+});
+
+test('entrances are varied across the picker, not one motion reused everywhere', () => {
+  const enters = templates.map(t => treatmentFor(t.id).enter);
+  assert.ok(new Set(enters).size >= 10,
+    `only ${new Set(enters).size} distinct entrances across ${templates.length} templates`);
+  const exits = templates.map(t => treatmentFor(t.id).exit);
+  assert.ok(new Set(exits).size >= 5, `only ${new Set(exits).size} distinct exits`);
+});
+
+test('the Premiere presets sort to the top of the picker', () => {
+  const firstNine = templates.slice(0, 9).map(t => t.id);
+  assert.ok(firstNine.every(id => id.startsWith('mogrt-')),
+    `the nine Premiere presets lead the list, got ${firstNine.join(', ')}`);
+  assert.ok(!templates.slice(9).some(id => id.id.startsWith('mogrt-')), 'and none trail behind');
+});
+
+test('every font role can render Devanagari', () => {
+  const source = readFileSync(new URL('../src/remotion/theme.ts', import.meta.url), 'utf8');
+  const block = source.slice(source.indexOf('type: {'), source.indexOf('colors: {'));
+  for (const role of ['display', 'serif', 'condensed', 'montserrat', 'stix']) {
+    const stack = block.match(new RegExp(`${role}: '([^']+)'`))?.[1] ?? '';
+    assert.ok(/Devanagari/.test(stack),
+      `the ${role} stack falls back to Devanagari — Montserrat, Oswald and STIX carry none, `
+      + 'so Hindi silently drops to a system face at the wrong weight without it');
+  }
+});
+
+test('every colour role the renderer reads has a control in the editor', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  for (const [field, label] of [['textColor', 'TEXT COLOR'], ['accent', 'ACCENT'], ['accentSecondary', 'THIRD LINE']]) {
+    assert.ok(new RegExp(`updateSettings\\(\\{[^}]*${field}`).test(editor),
+      `${label} is settable from the app — ${field} was readable by the renderer and the API `
+      + 'but had no control, so it could only be set by hand-editing JSON');
+  }
+});
+
+test('the third-line control is limited to layouts that have a third line', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(/isStackedTemplate && \(/.test(editor), 'the third-line picker is gated on a stacked layout');
+  assert.ok(/layout === 'stack'/.test(editor), 'and that gate reads the treatment, not a hardcoded id list');
 });
