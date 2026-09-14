@@ -2521,6 +2521,13 @@ function App() {
         </div>
 
         <div className="rail-footer-group">
+          <div
+            className="rail-status-dot-wrap"
+            title={health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}
+            aria-label={health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}
+          >
+            <span className={health ? 'status-dot' : 'status-dot offline'} />
+          </div>
           <button
             type="button"
             className="rail-nav-item rail-help-btn"
@@ -3793,24 +3800,6 @@ function App() {
           </div>
         )}
       </main>
-      <footer className="statusbar">
-        <div
-          className="statusbar-env"
-          title={health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}
-          aria-label={health ? (import.meta.env.DEV ? 'Local workspace' : 'Cloud workspace (Apex)') : (import.meta.env.DEV ? 'Waiting for local worker' : 'Connecting to cloud AI worker...')}
-        >
-          <span className={health ? 'status-dot' : 'status-dot offline'} />
-        </div>
-        <button
-          type="button"
-          className="statusbar-help-btn"
-          title="Studio guide"
-          aria-label="Studio guide"
-          onClick={() => setModal('help')}
-        >
-          <CircleHelp size={14} />
-        </button>
-      </footer>
     </div>
 
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}

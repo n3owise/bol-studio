@@ -694,9 +694,18 @@ html[data-magicui-theme-vt="active"]::view-transition-new(root) {
   flex-direction: column;
   align-items: center;
   width: 100%;
-  padding: 0 6px;
+  padding: 0 6px 8px;
   box-sizing: border-box;
   margin-top: auto;
+  gap: 4px;
+}
+
+.rail-status-dot-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  cursor: default;
 }
 
 .rail-nav-item {
