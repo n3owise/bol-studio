@@ -1,13 +1,24 @@
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
 import {
-  appendWord, autoDetectHighlights, dimensions, drawCaptions, ensureValidIntervals, getContrastColor,
+  appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor,
   groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
   replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
-import { defaults, type Word } from '../src/lib/types.ts';
+import { buildPages, heroRun } from '../src/lib/pages.ts';
+import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
+import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
 import { ffmpegArguments, registerRenderFonts, validateRenderProject } from '../server/render.ts';
+import {
+  createDefaultTextElement,
+  drawTextElements,
+  getAnimationTransform,
+  transformTextCase,
+  TEXT_PRESETS,
+  TEXT_TEMPLATES,
+} from '../src/lib/text.ts';
 
 const word = (text: string, start: number, end: number, emphasis = false): Word => ({
   id: `${text}-${start}`, text, original: text, start, end, confidence: .95, emphasis, emphasisScore: emphasis ? .9 : .2,
@@ -42,22 +53,6 @@ test('SRT and VTT timestamps carry milliseconds across minute and hour boundarie
   assert.equal(subtitleText([words[0]], 4, 'vtt'), 'WEBVTT\n\n00:01:00.000 --> 00:01:00.457\nHello\n');
 });
 
-test('the shared renderer draws emphasized words larger with bundled fonts', () => {
-  registerRenderFonts();
-  const canvas = createCanvas(720, 1280), ctx = canvas.getContext('2d');
-  const draws: { text: string; size: number }[] = [];
-  const fillText = ctx.fillText.bind(ctx);
-  ctx.fillText = (text, x, y, maxWidth) => {
-    draws.push({ text, size: Number(/([\d.]+)px/.exec(ctx.font)?.[1]) });
-    fillText(text, x, y, maxWidth);
-  };
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280,
-    [word('hello', 0, .5), word('दुनिया', .5, 1, true)], { ...defaults, motion: 0 }, .25);
-  assert.equal(draws.length, 2);
-  assert.ok(draws[1].size > draws[0].size * 1.25, 'The emphasized word should have a visibly larger font.');
-  assert.ok(canvas.data().some((value, index) => index % 4 === 3 && value > 0), 'A caption frame should contain visible pixels.');
-});
-
 test('viral spotlight and viral kinetic templates are removed', () => {
   assert.ok(!templates.some(t => t.id === 'spotlight' || t.id === 'punch'));
 });
@@ -75,55 +70,6 @@ test('groupWords splits groups on speech pauses >= 0.22s while keeping tight wor
   assert.deepEqual(groups[1].map(w => w.text), ['Word3', 'Word4']);
 });
 
-test('all templates render and captions clear between groups', () => {
-  registerRenderFonts();
-  const canvas = createCanvas(720, 1280), ctx = canvas.getContext('2d');
-  const words = [word('Apni', 1, 1.5), word('kahaani', 1.5, 2, true)];
-  for (const template of templates) {
-    drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, words, { ...defaults, template: template.id }, 1.2);
-    assert.ok(canvas.data().some((value, index) => index % 4 === 3 && value > 0), template.id);
-  }
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, words, defaults, .5);
-  assert.ok(canvas.data().every(value => value === 0));
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, words, defaults, 2.2);
-  assert.ok(canvas.data().every(value => value === 0));
-});
-
-test('the next caption starts immediately when consecutive groups meet', () => {
-  registerRenderFonts();
-  const ctx = createCanvas(720, 1280).getContext('2d');
-  const words = [word('Pehla', 0, .5), word('Doosra', .5, 1)];
-  const drawn: string[] = [];
-  const fillText = ctx.fillText.bind(ctx);
-  ctx.fillText = (text, x, y, maxWidth) => { drawn.push(text); fillText(text, x, y, maxWidth); };
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, words,
-    { ...defaults, template: 'kinetic', motion: 0 }, .5);
-  assert.deepEqual(drawn, ['Doosra']);
-});
-
-test('large multi-line phrases remain visible inside landscape safe margins', () => {
-  registerRenderFonts();
-  const width = 1280, height = 720;
-  const ctx = createCanvas(width, height).getContext('2d');
-  const words = Array.from({ length: 8 }, (_, i) => word(i % 2 ? 'खूबसूरती' : 'extraordinary', i * .4, (i + 1) * .4, true));
-  const bounds: { top: number; bottom: number }[] = [];
-  const fillText = ctx.fillText.bind(ctx);
-  ctx.fillText = (text, x, y, maxWidth) => {
-    const transform = ctx.getTransform(), metrics = ctx.measureText(text);
-    bounds.push({ top: transform.f - metrics.actualBoundingBoxAscent * transform.d,
-      bottom: transform.f + metrics.actualBoundingBoxDescent * transform.d });
-    fillText(text, x, y, maxWidth);
-  };
-  for (const position of [10, 90]) {
-    bounds.length = 0;
-    drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words,
-      { ...defaults, fontSize: 100, wordsPerLine: 8, position, motion: 2 }, .1);
-    assert.equal(bounds.length, 8);
-    assert.ok(bounds.every(b => b.top >= height * .06 && b.bottom <= height * .94),
-      `All eight words should stay within the frame at position ${position}: ${JSON.stringify(bounds)}`);
-  }
-});
-
 test('invalid export snapshots fail before allocating a video canvas', () => {
   assert.throws(() => validateRenderProject({ ...project(), duration: Infinity }), /duration/);
   assert.throws(() => validateRenderProject({ ...project(), width: 16000, height: 100 }), /aspect/);
@@ -134,7 +80,8 @@ test('invalid export snapshots fail before allocating a video canvas', () => {
 test('green exports are silent and finite; burned video retains optional audio and contains the source', () => {
   const green = ffmpegArguments(project(), '/tmp/source.mp4', '/tmp/green.mp4', 'green', 720);
   assert.ok(green.includes('-an'));
-  assert.equal(green[green.indexOf('-frames:v') + 1], '60');
+  // 2s of media at the 60fps caption rate.
+  assert.equal(green[green.indexOf('-frames:v') + 1], '120');
   assert.equal(green[green.indexOf('-pix_fmt') + 1], 'yuv420p');
   assert.equal(green.filter(arg => arg === '-i').length, 1);
   const burned = ffmpegArguments(project(), '/tmp/source.mp4', '/tmp/burned.mp4', 'burned', 720);
@@ -170,54 +117,6 @@ test('getContrastColor chooses dark text on bright backgrounds and white on dark
   assert.equal(getContrastColor('#111318'), '#ffffff');
   assert.equal(getContrastColor('#1e1b4b'), '#ffffff');
   assert.equal(getContrastColor('#14532d'), '#ffffff');
-});
-
-test('boxed pill templates (karaoke, bubble-highlight, editing-school) render crisp text with no stroke and clear shadows', () => {
-  registerRenderFonts();
-  const canvas = createCanvas(720, 1280), ctx = canvas.getContext('2d');
-  const words = [word('pehla', 0.0, 0.4), word('doosra', 0.4, 0.8), word('teesra', 0.8, 1.2)];
-
-  // Spies to record strokeText and fillText details
-  const strokes: { text: string; lineWidth: number; shadowColor: string }[] = [];
-  const fills: { text: string; fillStyle: string; shadowColor: string }[] = [];
-
-  const origStrokeText = ctx.strokeText.bind(ctx);
-  const origFillText = ctx.fillText.bind(ctx);
-
-  ctx.strokeText = (text, x, y, maxWidth) => {
-    strokes.push({ text, lineWidth: ctx.lineWidth, shadowColor: ctx.shadowColor });
-    origStrokeText(text, x, y, maxWidth);
-  };
-  ctx.fillText = (text, x, y, maxWidth) => {
-    fills.push({ text, fillStyle: String(ctx.fillStyle), shadowColor: ctx.shadowColor });
-    origFillText(text, x, y, maxWidth);
-  };
-
-  // Test karaoke (Word Flow) at time = 0.5 (second word "doosra" is active and inside purple box #c2a1ff)
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, words, {
-    ...defaults,
-    template: 'karaoke',
-    accent: '#c2a1ff',
-    motion: 0,
-  }, 0.5);
-
-  // Active word "doosra" should NOT have been stroked (to prevent muddy/bloated text)
-  const doosraStrokes = strokes.filter(s => s.text === 'doosra');
-  assert.equal(doosraStrokes.length, 0, 'Active word inside karaoke pill must not execute strokeText');
-
-  // Inactive words "pehla" and "teesra" should have strokes for visibility over video
-  const pehlaStrokes = strokes.filter(s => s.text === 'pehla');
-  assert.ok(pehlaStrokes.length > 0, 'Non-boxed words must maintain outline stroke for video contrast');
-  assert.ok(pehlaStrokes[0].lineWidth > 0);
-
-  // Active word "doosra" fillText must use contrast color #111318 and shadow must be transparent
-  const doosraFills = fills.filter(f => f.text === 'doosra');
-  assert.ok(doosraFills.length > 0);
-  assert.equal(doosraFills[0].fillStyle, '#111318', 'Active word inside purple pill must use crisp high-contrast dark text');
-  assert.equal(doosraFills[0].shadowColor, 'transparent', 'Active word inside pill must have transparent shadow');
-
-  // Multi-word phrase in karaoke keeps all words visible without zero-alpha artifacting
-  assert.equal(fills.length, 3, 'All 3 words in the group must be rendered in karaoke');
 });
 
 test('insertWord and appendWord create valid, non-overlapping intervals satisfying project validation', () => {
@@ -341,6 +240,19 @@ test('moveWordToLine drags and drops words onto any line changing caption groups
   assert.equal(meWord.end, 11.4);
 });
 
+test('moveWordToLine cleans internal sentence punctuation so line does not split prematurely', () => {
+  const words = [
+    word('First', 1.0, 1.3),
+    word('Line.', 1.35, 1.6),
+    word('Second', 2.0, 2.3),
+    word('Line.', 2.35, 2.6),
+  ];
+  // Drag 'Second' into Line 0 between 'First' and 'Line.'
+  const res = moveWordToLine(words, words[2].id, 0, { targetWordId: words[0].id, insert: 'after' }, 5);
+  const groups = groupWords(res, 5);
+  assert.deepEqual(groups[0].map(w => w.text), ['First', 'Second', 'Line.']);
+});
+
 test('replaceAllOccurrences replaces text while preserving trailing punctuation and timing', () => {
   const words = [
     word('Hello,', 0, 0.3),
@@ -354,146 +266,6 @@ test('replaceAllOccurrences replaces text while preserving trailing punctuation 
   assert.equal(replaced[1].text, 'world!');
   assert.equal(replaced[2].text, 'Namaste');
   assert.equal(replaced[2].end, 0.9);
-});
-
-test('3-tier lockup places hero in center, prefix on top-left, suffix on bottom-right, with progressive reveal', () => {
-  registerRenderFonts();
-  const width = 720, height = 1280;
-  const canvas = createCanvas(width, height), ctx = canvas.getContext('2d');
-  const words = [
-    word('ab', 0.0, 0.4),
-    word('ENGLISH', 0.4, 1.0, true),
-    word('mein', 1.0, 1.3),
-    word('ye', 1.3, 1.6),
-  ];
-
-  type DrawRecord = { text: string; x: number; y: number; fill: string; alpha: number };
-  const fills: DrawRecord[] = [];
-  const origFillText = ctx.fillText.bind(ctx);
-
-  ctx.fillText = (text, x, y, maxWidth) => {
-    const t = ctx.getTransform();
-    fills.push({
-      text: String(text),
-      x: t.e + Number(x),
-      y: t.f + Number(y),
-      fill: String(ctx.fillStyle),
-      alpha: Number(ctx.globalAlpha),
-    });
-    origFillText(text, x, y, maxWidth);
-  };
-
-  // 1. At time = 0.2s: motion is active, so only 'ab' has started (alpha > 0), others are alpha = 0
-  fills.length = 0;
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words, {
-    ...defaults,
-    template: 'welcome-stack',
-    accent: '#9de52e',
-    motion: 1,
-  }, 0.2);
-
-  assert.equal(fills.length, 4);
-  const abDraw = fills.find(f => f.text === 'ab')!;
-  const englishDraw = fills.find(f => f.text === 'ENGLISH')!;
-  const meinDraw = fills.find(f => f.text === 'mein')!;
-  const yeDraw = fills.find(f => f.text === 'ye')!;
-
-  assert.ok(abDraw.alpha > 0, "'ab' should be visible at 0.2s");
-  assert.equal(englishDraw.alpha, 0, "'ENGLISH' should not yet be visible at 0.2s");
-  assert.equal(meinDraw.alpha, 0, "'mein' should not yet be visible at 0.2s");
-  assert.equal(yeDraw.alpha, 0, "'ye' should not yet be visible at 0.2s");
-
-  // 2. Test geometry at time = 1.5s (all words started, motion = 0 for static measurement)
-  fills.length = 0;
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words, {
-    ...defaults,
-    template: 'welcome-stack',
-    accent: '#9de52e',
-    motion: 0,
-  }, 1.5);
-
-  assert.equal(fills.length, 4);
-  const fAb = fills.find(f => f.text === 'ab')!;
-  const fEng = fills.find(f => f.text === 'ENGLISH')!;
-  const fMein = fills.find(f => f.text === 'mein')!;
-  const fYe = fills.find(f => f.text === 'ye')!;
-
-  assert.equal(fEng.x, width / 2, 'Hero word centered at width / 2');
-  assert.equal(fEng.fill, '#9de52e', 'Hero word has accent color #9de52e');
-
-  assert.equal(fAb.fill, '#ffffff', "Prefix word 'ab' is pure white");
-  assert.equal(fMein.fill, '#ffffff', "Suffix word 'mein' is pure white");
-  assert.equal(fYe.fill, '#ffffff', "Suffix word 'ye' is pure white");
-
-  // Prefix is on top of hero: yPrefix < yHero
-  assert.ok(fAb.y < fEng.y, "Prefix 'ab' is above 'ENGLISH'");
-
-  // Suffix is below hero: ySuffix > yHero
-  assert.ok(fMein.y > fEng.y, "Suffix 'mein' is below 'ENGLISH'");
-  assert.ok(fYe.y > fEng.y, "Suffix 'ye' is below 'ENGLISH'");
-});
-
-test('multiple words in spotlight in a caption line are both rendered with accent color and glow', () => {
-  registerRenderFonts();
-  const width = 720, height = 1280;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-
-  const words: Word[] = [
-    { id: 'w1', text: 'Yeh', original: 'Yeh', start: 0.1, end: 0.4, confidence: 1, emphasis: false, emphasisScore: 0.2 },
-    { id: 'w2', text: 'dil', original: 'dil', start: 0.4, end: 0.8, confidence: 1, emphasis: true, emphasisScore: 0.9, spotlight: true },
-    { id: 'w3', text: 'ki', original: 'ki', start: 0.8, end: 1.2, confidence: 1, emphasis: true, emphasisScore: 0.85, spotlight: true },
-    { id: 'w4', text: 'baat.', original: 'baat.', start: 1.2, end: 1.6, confidence: 1, emphasis: false, emphasisScore: 0.2 },
-  ];
-
-  const fills: { text: string; fill: string; shadow: string }[] = [];
-  const origFillText = ctx.fillText.bind(ctx);
-  ctx.fillText = (text, x, y, maxWidth) => {
-    fills.push({
-      text: String(text),
-      fill: String(ctx.fillStyle),
-      shadow: String(ctx.shadowColor),
-    });
-    origFillText(text, x, y, maxWidth);
-  };
-
-  // 1. In welcome-stack template: both spotlight words should be rendered with accent color and glow
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words, {
-    ...defaults,
-    template: 'welcome-stack',
-    accent: '#ff0077',
-    motion: 0,
-  }, 1.4);
-
-  const dilDraw = fills.find(f => f.text === 'DIL');
-  const kiDraw = fills.find(f => f.text === 'KI');
-  const yehDraw = fills.find(f => f.text === 'Yeh');
-  const baatDraw = fills.find(f => f.text === 'baat.');
-
-  assert.ok(dilDraw, 'DIL was rendered');
-  assert.ok(kiDraw, 'KI was rendered');
-  assert.equal(dilDraw.fill, '#ff0077', 'First spotlight word has accent color');
-  assert.equal(kiDraw.fill, '#ff0077', 'Second spotlight word has accent color (not forced to white)');
-  assert.equal(dilDraw.shadow, '#ff0077', 'First spotlight word has accent shadow glow');
-  assert.equal(kiDraw.shadow, '#ff0077', 'Second spotlight word has accent shadow glow');
-
-  assert.equal(yehDraw?.fill, '#ffffff', 'Non-spotlight prefix word is white');
-  assert.equal(baatDraw?.fill, '#ffffff', 'Non-spotlight suffix word is white');
-
-  // 2. In non-stack template (e.g. sukoon / default)
-  fills.length = 0;
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height, words, {
-    ...defaults,
-    template: 'minimal',
-    accent: '#00e5ff',
-    motion: 0,
-  }, 1.4);
-
-  const dilMin = fills.find(f => f.text === 'dil');
-  const kiMin = fills.find(f => f.text === 'ki');
-  assert.ok(dilMin && kiMin, 'Both words rendered in minimal template');
-  assert.equal(dilMin.fill, '#00e5ff', 'First spotlight word has accent in minimal template');
-  assert.equal(kiMin.fill, '#00e5ff', 'Second spotlight word has accent in minimal template');
 });
 
 test('moveWordsToLine moves multiple selected words preserving order and valid intervals', () => {
@@ -518,6 +290,71 @@ test('moveWordsToLine moves multiple selected words preserving order and valid i
   for (let i = 0; i < moved.length - 1; i++) {
     assert.ok(moved[i].start < moved[i].end, `Word ${moved[i].id} start < end`);
     assert.ok(moved[i].end <= moved[i + 1].start, `Word ${moved[i].id} end <= next start`);
+  }
+});
+
+test('moveWordToLine drops word in-between with insert: after and allows within-line reordering', () => {
+  const words: Word[] = [
+    { id: 'w1', text: 'Yeh', original: 'Yeh', start: 0.0, end: 0.3, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w2', text: 'toh', original: 'toh', start: 0.35, end: 0.6, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w3', text: 'kamaal', original: 'kamaal', start: 0.65, end: 0.9, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w4', text: 'hai.', original: 'hai.', start: 0.95, end: 1.2, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+  ];
+
+  // Move 'kamaal' (w3) to be after 'Yeh' (w1) in line 0
+  const moved = moveWordToLine(words, 'w3', 0, { targetWordId: 'w1', insert: 'after' }, 5);
+  const groups = groupWords(moved, 5);
+  assert.deepEqual(groups[0].map(w => w.text), ['Yeh', 'kamaal', 'toh', 'hai.']);
+
+  // Timestamps must be valid and non-overlapping
+  for (let i = 0; i < moved.length - 1; i++) {
+    assert.ok(moved[i].start < moved[i].end, `Word ${moved[i].id} start < end`);
+    assert.ok(moved[i].end <= moved[i + 1].start, `Word ${moved[i].id} end <= next start`);
+  }
+});
+
+test('moveWordToLine moving a middle word does not split the source line', () => {
+  const words = [
+    word('Yeh', 0.0, 0.3),
+    word('toh', 0.35, 0.6),
+    word('kamaal', 0.65, 0.9),
+    word('hai.', 0.95, 1.2),
+    word('Samjhe', 1.5, 1.8),
+    word('aap.', 1.85, 2.1),
+  ];
+
+  const gInit = groupWords(words, 5);
+  assert.equal(gInit.length, 2);
+  assert.deepEqual(gInit[0].map(w => w.text), ['Yeh', 'toh', 'kamaal', 'hai.']);
+  assert.deepEqual(gInit[1].map(w => w.text), ['Samjhe', 'aap.']);
+
+  // Move 'toh' (words[1]) to line 1 start
+  const moved = moveWordToLine(words, words[1].id, 1, 'start', 5);
+  const gAfter = groupWords(moved, 5);
+  assert.equal(gAfter.length, 2, 'Should remain 2 lines, not split source line into two');
+  assert.deepEqual(gAfter[0].map(w => w.text), ['Yeh', 'kamaal', 'hai.']);
+  assert.deepEqual(gAfter[1].map(w => w.text), ['toh', 'Samjhe', 'aap.']);
+});
+
+test('moveWordsToLine supports inserting before or after any word across lines with valid timeline sync', () => {
+  const words = [
+    word('One', 0.0, 0.3),
+    word('Two', 0.35, 0.6),
+    word('Three.', 0.65, 0.9),
+    word('Alpha', 1.5, 1.8),
+    word('Beta.', 1.85, 2.1),
+  ];
+
+  // Move 'Two' to line 1 before 'Beta.'
+  const moved = moveWordsToLine(words, [words[1].id], 1, { targetWordId: words[4].id, insert: 'before' }, 5);
+  const groups = groupWords(moved, 5);
+  assert.deepEqual(groups[0].map(w => w.text), ['One', 'Three.']);
+  assert.deepEqual(groups[1].map(w => w.text), ['Alpha', 'Two', 'Beta.']);
+
+  // Verify non-overlapping intervals
+  for (let i = 0; i < moved.length - 1; i++) {
+    assert.ok(moved[i].start < moved[i].end, `Word ${moved[i].text} start < end`);
+    assert.ok(moved[i].end <= moved[i + 1].start, `Word ${moved[i].text} end <= next start`);
   }
 });
 
@@ -550,28 +387,357 @@ test('autoDetectHighlights assigns spotlight to hero keyword and aligns with tim
   assert.equal(yehWord.spotlight, false, 'Stop particle is not spotlight');
   assert.equal(yehWord.emphasis, false, 'Stop particle is not emphasized');
 
-  // Verify that rendering welcome-stack matches: Step word has accent color
-  const canvas = createCanvas(720, 1280);
-  const ctx = canvas.getContext('2d');
-  const fills: { text: string; fill: string }[] = [];
-  const origFillText = ctx.fillText.bind(ctx);
-  ctx.fillText = (text, x, y, maxWidth) => {
-    fills.push({ text: String(text), fill: String(ctx.fillStyle) });
-    origFillText(text, x, y, maxWidth);
+});
+
+test('subtitleText exports clean and compliant SRT and VTT subtitles', () => {
+  const words = [
+    word('Namaste', 0.0, 0.8),
+    word('everyone', 0.8, 1.4),
+    word('today', 1.4, 1.9),
+    word('we', 1.9, 2.2),
+    word('talk', 2.2, 2.6),
+    word('branding.', 2.6, 3.2),
+  ];
+
+  const srt = subtitleText(words, 3, 'srt');
+  assert.ok(srt.includes('1\n00:00:00,000 --> 00:00:01,900\nNamaste everyone today'), 'First subtitle block valid');
+  assert.ok(srt.includes('2\n00:00:01,900 --> 00:00:03,200\nwe talk branding.'), 'Second subtitle block valid');
+
+  const vtt = subtitleText(words, 3, 'vtt');
+  assert.ok(vtt.startsWith('WEBVTT\n\n'), 'WebVTT header exists');
+  assert.ok(vtt.includes('00:00:00.000 --> 00:00:01.900\nNamaste everyone today'), 'VTT cue timing format with period');
+});
+
+test('createDefaultTextElement initializes all 5 core text types with valid defaults', () => {
+  const types = ['heading', 'subheading', 'body', 'quote', 'label'] as const;
+  for (const t of types) {
+    const el = createDefaultTextElement(t, 2.0, 15.0);
+    assert.equal(el.type, t);
+    assert.ok(el.text.length > 0);
+    assert.equal(el.x, 50);
+    assert.equal(el.y, 50);
+    assert.equal(el.start, 2.0);
+    assert.ok(el.end > el.start);
+    assert.ok(el.fontSize >= 20);
+    assert.equal(el.visible, true);
+    assert.equal(el.locked, false);
+  }
+});
+
+test('transformTextCase formats text as uppercase, lowercase, title case, or normal', () => {
+  const sample = 'hello WORLD';
+  assert.equal(transformTextCase(sample, 'normal'), 'hello WORLD');
+  assert.equal(transformTextCase(sample, 'uppercase'), 'HELLO WORLD');
+  assert.equal(transformTextCase(sample, 'lowercase'), 'hello world');
+  assert.equal(transformTextCase(sample, 'title'), 'Hello World');
+});
+
+test('getAnimationTransform calculates smooth alpha and scale for in/out animations', () => {
+  const el: CanvasTextElement = {
+    ...createDefaultTextElement('heading', 1.0, 10.0),
+    start: 1.0,
+    end: 5.0,
+    animationIn: 'fade',
+    animationOut: 'scale',
+    animationDuration: 0.5,
   };
 
-  drawCaptions(ctx as unknown as CanvasRenderingContext2D, 720, 1280, highlighted, {
-    ...defaults,
-    template: 'welcome-stack',
-    accent: '#2ee368',
-    motion: 0,
-  }, 0.5);
+  // Middle of in-animation (time = 1.25s, progress = 0.5)
+  const animIn = getAnimationTransform(el, 1.25);
+  assert.ok(Math.abs(animIn.alpha - 0.5) < 0.05);
 
-  const heroRender = fills.find(f => f.text === 'STEP');
-  assert.ok(heroRender, 'Hero word STEP was rendered');
-  assert.equal(heroRender.fill, '#2ee368', 'Hero word on canvas has accent color matching timeline spotlight');
+  // Middle of steady state (time = 3.0s)
+  const animMid = getAnimationTransform(el, 3.0);
+  assert.equal(animMid.alpha, 1.0);
+  assert.equal(animMid.scale, 1.0);
+
+  // Near end of out-animation (time = 4.75s, remaining = 0.25 / 0.5 = 0.5)
+  const animOut = getAnimationTransform(el, 4.75);
+  assert.ok(animOut.scale < 0.9);
+});
+
+test('drawTextElements renders visible elements and respects layer order & visibility', () => {
+  registerRenderFonts();
+  const canvas = createCanvas(720, 1280);
+  const ctx = canvas.getContext('2d');
+
+  const elements: CanvasTextElement[] = [
+    {
+      ...createDefaultTextElement('heading', 0, 10),
+      text: 'MAIN TITLE',
+      start: 1.0,
+      end: 4.0,
+      visible: true,
+      fontSize: 60,
+      color: '#ffffff',
+    },
+    {
+      ...createDefaultTextElement('label', 0, 10),
+      text: 'HIDDEN LABEL',
+      start: 1.0,
+      end: 4.0,
+      visible: false,
+    },
+  ];
+
+  // At t = 0.5s: element not yet started -> canvas should be blank
+  ctx.clearRect(0, 0, 720, 1280);
+  drawTextElements(ctx as unknown as CanvasRenderingContext2D, 720, 1280, elements, 0.5);
+  assert.ok(canvas.data().every(v => v === 0), 'Canvas is empty before element start');
+
+  // At t = 2.0s: MAIN TITLE is visible -> canvas has pixels
+  ctx.clearRect(0, 0, 720, 1280);
+  drawTextElements(ctx as unknown as CanvasRenderingContext2D, 720, 1280, elements, 2.0);
+  assert.ok(canvas.data().some((v, idx) => idx % 4 === 3 && v > 0), 'MAIN TITLE rendered visible pixels');
+
+  // At t = 5.0s: element ended -> canvas is empty
+  ctx.clearRect(0, 0, 720, 1280);
+  drawTextElements(ctx as unknown as CanvasRenderingContext2D, 720, 1280, elements, 5.0);
+  assert.ok(canvas.data().every(v => v === 0), 'Canvas is empty after element end');
+});
+
+test('validateRenderProject accepts project snapshots containing textElements', () => {
+  const p = validateRenderProject({
+    duration: 5,
+    width: 1280,
+    height: 720,
+    mediaType: 'video',
+    settings: { ...defaults },
+    words: [word('Test', 0, 1)],
+    textElements: [
+      createDefaultTextElement('heading', 0, 5),
+      createDefaultTextElement('label', 1, 4),
+    ],
+  });
+  assert.equal(p.textElements?.length, 2);
+});
+
+test('validateRenderProject accepts project snapshots containing canvasElements', () => {
+  const p = validateRenderProject({
+    duration: 5,
+    width: 1280,
+    height: 720,
+    mediaType: 'video',
+    settings: { ...defaults },
+    words: [word('Test', 0, 1)],
+    canvasElements: [
+      {
+        id: 'el-1',
+        assetId: 'asset-1',
+        name: 'logo.png',
+        type: 'image',
+        url: '/api/projects/p1/assets/asset-1/file',
+        x: 50,
+        y: 50,
+        scale: 1.0,
+        start: 0,
+        end: 5,
+        visible: true,
+        locked: false,
+        greenScreen: { enabled: true, color: '#00ff00', tolerance: 50, spillReduction: true, smoothEdges: true },
+      },
+    ],
+  });
+  assert.equal(p.canvasElements?.length, 1);
+  assert.equal(p.canvasElements?.[0].name, 'logo.png');
+
+  // Rejects non-array or >500 items
+  assert.throws(() => {
+    validateRenderProject({
+      duration: 5,
+      width: 1280,
+      height: 720,
+      mediaType: 'video',
+      settings: { ...defaults },
+      words: [word('Test', 0, 1)],
+      canvasElements: 'invalid' as any,
+    });
+  }, /invalid canvas elements list/);
+});
+
+test('chroma key algorithm processes color keying, tolerance, and despill', async () => {
+  const { hexToRgb, rgbToHex, processChromaKeyData } = await import('../src/lib/chromakey.ts');
+  assert.deepEqual(hexToRgb('#00ff00'), [0, 255, 0]);
+  assert.deepEqual(hexToRgb('#ffffff'), [255, 255, 255]);
+  assert.equal(rgbToHex(0, 255, 0), '#00ff00');
+
+  // Create an artificial ImageData (4 pixels)
+  // Pixel 0: pure green [0, 255, 0, 255] -> should be keyed out (alpha = 0)
+  // Pixel 1: pure red [255, 0, 0, 255] -> should remain fully opaque
+  // Pixel 2: dark green [0, 200, 0, 255] -> within tolerance threshold
+  // Pixel 3: white [255, 255, 255, 255] -> should remain fully opaque
+  const data = new Uint8ClampedArray([
+    0, 255, 0, 255,
+    255, 0, 0, 255,
+    0, 200, 0, 255,
+    255, 255, 255, 255,
+  ]);
+  const imgData = { data, width: 2, height: 2 } as ImageData;
+
+  processChromaKeyData(imgData, {
+    enabled: true,
+    color: '#00ff00',
+    tolerance: 50,
+    spillReduction: true,
+    smoothEdges: false,
+  });
+
+  // Pixel 0 (pure green) must be keyed out to alpha 0
+  assert.equal(data[3], 0, 'Pure green pixel has alpha 0');
+  // Pixel 1 (pure red) must retain alpha 255
+  assert.equal(data[7], 255, 'Red pixel retains alpha 255');
+  // Pixel 3 (white) must retain alpha 255
+  assert.equal(data[15], 255, 'White pixel retains alpha 255');
 });
 
 
 
 
+
+
+
+// --- caption pagination and hero selection -----------------------------------
+
+test('buildPages holds a page too short to read, without changing the line split', () => {
+  const words = [
+    word('chalo', 0, .35), word('shuru', .36, .7), word('karte', .72, 1.05), word('hain', 1.06, 1.4),
+    word('ab', 1.9, 2.05),          // lone word, then a long silence
+    word('dekho', 3.9, 4.4),
+  ];
+  const pages = buildPages(words, 5);
+  const stray = pages.find(p => p.words.length === 1 && p.words[0].text === 'ab');
+  assert.ok(stray, 'the user-visible line split is preserved');
+  assert.ok(stray.end - stray.start >= 0.9 - 1e-6, 'the short page is held on screen long enough to read');
+  assert.deepEqual(groupWords(words, 5).map(g => g.map(w => w.text)),
+    [['chalo', 'shuru', 'karte', 'hain'], ['ab'], ['dekho']],
+    'grouping itself is unchanged');
+});
+
+test('buildPages keeps the hero off both ends so the 3-tier lockup has all three rows', () => {
+  const mk = (text: string, start: number, end: number, score: number): Word =>
+    ({ ...word(text, start, end), emphasisScore: score });
+  // Highest score sits on the last word; the lockup still needs a suffix row.
+  const words = [mk('aur', 0, .3, .2), mk('aaj', .32, .6, .3), mk('main', .62, .9, .35),
+    mk('aapko', .92, 1.3, .4), mk('BATAUNGA', 1.32, 1.9, .97)];
+  const [page] = buildPages(words, 5);
+  assert.ok(page.heroIndex >= 1 && page.heroIndex <= page.words.length - 2,
+    `hero index ${page.heroIndex} leaves room above and below`);
+});
+
+test('buildPages never marks more than one hero per page', () => {
+  const mk = (text: string, start: number, end: number, score: number): Word =>
+    ({ ...word(text, start, end), emphasisScore: score, emphasis: score > .8 });
+  const words = [mk('sab', 0, .3, .9), mk('kuch', .32, .6, .95), mk('badal', .62, .95, .93),
+    mk('gaya', .97, 1.4, .91)];
+  const pages = buildPages(words, 5);
+  for (const page of pages) {
+    assert.equal(page.heroIndex >= 0 ? 1 : 0, 1, 'exactly one hero');
+  }
+});
+
+test('buildPages clamps a page to the next page start so captions never overlap', () => {
+  const words = [word('ek', 0, .4), word('do', .45, .9), word('teen', 1.0, 1.5), word('chaar', 1.55, 2.0)];
+  const pages = buildPages(words, 2);
+  for (let i = 0; i < pages.length - 1; i++) {
+    assert.ok(pages[i].end <= pages[i + 1].start + 1e-9,
+      `page ${i} ends before page ${i + 1} begins`);
+  }
+});
+
+test('every template resolves to a layout treatment', () => {
+  for (const t of templates) {
+    const treatment = treatmentFor(t.id);
+    assert.ok(['stack', 'rows', 'single'].includes(treatment.layout), `${t.id} has a layout`);
+    assert.ok(treatment.heroScale > treatment.subScale || treatment.layout === 'single',
+      `${t.id} renders its hero larger than supporting words`);
+  }
+});
+
+test('exports are rendered at 60fps so word entrances are not stepped', () => {
+  const args = ffmpegArguments(project([word('a', 0, .5)]), 'in.mp4', 'out.mp4', 'burned', 720);
+  const rate = args[args.indexOf('-r') + 1];
+  assert.equal(rate, '60');
+  assert.equal(args[args.indexOf('-framerate') + 1], '60');
+});
+
+test('the automatic picker promotes only one word per page', () => {
+  const mk = (text: string, start: number, end: number, score: number): Word =>
+    ({ ...word(text, start, end, true), emphasisScore: score, spotlight: false });
+  const words = [mk('sab', 0, .3, .9), mk('kuch', .32, .6, .95), mk('badal', .62, .95, .93), mk('gaya', .97, 1.4, .91)];
+  const [page] = buildPages(words, 5);
+  assert.equal(page.heroIndices.length, 1,
+    'however many words carry the emphasis flag, automatic emphasis stays rare');
+});
+
+test('every word the editor spotlights is promoted, not just the first', () => {
+  const mk = (text: string, start: number, end: number, spotlight: boolean): Word =>
+    ({ ...word(text, start, end), emphasisScore: .5, spotlight, emphasis: spotlight });
+  const words = [mk('ye', 0, .25, false), mk('bahut', .27, .6, true), mk('zaroori', .62, 1.0, true),
+    mk('hai', 1.02, 1.3, false)];
+  const [page] = buildPages(words, 5);
+  assert.deepEqual(page.heroIndices, [1, 2], 'both spotlighted words are heroes');
+  const run = heroRun(page);
+  assert.deepEqual(run, { start: 1, end: 2 }, 'and they share the centre row of the lockup');
+});
+
+test('spotlights that sit apart keep the first contiguous run as the centre row', () => {
+  const mk = (text: string, start: number, end: number, spotlight: boolean): Word =>
+    ({ ...word(text, start, end), emphasisScore: .5, spotlight, emphasis: spotlight });
+  const words = [mk('ek', 0, .25, true), mk('do', .27, .5, false), mk('teen', .52, .8, true), mk('chaar', .82, 1.2, false)];
+  const [page] = buildPages(words, 5);
+  assert.deepEqual(page.heroIndices, [0, 2], 'both stay promoted');
+  assert.deepEqual(heroRun(page), { start: 0, end: 0 }, 'only the contiguous run anchors the lockup');
+});
+
+test('a user spotlight is honoured even at the edge of a page', () => {
+  const mk = (text: string, start: number, end: number, spotlight: boolean): Word =>
+    ({ ...word(text, start, end), emphasisScore: .5, spotlight });
+  const words = [mk('chalo', 0, .3, false), mk('shuru', .32, .6, false), mk('karo', .62, 1.0, true)];
+  const [page] = buildPages(words, 5);
+  assert.equal(page.heroIndex, 2, 'the clamp that protects the auto pick never overrides an explicit choice');
+});
+
+test('a ceiling split that strands the strongest word is nudged, a pause split is not', () => {
+  const mk = (text: string, start: number, end: number, score: number): Word =>
+    ({ ...word(text, start, end), emphasisScore: score });
+  // Five tight words; the last is the strongest, so it should move to the next page.
+  const nudged = buildPages([
+    mk('aur', 0, .2, .2), mk('aaj', .22, .45, .3), mk('main', .47, .7, .3),
+    mk('aapko', .72, .95, .35), mk('BATAUNGA', .97, 1.5, .98),
+    mk('sab', 1.52, 1.8, .3), mk('kuch', 1.82, 2.2, .3),
+  ], 5);
+  assert.ok(nudged[1].words.some(w => w.text === 'BATAUNGA'), 'the strongest word moved off the page edge');
+  assert.ok(nudged[1].heroIndex >= 1, 'and now has a row above it');
+
+  // The same shape, but a real pause at the boundary: the split must survive.
+  const kept = buildPages([
+    mk('aur', 0, .2, .2), mk('aaj', .22, .45, .3), mk('main', .47, .7, .3),
+    mk('aapko', .72, .95, .35), mk('BATAUNGA', .97, 1.5, .98),
+    mk('sab', 2.4, 2.7, .3), mk('kuch', 2.72, 3.1, .3),
+  ], 5);
+  assert.equal(kept[0].words.at(-1)!.text, 'BATAUNGA', 'a pause boundary is never moved');
+});
+
+test('caption defaults are shared with the backend, not restated', () => {
+  const shared = JSON.parse(readFileSync(new URL('../src/lib/caption-defaults.json', import.meta.url), 'utf8'));
+  assert.deepEqual({ ...defaults }, shared, 'types.ts defaults come straight from the shared file');
+});
+
+test('no template declares a treatment the renderer ignores', () => {
+  const componentSource = readFileSync(new URL('../src/remotion/CaptionWord.tsx', import.meta.url), 'utf8')
+    + readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
+  const declared = new Set<string>();
+  for (const t of templates) for (const key of Object.keys(treatmentFor(t.id))) declared.add(key);
+
+  const ignored = [...declared].filter(key => !componentSource.includes(`treatment.${key}`));
+  assert.deepEqual(ignored, [],
+    'every treatment field a template sets must be read by a component — `ring` was declared and '
+    + 'consumed nowhere, which silently reduced scribble and double-trouble to plain rows');
+});
+
+test('every template in the picker has its own treatment, not the fallback', () => {
+  for (const t of templates) {
+    assert.ok(Object.prototype.hasOwnProperty.call(treatments, t.id),
+      `${t.id} has an explicit treatment`);
+  }
+});

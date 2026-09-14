@@ -1,4 +1,4 @@
-import type { Project } from './types';
+import type { MediaAsset, Project } from './types';
 
 const defaultBase = import.meta.env.DEV ? '' : 'https://n3owise-bol-studio-backend.hf.space';
 export const API = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
@@ -23,5 +23,73 @@ export function upload(file: File, script: string, language: string, onProgress:
       catch { reject(new Error('The upload could not be completed. Please try again.')); }
     };
     xhr.send(body);
+  });
+}
+
+export function fetchMediaAssets(projectId: string): Promise<MediaAsset[]> {
+  return request<MediaAsset[]>(`/projects/${projectId}/assets`);
+}
+
+export function uploadMediaAsset(
+  projectId: string,
+  file: File,
+  onProgress: (pct: number, loaded: number, total: number) => void
+): { promise: Promise<MediaAsset>; abort: () => void } {
+  let xhrRef: XMLHttpRequest | null = null;
+  const promise = new Promise<MediaAsset>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhrRef = xhr;
+    const body = new FormData();
+    body.append('file', file);
+    xhr.open('POST', `${API}/api/projects/${projectId}/assets`);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);
+      }
+    };
+    xhr.onabort = () => reject(new Error('Upload canceled.'));
+    xhr.onerror = () => reject(new Error('Upload failed. Check your connection and try again.'));
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+        else reject(new Error(typeof data.detail === 'string' ? data.detail : 'Upload failed.'));
+      } catch {
+        reject(new Error('Upload processing failed.'));
+      }
+    };
+    xhr.send(body);
+  });
+  return {
+    promise,
+    abort: () => {
+      if (xhrRef) {
+        xhrRef.abort();
+      }
+    },
+  };
+}
+
+export function updateMediaAsset(
+  projectId: string,
+  assetId: string,
+  patch: { name?: string; greenScreen?: any }
+): Promise<any> {
+  return request(`/projects/${projectId}/assets/${assetId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export function duplicateMediaAsset(projectId: string, assetId: string): Promise<MediaAsset> {
+  return request<MediaAsset>(`/projects/${projectId}/assets/${assetId}/duplicate`, {
+    method: 'POST',
+  });
+}
+
+export function deleteMediaAsset(projectId: string, assetId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/projects/${projectId}/assets/${assetId}`, {
+    method: 'DELETE',
   });
 }

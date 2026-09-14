@@ -314,3 +314,69 @@ def test_refine_word_boundaries_with_vad_trims_silence():
     # Refined words must strictly satisfy backend validation
     backend.validate_word_intervals(refined, duration)
 
+
+def test_asset_endpoints_flow(client, project):
+    url = f"/api/projects/{project['id']}/assets"
+    # Listing assets synthesizes primary asset
+    res = client.get(url)
+    assert res.status_code == 200
+    assets = res.json()
+    assert len(assets) == 1
+    assert assets[0]["id"] == "primary"
+    assert assets[0]["name"] == "My clip"
+
+    # Unsupported format is rejected
+    res_bad = client.post(url, files={"file": ("notes.txt", b"hello world", "text/plain")})
+    assert res_bad.status_code == 422
+    assert "Unsupported file type" in res_bad.text
+
+    # Upload dummy WAV asset
+    res_wav = client.post(url, files={"file": ("broll.wav", audio_bytes(), "audio/wav")})
+    assert res_wav.status_code == 201
+    asset_wav = res_wav.json()
+    assert asset_wav["mediaType"] == "audio"
+    assert asset_wav["name"] == "broll"
+    assert asset_wav["duration"] == 1.0
+
+    # List again shows 2 assets
+    res_list = client.get(url)
+    assert len(res_list.json()) == 2
+
+    # Patch asset name and greenScreen
+    patch_url = f"/api/projects/{project['id']}/assets/{asset_wav['id']}"
+    res_patch = client.patch(patch_url, json={"name": "Background Audio", "greenScreen": {"enabled": True, "color": "#00FF00", "tolerance": 50, "spillReduction": True, "smoothEdges": True}})
+    assert res_patch.status_code == 200
+
+    # Duplicate asset
+    dup_url = f"/api/projects/{project['id']}/assets/{asset_wav['id']}/duplicate"
+    res_dup = client.post(dup_url)
+    assert res_dup.status_code == 200
+    dup_asset = res_dup.json()
+    assert dup_asset["name"] == "Background Audio copy"
+    assert dup_asset["filename"] == "Background Audio copy.wav"
+
+    # Delete asset
+    del_url = f"/api/projects/{project['id']}/assets/{dup_asset['id']}"
+    res_del = client.delete(del_url)
+    assert res_del.status_code == 200
+
+    # Verify count is back to 2
+    assert len(client.get(url).json()) == 2
+
+
+
+def test_caption_defaults_are_shared_with_the_browser():
+    """server/app.py and src/lib/types.ts must not restate caption defaults.
+
+    They previously disagreed on template, accent and wordsPerLine, so a project
+    created through the API opened with different captions than one created in
+    the editor.
+    """
+    import json
+    from pathlib import Path
+
+    shared = json.loads(
+        (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
+    )
+    assert backend.DEFAULT_SETTINGS == shared
+    assert backend.Settings().model_dump() == shared

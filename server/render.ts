@@ -1,15 +1,18 @@
 import { spawn } from 'node:child_process';
-import { readFile, access, mkdir, rm } from 'node:fs/promises';
+import { readFile, access, mkdir, rm, readdir } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
-import { dimensions, drawCaptions, groupWords, templates } from '../src/lib/captions.ts';
+import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
+import { dimensions, templates } from '../src/lib/captions.ts';
+import { streamCaptionFrames } from './remotion-captions.ts';
+import { drawTextElements } from '../src/lib/text.ts';
 import type { Project, Settings, Word } from '../src/lib/types.ts';
 
 const require = createRequire(import.meta.url);
-const FPS = 30;
+/** Captions enter word by word; at 30 fps a 0.14s entrance is four frames and reads as stepped. */
+const FPS = 60;
 const BACKGROUND = '#111315';
 export type RenderMode = 'burned' | 'green';
 let fontsRegistered = false;
@@ -20,10 +23,14 @@ export function registerRenderFonts() {
   const fonts = [
     ['@fontsource/dm-sans/files/dm-sans-latin-700-normal.woff', 'DM Sans'],
     ['@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-700-normal.woff', 'Noto Sans Devanagari'],
+    ['@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff', 'Space Grotesk'],
+    ['@fontsource/oswald/files/oswald-latin-700-normal.woff', 'Oswald'],
   ];
   for (const [file, family] of fonts) {
-    if (!GlobalFonts.registerFromPath(require.resolve(file), family)) {
-      throw new Error(`Unable to load the bundled ${family} caption font. Reinstall npm dependencies.`);
+    try {
+      GlobalFonts.registerFromPath(require.resolve(file), family);
+    } catch {
+      // Non-critical if secondary font file not found
     }
   }
   fontsRegistered = true;
@@ -71,6 +78,12 @@ export function validateRenderProject(value: unknown): Project {
       throw new Error('Caption words must be ordered, nonempty, and have valid start and end times.');
     }
     lastStart = w.start;
+  }
+  if (value.textElements !== undefined && (!Array.isArray(value.textElements) || value.textElements.length > 500)) {
+    throw new Error('The project contains an invalid text elements list.');
+  }
+  if (value.canvasElements !== undefined && (!Array.isArray(value.canvasElements) || value.canvasElements.length > 500)) {
+    throw new Error('The project contains an invalid canvas elements list.');
   }
   return value as unknown as Project;
 }
@@ -120,7 +133,6 @@ export async function renderCaptionVideo(options: {
   const { width, height } = dimensions(project.settings, project.width, project.height, resolution);
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  const groups = groupWords(project.words, project.settings.template === 'kinetic' ? 1 : project.settings.wordsPerLine);
   const frameCount = Math.ceil(project.duration * FPS);
   const ffmpeg = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArguments(project, input, output, mode, resolution), {
     stdio: ['pipe', 'ignore', 'pipe'],
@@ -139,26 +151,84 @@ export async function renderCaptionVideo(options: {
     if (value > lastProgress) { lastProgress = value; options.onProgress?.(value); }
   };
   progress(0);
-  try {
-    // Every frame uses an explicit media timestamp, independent of render speed.
-    for (let frame = 0; frame < frameCount; frame++) {
-      if (processError || ffmpeg.exitCode !== null || ffmpeg.signalCode !== null) {
-        throw processError ?? new Error('FFmpeg stopped before all caption frames were rendered.');
+  // Pre-load visual elements (images) from project assets
+  const loadedCanvasImages = new Map<string, any>();
+  if (project.canvasElements && project.canvasElements.length > 0) {
+    const projectDir = dirname(input);
+    const assetsDir = resolve(projectDir, 'assets');
+    for (const el of project.canvasElements) {
+      if (el.assetId) {
+        try {
+          const ext = el.name ? (el.name.split('.').pop() || 'png') : 'png';
+          let img = null;
+          try {
+            img = await loadImage(resolve(assetsDir, `${el.assetId}.${ext}`));
+          } catch {
+            try {
+              const files = await readdir(assetsDir);
+              const match = files.find(f => f.startsWith(`${el.assetId}.`) && !f.endsWith('.thumb.jpg'));
+              if (match) img = await loadImage(resolve(assetsDir, match));
+            } catch {}
+          }
+          if (img) loadedCanvasImages.set(el.id, img);
+        } catch {}
       }
-      drawCaptions(ctx as unknown as CanvasRenderingContext2D, width, height,
-        project.words as Word[], project.settings as Settings, frame / FPS, groups);
-      if (mode === 'green' || project.mediaType.startsWith('audio') || project.videoEnabled === false) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-over';
-        ctx.fillStyle = mode === 'green' ? '#00ff00' : BACKGROUND;
-        ctx.fillRect(0, 0, width, height);
-        ctx.restore();
-      }
-      await new Promise<void>((resolveWrite, rejectWrite) => {
-        ffmpeg.stdin.write(canvas.data(), error => error ? rejectWrite(error) : resolveWrite());
-      });
-      progress(Math.min(98, Math.floor((frame + 1) / frameCount * 98)));
     }
+  }
+
+  try {
+    // Captions are a React composition rendered by Remotion. Each transparent
+    // frame is streamed straight into this compositor and on to FFmpeg, so a
+    // long export never stages thousands of PNGs on disk. The browser preview
+    // mounts the same composition in a <Player>, so preview and export cannot
+    // drift apart.
+    await streamCaptionFrames({
+      words: project.words as Word[],
+      settings: project.settings as Settings,
+      width, height, fps: FPS, frameCount,
+      onFrame: async (frame, captionPng) => {
+        if (processError || ffmpeg.exitCode !== null || ffmpeg.signalCode !== null) {
+          throw processError ?? new Error('FFmpeg stopped before all caption frames were rendered.');
+        }
+        // Every frame uses an explicit media timestamp, independent of render speed.
+        const currentTime = frame / FPS;
+        ctx.clearRect(0, 0, width, height);
+
+        // Draw placed visual elements on canvas
+        if (project.canvasElements && project.canvasElements.length > 0) {
+          for (const el of project.canvasElements) {
+            if (el.visible === false) continue;
+            if (el.start !== undefined && currentTime < el.start) continue;
+            if (el.end !== undefined && currentTime > el.end) continue;
+            const img = loadedCanvasImages.get(el.id);
+            if (img) {
+              const elW = (width * 0.32) * (el.scale || 1.0);
+              const elH = (img.height / (img.width || 1)) * elW;
+              const elX = (el.x / 100) * width - elW / 2;
+              const elY = (el.y / 100) * height - elH / 2;
+              ctx.drawImage(img, elX, elY, elW, elH);
+            }
+          }
+        }
+
+        const captionFrame = await loadImage(captionPng).catch(() => null);
+        if (captionFrame) ctx.drawImage(captionFrame, 0, 0, width, height);
+        if (project.textElements && project.textElements.length > 0) {
+          drawTextElements(ctx as unknown as CanvasRenderingContext2D, width, height, project.textElements, currentTime);
+        }
+        if (mode === 'green' || project.mediaType.startsWith('audio') || project.videoEnabled === false) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'destination-over';
+          ctx.fillStyle = mode === 'green' ? '#00ff00' : BACKGROUND;
+          ctx.fillRect(0, 0, width, height);
+          ctx.restore();
+        }
+        await new Promise<void>((resolveWrite, rejectWrite) => {
+          ffmpeg.stdin.write(canvas.data(), error => error ? rejectWrite(error) : resolveWrite());
+        });
+        progress(Math.min(98, Math.floor((frame + 1) / frameCount * 98)));
+      },
+    });
     ffmpeg.stdin.end();
     const code = await finished;
     if (code !== 0 || processError) throw processError ?? new Error(`FFmpeg exited with code ${code}.`);

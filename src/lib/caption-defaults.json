@@ -1,0 +1,10 @@
+{
+  "template": "welcome-stack",
+  "accent": "#9de52e",
+  "fontSize": 54,
+  "position": 70,
+  "wordsPerLine": 5,
+  "uppercase": false,
+  "motion": 1,
+  "aspect": "original"
+}

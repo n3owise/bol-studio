@@ -314,24 +314,31 @@ def _pitch(audio: np.ndarray, rate: int) -> float:
 def suggest_emphasis(words: list[dict], audio: np.ndarray, rate: int) -> None:
     """Mutate suggestions using measured acoustics combined with lexical prominence."""
     features = []
+    previous_end = 0.0
     for word in words:
         clip = audio[int(word["start"]*rate):int(word["end"]*rate)]
         rms = float(np.sqrt(np.mean(clip * clip))) if len(clip) else 0.0
         pitch = _pitch(clip, rate) if rms > .001 else 0.0
         length = max(2, len(re.sub(r"\W", "", str(word.get("text", "")))))
-        features.append((rms, pitch, (word["end"] - word["start"]) / length))
+        # Speakers pause just before the word they are about to land on, so the
+        # gap ahead of a word is a strong, free prominence cue.
+        gap_before = max(0.0, float(word["start"]) - previous_end)
+        previous_end = float(word["end"])
+        features.append((rms, pitch, (word["end"] - word["start"]) / length, gap_before))
     if not features:
         return
     features = np.asarray(features)
     for index, word in enumerate(words):
         neighborhood = features[max(0,index-5):min(len(words),index+6)]
-        rms, pitch, duration = features[index]
+        rms, pitch, duration, gap_before = features[index]
         median_rms = max(float(np.median(neighborhood[:, 0])), .001)
         voiced = neighborhood[:, 1][neighborhood[:, 1] > 0]
         median_pitch = float(np.median(voiced)) if len(voiced) else 0.0
         energy_signal = np.clip(math.log2(max(rms, 1e-5) / median_rms), -2, 2)
         pitch_signal = np.clip(math.log2(pitch / median_pitch) * 2, -1, 1) if pitch and median_pitch else 0
         duration_signal = np.clip(math.log2(max(duration,.001) / max(float(np.median(neighborhood[:,2])),.001)), -1, 1)
+        # A clear beat of silence in front of a word; saturates around 400ms.
+        pause_signal = float(np.clip(gap_before / .4, 0, 1))
 
         clean_text = re.sub(r"\W", "", str(word.get("text", ""))).lower()
         has_number = bool(re.search(r"\d", str(word.get("text", ""))))
@@ -340,42 +347,54 @@ def suggest_emphasis(words: list[dict], audio: np.ndarray, rate: int) -> None:
 
         lexical_signal = 0.45 if is_hook else (-0.4 if is_stop else 0.0)
 
-        score = 1 / (1 + math.exp(-float(1.7 * energy_signal + .8 * pitch_signal + .35 * duration_signal + 1.8 * lexical_signal)))
+        score = 1 / (1 + math.exp(-float(
+            1.7 * energy_signal + .8 * pitch_signal + .35 * duration_signal
+            + .6 * pause_signal + 1.8 * lexical_signal)))
         word["emphasisScore"] = round(score, 3)
         word["emphasis"] = bool(len(words) >= 3 and rms > .003 and ((score >= .73 and not is_stop) or (is_hook and score >= .62)))
         word["spotlight"] = False
 
-    # Group words into caption line chunks (pauses >= 0.22s or max 5 words)
-    # and designate the primary hero keyword in each line as spotlight
-    current_group: list[dict] = []
-    groups: list[list[dict]] = []
-    for w in words:
-        prev = current_group[-1] if current_group else None
-        if prev and (len(current_group) >= 5 or w["start"] - prev["end"] > 0.22 or re.search(r"[.!?।]$", str(prev.get("text", "")))):
-            groups.append(current_group)
-            current_group = []
-        current_group.append(w)
-    if current_group:
-        groups.append(current_group)
+    _cap_emphasis_per_breath(words)
 
-    for grp in groups:
-        if not grp:
+
+# A pause this long ends a breath group. It mirrors PAGE_GAP in src/lib/pages.ts,
+# but only the pause rule is used here: the words-per-page ceiling belongs to the
+# renderer and must not be duplicated, or the two drift apart again.
+BREATH_GAP = 0.22
+
+
+def _cap_emphasis_per_breath(words: list[dict]) -> None:
+    """Keep at most one automatic emphasis per breath group.
+
+    Emphasis only reads as emphasis when it is rare. A loud, excited passage
+    otherwise clears the score threshold on most of its words and every caption
+    ends up shouting. Grouping here is by pause alone, so this cap never depends
+    on the words-per-page setting and cannot disagree with the renderer.
+    """
+    run: list[dict] = []
+    runs: list[list[dict]] = []
+    for word in words:
+        previous = run[-1] if run else None
+        if previous and float(word["start"]) - float(previous["end"]) > BREATH_GAP:
+            runs.append(run)
+            run = []
+        run.append(word)
+    if run:
+        runs.append(run)
+
+    for group in runs:
+        flagged = [w for w in group if w.get("emphasis")]
+        if len(flagged) <= 1:
             continue
-        best_candidate = None
-        best_score = -1.0
-        for w in grp:
-            clean_text = re.sub(r"\W", "", str(w.get("text", ""))).lower()
-            if clean_text in STOP_PARTICLES:
-                continue
-            s = float(w.get("emphasisScore", 0.5))
-            if w.get("emphasis"):
-                s += 0.3
-            if s > best_score:
-                best_score = s
-                best_candidate = w
-        if best_candidate is not None and (best_score >= 0.65 or best_candidate.get("emphasis")):
-            best_candidate["spotlight"] = True
-            best_candidate["emphasis"] = True
+        keeper = max(flagged, key=lambda w: float(w.get("emphasisScore", 0)))
+        for word in flagged:
+            if word is not keeper:
+                word["emphasis"] = False
+
+    # Which word carries a caption page is decided by src/lib/pages.ts, against
+    # the same grouping the renderer draws. This function used to re-group words
+    # here with its own hardcoded five-word limit, so the word it marked as the
+    # hero regularly belonged to a different page than the one on screen.
 
 
 def normalize_words(segments: list[dict], duration: float, script: str) -> list[dict]:

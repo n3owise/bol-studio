@@ -16,16 +16,13 @@ export const templates = [
   { id: 'kalakar-shadow', name: 'Rangeela Kalakar', tag: 'DEPTH · SHADOW', accent: '#ff9d00', description: 'Warm drop shadow ke saath layered kalakar typography.' },
   { id: 'pop-up', name: 'Patakha Pop', tag: 'WORD · FLASH', accent: '#16d943', description: 'Emphasized shabd seedha screen pe jump karega.' },
 ];
-export function groupWords(words: Word[], max: number): Word[][] {
-  const groups: Word[][] = []; let current: Word[] = [];
-  for (const word of words) {
-    const prev = current.at(-1);
-    if (prev && (current.length >= max || word.start - prev.end > .22 || /[.!?।]$/.test(prev.text))) { groups.push(current); current = []; }
-    current.push(word);
-  }
-  if (current.length) groups.push(current);
-  return groups;
-}
+/**
+ * Re-exported so existing editor imports keep working. The implementation lives
+ * in ./pages, which is also what the Remotion composition and the exporter use —
+ * there is exactly one definition of where a caption page starts and ends.
+ */
+import { buildPages, groupWords, isSecondaryEmphasis, scoreOf } from './pages';
+export { groupWords, buildPages, type CaptionPage } from './pages';
 export function dimensions(settings: Settings, sourceWidth = 720, sourceHeight = 1280, resolution = 720) {
   const ratio = settings.aspect === 'original' ? sourceWidth / sourceHeight : settings.aspect === '9:16' ? 9/16 : settings.aspect === '16:9' ? 16/9 : 1;
   return ratio >= 1 ? { width: Math.round(resolution * ratio / 2) * 2, height: resolution } : { width: resolution, height: Math.round(resolution / ratio / 2) * 2 };
@@ -47,383 +44,6 @@ export function getContrastColor(hexColor: string): '#111318' | '#ffffff' {
   return lum > 145 ? '#111318' : '#ffffff';
 }
 
-const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
-const easeOutCubic = (value: number) => 1 - Math.pow(1 - clamp01(value), 3);
-const easeOutBack = (value: number) => {
-  const t = clamp01(value);
-  const c1 = 1.70158;
-  const c3 = c1 + 1;
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
-};
-
-// The browser preview and frame exporter call this exact, time-based renderer.
-export function drawCaptions(ctx: CanvasRenderingContext2D, width: number, height: number, words: Word[], settings: Settings, time: number, pregrouped?: Word[][]) {
-  ctx.clearRect(0, 0, width, height);
-  const groups = pregrouped ?? groupWords(words, settings.template === 'kinetic' ? 1 : settings.wordsPerLine);
-  // A short hold fills natural gaps, but must never obscure the following phrase.
-  const group = groups.find((g, i) => time >= g[0].start
-    && time < Math.min(g[g.length - 1].end + .08, groups[i + 1]?.[0].start ?? Infinity));
-  if (!group) return;
-  const base = settings.fontSize * width / 720;
-  const activeIndex = group.findIndex(w => time >= w.start && time < w.end);
-  const entry = Math.min(1, Math.max(0, (time - group[0].start) / .2));
-  const ease = 1 - Math.pow(1-entry, 3);
-  const font = (size: number, kind: 'sans' | 'serif' | 'condensed' = 'sans', italic = false, weight = 700) => {
-    const family = kind === 'serif' ? 'Georgia, "Times New Roman", serif' : kind === 'condensed' ? 'Impact, "Arial Narrow", sans-serif' : '"DM Sans", "Noto Sans Devanagari", sans-serif';
-    return `${italic ? 'italic ' : ''}${weight} ${size}px ${family}`;
-  };
-  const scriptTemplate = settings.template === 'editorial' || settings.template === 'soft-focus' || settings.template === 'glow-script' || settings.template === 'mumbai';
-  const uppercaseTemplate = settings.template === 'welcome-stack' || settings.template === 'double-trouble' || settings.template === 'mumbai';
-
-  const spotlightWordsList = group.filter(w => w.spotlight);
-  const emphasisWordsList = group.filter(w => w.emphasis);
-  const spotlightCount = spotlightWordsList.length;
-  const emphasisCount = emphasisWordsList.length;
-  const isStackLockup = settings.template === 'welcome-stack';
-
-  if (isStackLockup) {
-    let heroWords: Word[] = [];
-    let prefixWords: Word[] = [];
-    let suffixWords: Word[] = [];
-
-    const spotlightIndices = group.map((w, i) => (w.spotlight ? i : -1)).filter(i => i !== -1);
-    const emphasisIndices = group.map((w, i) => (w.emphasis ? i : -1)).filter(i => i !== -1);
-
-    const primaryIndices = spotlightIndices.length > 0 ? spotlightIndices : emphasisIndices;
-
-    if (primaryIndices.length > 0) {
-      // Check if primary indices form a contiguous sequence
-      const isContiguous = primaryIndices[primaryIndices.length - 1] - primaryIndices[0] === primaryIndices.length - 1;
-      if (isContiguous) {
-        const startIdx = primaryIndices[0];
-        const endIdx = primaryIndices[primaryIndices.length - 1];
-        heroWords = group.slice(startIdx, endIdx + 1);
-        prefixWords = group.slice(0, startIdx);
-        suffixWords = group.slice(endIdx + 1);
-      } else {
-        // Non-contiguous: center hero is the first primary word, remaining primary words retain styling in prefix/suffix
-        const heroIdx = primaryIndices[0];
-        heroWords = [group[heroIdx]];
-        prefixWords = group.slice(0, heroIdx);
-        suffixWords = group.slice(heroIdx + 1);
-      }
-    } else {
-      let maxScore = -1;
-      let best = Math.floor((group.length - 1) / 2);
-      for (let i = 0; i < group.length; i++) {
-        const s = group[i].emphasisScore ?? 0;
-        if (s > maxScore) { maxScore = s; best = i; }
-      }
-      heroWords = [group[best]];
-      prefixWords = group.slice(0, best);
-      suffixWords = group.slice(best + 1);
-    }
-
-    const heroScale = heroWords.length > 1 ? 1.55 : 1.85;
-    const subScale = 0.88;
-    const heroSize = base * heroScale;
-    const subSize = base * subScale;
-
-    const heroFont = font(heroSize, 'sans', false, 900);
-    const subFont = font(subSize, 'sans', false, 700);
-
-    ctx.font = subFont;
-    const spaceWidth = ctx.measureText(' ').width;
-
-    ctx.font = heroFont;
-    const heroSpaceWidth = ctx.measureText(' ').width;
-
-    const heroItems = heroWords.map(w => {
-      const text = (settings.uppercase || w.emphasis || w.spotlight) ? w.text.toUpperCase() : w.text;
-      const wWidth = ctx.measureText(text).width;
-      return { w, text, width: wWidth, centerX: 0 };
-    });
-    const heroTotalWidth = heroItems.reduce((acc, it) => acc + it.width, 0) + Math.max(0, heroItems.length - 1) * heroSpaceWidth;
-
-    ctx.font = subFont;
-    const prefixItems = prefixWords.map(w => {
-      const text = (settings.uppercase || w.emphasis || w.spotlight) ? w.text.toUpperCase() : w.text;
-      ctx.font = (w.spotlight || w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
-      const wWidth = ctx.measureText(text).width;
-      return { w, text, width: wWidth, centerX: 0 };
-    });
-    const prefixTotalWidth = prefixItems.reduce((acc, it) => acc + it.width, 0) + Math.max(0, prefixItems.length - 1) * spaceWidth;
-
-    const suffixItems = suffixWords.map(w => {
-      const text = (settings.uppercase || w.emphasis || w.spotlight) ? w.text.toUpperCase() : w.text;
-      ctx.font = (w.spotlight || w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
-      const wWidth = ctx.measureText(text).width;
-      return { w, text, width: wWidth, centerX: 0 };
-    });
-    const suffixTotalWidth = suffixItems.reduce((acc, it) => acc + it.width, 0) + Math.max(0, suffixItems.length - 1) * spaceWidth;
-
-    const heroCenterX = width / 2;
-    const heroLeftX = heroCenterX - heroTotalWidth / 2;
-    const heroRightX = heroCenterX + heroTotalWidth / 2;
-
-    let hCurrX = heroLeftX;
-    for (const item of heroItems) {
-      item.centerX = hCurrX + item.width / 2;
-      hCurrX += item.width + heroSpaceWidth;
-    }
-
-    let currX = heroLeftX;
-    for (const item of prefixItems) {
-      item.centerX = currX + item.width / 2;
-      currX += item.width + spaceWidth;
-    }
-
-    const suffixStartX = heroRightX - suffixTotalWidth;
-    let sCurrX = suffixStartX;
-    for (const item of suffixItems) {
-      item.centerX = sCurrX + item.width / 2;
-      sCurrX += item.width + spaceWidth;
-    }
-
-    const minX = Math.min(heroLeftX, prefixItems.length ? heroLeftX : heroLeftX, suffixItems.length ? suffixStartX : heroLeftX);
-    const maxX = Math.max(heroRightX, prefixItems.length ? heroLeftX + prefixTotalWidth : heroRightX, heroRightX);
-    const totalLockupWidth = maxX - minX;
-    const maxAllowedWidth = width * 0.86;
-    const fitScale = totalLockupWidth > maxAllowedWidth ? maxAllowedWidth / totalLockupWidth : 1;
-
-    const lineGap = heroSize * 0.12;
-    const hasPrefix = prefixItems.length > 0;
-    const hasSuffix = suffixItems.length > 0;
-    const lockupHeight = heroSize + (hasPrefix ? subSize + lineGap : 0) + (hasSuffix ? subSize + lineGap : 0);
-    const safeMargin = Math.min(width, height) * 0.06;
-    const rawCenterY = height * (settings.position / 100);
-    const halfH = lockupHeight / 2;
-    const centerY = Math.max(safeMargin + halfH, Math.min(height - safeMargin - halfH, rawCenterY));
-
-    const yHero = centerY + (hasPrefix && !hasSuffix ? lineGap * 0.4 : !hasPrefix && hasSuffix ? -lineGap * 0.4 : 0);
-    const yPrefix = yHero - heroSize * 0.52 - lineGap - subSize * 0.48;
-    const ySuffix = yHero + heroSize * 0.52 + lineGap + subSize * 0.48;
-
-    ctx.save();
-    ctx.translate(heroCenterX, centerY);
-    ctx.scale(fitScale, fitScale);
-    ctx.translate(-heroCenterX, -centerY);
-
-    // Draw prefix words (top-left aligned)
-    for (const item of prefixItems) {
-      const pHasStarted = settings.motion === 0 || time >= item.w.start;
-      const pLocal = Math.max(0, time - item.w.start);
-      const pEntry = settings.motion === 0 ? 1 : Math.min(1, pLocal / 0.16);
-      const pPop = settings.motion === 0 ? 1 : 0.88 + 0.12 * easeOutBack(pEntry);
-      const pAlpha = pHasStarted ? (settings.motion === 0 ? 1 : Math.min(1, pEntry * 2.5)) : 0;
-
-      ctx.save();
-      ctx.translate(item.centerX, yPrefix);
-      ctx.scale(pPop, pPop);
-      ctx.globalAlpha = pAlpha;
-      ctx.font = (item.w.spotlight || item.w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      ctx.strokeStyle = '#000000dd';
-      ctx.lineWidth = subSize * 0.08;
-      if (pAlpha > 0) ctx.strokeText(item.text, 0, 0);
-
-      if (item.w.spotlight) {
-        ctx.shadowColor = pAlpha > 0 ? settings.accent : 'transparent';
-        ctx.shadowBlur = pAlpha > 0 ? subSize * 0.65 : 0;
-        ctx.fillStyle = settings.accent;
-      } else if (item.w.emphasis) {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = settings.accent;
-      } else {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#ffffff';
-      }
-      ctx.fillText(item.text, 0, 0);
-      ctx.restore();
-    }
-
-    // Draw hero word(s) (centered, big, colorful with radiant ambient glow)
-    for (const item of heroItems) {
-      const hasStarted = settings.motion === 0 || time >= item.w.start;
-      const local = Math.max(0, time - item.w.start);
-      const entry = settings.motion === 0 ? 1 : Math.min(1, local / 0.16);
-      const popScale = settings.motion === 0 ? 1 : 0.85 + 0.15 * easeOutBack(entry);
-      const alpha = hasStarted ? (settings.motion === 0 ? 1 : Math.min(1, entry * 2.5)) : 0;
-
-      ctx.save();
-      ctx.translate(item.centerX, yHero);
-      ctx.scale(popScale, popScale);
-      ctx.globalAlpha = alpha;
-      ctx.font = heroFont;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      const isActualSpotlight = !!item.w.spotlight;
-      const isActualEmphasis = !!item.w.emphasis;
-      const isHighlighted = isActualSpotlight || isActualEmphasis;
-      ctx.shadowColor = alpha > 0 ? (isActualSpotlight ? settings.accent : 'rgba(0, 0, 0, 0.4)') : 'transparent';
-      ctx.shadowBlur = alpha > 0 ? (isActualSpotlight ? heroSize * 0.65 : heroSize * 0.12) : 0;
-      ctx.fillStyle = isHighlighted ? settings.accent : '#ffffff';
-      ctx.fillText(item.text, 0, 0);
-      ctx.restore();
-    }
-
-    // Draw suffix words (bottom-right aligned)
-    for (const item of suffixItems) {
-      const sHasStarted = settings.motion === 0 || time >= item.w.start;
-      const sLocal = Math.max(0, time - item.w.start);
-      const sEntry = settings.motion === 0 ? 1 : Math.min(1, sLocal / 0.16);
-      const sPop = settings.motion === 0 ? 1 : 0.88 + 0.12 * easeOutBack(sEntry);
-      const sAlpha = sHasStarted ? (settings.motion === 0 ? 1 : Math.min(1, sEntry * 2.5)) : 0;
-
-      ctx.save();
-      ctx.translate(item.centerX, ySuffix);
-      ctx.scale(sPop, sPop);
-      ctx.globalAlpha = sAlpha;
-      ctx.font = (item.w.spotlight || item.w.emphasis) ? font(subSize * 1.05, 'sans', false, 800) : subFont;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-
-      ctx.strokeStyle = '#000000dd';
-      ctx.lineWidth = subSize * 0.08;
-      if (sAlpha > 0) ctx.strokeText(item.text, 0, 0);
-
-      if (item.w.spotlight) {
-        ctx.shadowColor = sAlpha > 0 ? settings.accent : 'transparent';
-        ctx.shadowBlur = sAlpha > 0 ? subSize * 0.65 : 0;
-        ctx.fillStyle = settings.accent;
-      } else if (item.w.emphasis) {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = settings.accent;
-      } else {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#ffffff';
-      }
-      ctx.fillText(item.text, 0, 0);
-      ctx.restore();
-    }
-
-    ctx.restore();
-    return;
-  }
-  const itemFont = (w: Word, size: number) => {
-    const isSpecial = w.emphasis || w.spotlight;
-    if ((settings.template === 'editorial' || settings.template === 'soft-focus') && isSpecial) return font(size * 1.05, 'serif', true, 400);
-    if ((settings.template === 'glow-script' || settings.template === 'mumbai') && isSpecial) return font(size * 1.08, 'serif', true, 400);
-    if (settings.template === 'double-trouble') return font(size * .96, 'condensed', true, 700);
-    if (settings.template === 'welcome-stack') return font(size, 'sans', false, isSpecial ? 800 : 600);
-    return font(size, scriptTemplate && isSpecial ? 'serif' : 'sans', scriptTemplate && isSpecial, isSpecial ? 800 : 700);
-  };
-  const data = group.map((w, i) => {
-    const text = (settings.uppercase || (uppercaseTemplate && !w.emphasis && !w.spotlight)) ? w.text.toLocaleUpperCase() : w.text;
-    const emphasisScale = settings.template === 'welcome-stack' ? 1.36 : settings.template === 'editing-school' ? 1.32 : settings.template === 'pop-up' ? 1.34 : 1.29;
-    const size = base * ((w.emphasis || w.spotlight) ? emphasisScale : settings.template === 'welcome-stack' ? .82 : 1);
-    ctx.font = itemFont(w, size);
-    return { w, text, size, width: ctx.measureText(text).width, active: i === activeIndex };
-  });
-  const gap = base * .24;
-  const rows: typeof data[] = [[]]; let rowWidth = 0;
-  for (const item of data) {
-    if (rows.at(-1)!.length && rowWidth + gap + item.width > width * .84) { rows.push([]); rowWidth = 0; }
-    rows.at(-1)!.push(item); rowWidth += item.width + gap;
-  }
-  const totalHeight = rows.length * base * 1.65;
-  // Fit the entire phrase together so long groups stay on-screen in landscape.
-  // Padding reserves room for Devanagari marks, strokes, glow, and spring motion.
-  const verticalPadding = base * .75;
-  const safeMargin = Math.min(width, height) * .06;
-  const layoutHeight = totalHeight + verticalPadding * 2;
-  const layoutScale = Math.min(1, (height - safeMargin * 2) / layoutHeight);
-  const scaledHeight = layoutHeight * layoutScale;
-  const yStart = Math.max(safeMargin, Math.min(height - safeMargin - scaledHeight,
-    height * settings.position / 100 - scaledHeight / 2));
-  ctx.save();
-  ctx.translate(width / 2, yStart + verticalPadding * layoutScale);
-  ctx.scale(layoutScale, layoutScale);
-  ctx.translate(-width / 2, 0);
-  ctx.globalAlpha = settings.motion ? Math.min(1, entry * 3) : 1;
-  for (let row = 0; row < rows.length; row++) {
-    const items = rows[row];
-    const totalWidth = items.reduce((s,x) => s + x.width, 0) + (items.length-1)*gap;
-    const fit = Math.min(1, width * .86 / totalWidth);
-    let x = (width-totalWidth*fit)/2;
-    for (const item of items) {
-      const { w, text, size, active } = item;
-      const local = Math.max(0, time - w.start);
-      const spring = Math.exp(-local*14) * Math.sin(local*22);
-      const animationScale = settings.motion && active ? 1 + spring * .14 * settings.motion : 1;
-      const wordEntry = settings.motion ? easeOutBack(clamp01((time - w.start) / .2)) : 1;
-      const isKinetic = settings.template === 'kinetic';
-      const wordAlpha = settings.motion
-        ? (isKinetic
-            ? clamp01((time - w.start) / .07) * clamp01((w.end + .16 - time) / .16)
-            : 1)
-        : 1;
-      if (wordAlpha <= 0) { x += (item.width + gap) * fit; continue; }
-      const y = row * base * 1.65 + base * .9;
-      ctx.save();
-      ctx.globalAlpha *= wordAlpha;
-      ctx.translate(x+item.width*fit/2, y + (settings.motion ? (1-ease)*base*.24 + (1-wordEntry)*base*.22 : 0));
-      ctx.scale(fit*animationScale*(settings.motion ? .86 + .14 * wordEntry : 1), fit*animationScale*(settings.motion ? .86 + .14 * wordEntry : 1));
-      if (settings.template === 'bounce' && active && settings.motion) ctx.translate(0, -Math.sin(Math.min(1,local/.25)*Math.PI)*base*.18);
-      if (settings.template === 'kinetic' && settings.motion) ctx.scale(.82+.18*ease, .82+.18*ease);
-      if (settings.template === 'pop-up' && (w.emphasis || w.spotlight) && settings.motion) ctx.rotate(Math.sin(local * 11) * .025);
-      if (w.spotlight && settings.motion) ctx.scale(1.08, 1.08);
-      ctx.font = itemFont(w, size); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
-      const accent = settings.accent;
-      const isBoxed = (settings.template === 'karaoke' && active)
-        || (settings.template === 'bounce' && active)
-        || (settings.template === 'bubble-highlight' && (active || w.emphasis || w.spotlight))
-        || (settings.template === 'editing-school' && (active || w.emphasis || w.spotlight));
-
-      if (isBoxed) {
-        ctx.fillStyle = accent;
-        ctx.beginPath();
-        const radius = settings.template === 'bounce' ? size * .32 : settings.template === 'editing-school' ? size * .08 : size * .18;
-        ctx.roundRect(-item.width / 2 - base * .16, -size * .64, item.width + base * .32, size * 1.28, radius);
-        ctx.fill();
-
-        // Text inside solid box: crisp, high contrast, no stroke, no shadow blur
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = getContrastColor(accent);
-        ctx.fillText(text, 0, 0);
-      } else {
-        if (settings.template === 'double-trouble' && (w.emphasis || w.spotlight)) {
-          ctx.strokeStyle = accent; ctx.lineWidth = base * .08; ctx.beginPath(); ctx.ellipse(0, 0, item.width / 2 + base * .28, size * .72, -.08, 0, Math.PI * 2); ctx.stroke();
-        }
-        const shadow = settings.template === 'kalakar-shadow' ? accent : '#000000cc';
-        ctx.shadowColor = w.spotlight ? accent : shadow;
-        ctx.shadowBlur = w.spotlight ? base * 0.45 : (settings.template === 'glow-script' || settings.template === 'neon' || settings.template === 'soft-focus' ? base * .42 : base * .14);
-        ctx.shadowOffsetY = settings.template === 'kalakar-shadow' ? base * .14 : base * .055;
-        const noStroke = settings.template === 'editorial' || settings.template === 'soft-focus' || settings.template === 'glow-script' || settings.template === 'mumbai';
-        ctx.strokeStyle = settings.template === 'pop-up' && (w.emphasis || w.spotlight) ? '#101511' : '#111318';
-        ctx.lineWidth = noStroke ? 0 : base * .08;
-        if (ctx.lineWidth > 0) ctx.strokeText(text, 0, 0);
-        if (settings.template === 'kalakar-shadow' && (w.emphasis || w.spotlight)) {
-          ctx.save(); ctx.shadowColor = '#000000ee'; ctx.shadowBlur = base * .1; ctx.shadowOffsetY = base * .11; ctx.fillStyle = accent; ctx.fillText(text, 0, 0); ctx.restore();
-        }
-        const highlight = active || w.emphasis || w.spotlight;
-        ctx.fillStyle = highlight ? (settings.template === 'soft-focus' ? '#ffffff' : accent) : '#ffffff';
-        ctx.fillText(text, 0, 0);
-        if ((settings.template === 'editorial' || settings.template === 'soft-focus') && active) {
-          ctx.fillStyle = accent; ctx.fillRect(-item.width / 2, size * .62, item.width * Math.min(1, local / .12), base * .055);
-        }
-        if (settings.template === 'glow-script' && w.emphasis) {
-          ctx.shadowColor = accent; ctx.shadowBlur = base * .25; ctx.strokeStyle = accent; ctx.lineWidth = Math.max(1, base * .025);
-          ctx.beginPath(); ctx.moveTo(-item.width * .48, size * .58); ctx.bezierCurveTo(-item.width * .12, size * .9, item.width * .2, size * .88, item.width * .52, size * .58); ctx.stroke();
-        }
-        if (settings.template === 'scribble' && w.emphasis) {
-          ctx.shadowColor = accent; ctx.shadowBlur = base * .12; ctx.strokeStyle = accent; ctx.lineWidth = Math.max(1.5, base * .035); ctx.setLineDash([base * .06, base * .075]);
-          ctx.beginPath(); ctx.ellipse(0, size * .28, item.width * .72 + base * .1, size * .34, -.08, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-        }
-      }
-      ctx.restore(); x += (item.width+gap)*fit;
-    }
-  }
-  ctx.restore();
-}
 export function subtitleText(words: Word[], max: number, format: 'srt' | 'vtt') {
   const stamp = (s: number) => { const ms = Math.max(0, Math.round(s*1000)); return `${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}${format === 'srt' ? ',' : '.'}${String(ms%1000).padStart(3,'0')}`; };
   return (format === 'vtt' ? 'WEBVTT\n\n' : '') + groupWords(words,max).map((g,i) => `${format === 'srt' ? `${i+1}\n` : ''}${stamp(g[0].start)} --> ${stamp(g.at(-1)!.end)}\n${g.map(w=>w.text).join(' ')}\n`).join('\n');
@@ -716,6 +336,26 @@ function moveSingleWordToLine(
     }
   }
 
+  // Close any gaps in sourceGroup so remaining words do not split into two lines
+  if (sourceGroupIdx !== targetGroupIdx && sourceGroupWords.length > 2) {
+    const remainingSourceIds = sourceGroupWords.filter(w => w.id !== wordId).map(w => w.id);
+    for (let k = 0; k < newWords.length - 1; k++) {
+      const curr = newWords[k];
+      const nxt = newWords[k + 1];
+      if (remainingSourceIds.includes(curr.id) && remainingSourceIds.includes(nxt.id)) {
+        const gap = nxt.start - curr.end;
+        if (gap > 0.18) {
+          const shift = Number((gap - 0.08).toFixed(3));
+          for (let m = k + 1; m < newWords.length; m++) {
+            if (!remainingSourceIds.includes(newWords[m].id)) break;
+            newWords[m].start = Number((newWords[m].start - shift).toFixed(3));
+            newWords[m].end = Number((newWords[m].end - shift).toFixed(3));
+          }
+        }
+      }
+    }
+  }
+
   const refIdx = newWords.findIndex(w => w.id === refWordId);
   if (refIdx === -1) return words;
 
@@ -775,14 +415,34 @@ function moveSingleWordToLine(
     }
   }
 
+  // Close any gaps between adjacent words in target line so they maintain natural caption flow
+  for (let k = 0; k < newWords.length - 1; k++) {
+    const curr = newWords[k];
+    const nxt = newWords[k + 1];
+    const isCurrInTarget = targetGroup.some(w => w.id === curr.id) || curr.id === movingWord.id;
+    const isNxtInTarget = targetGroup.some(w => w.id === nxt.id) || nxt.id === movingWord.id;
+    if (isCurrInTarget && isNxtInTarget) {
+      const gap = nxt.start - curr.end;
+      if (gap > 0.18) {
+        const shift = Number((gap - 0.08).toFixed(3));
+        for (let m = k + 1; m < newWords.length; m++) {
+          if (!targetGroup.some(w => w.id === newWords[m].id) && newWords[m].id !== movingWord.id) break;
+          newWords[m].start = Number((newWords[m].start - shift).toFixed(3));
+          newWords[m].end = Number((newWords[m].end - shift).toFixed(3));
+        }
+      }
+    }
+  }
+
   // Ensure all intervals in newWords strictly satisfy start < end and non-overlapping
   ensureValidIntervals(newWords, 9999);
 
-  if (prevWord) {
-    const isPrevInTarget = targetGroup.some(w => w.id === prevWord.id);
-    if (isPrevInTarget) {
-      prevWord.text = prevWord.text.replace(/[.!?।]+$/, '');
-    }
+  // Ensure that within the target group, only the final word ends with sentence punctuation,
+  // preventing groupWords from splitting the line prematurely.
+  const targetGroupWordIds = new Set(targetGroup.map(w => w.id).concat(movingWord.id));
+  const wordsInTarget = newWords.filter(w => targetGroupWordIds.has(w.id));
+  for (let idx = 0; idx < wordsInTarget.length - 1; idx++) {
+    wordsInTarget[idx].text = wordsInTarget[idx].text.replace(/[.!?।]+$/, '');
   }
 
   const isAtEndOfTargetLine = !nextWord || !targetGroup.some(w => w.id === nextWord.id);
@@ -864,22 +524,7 @@ export function replaceAllOccurrences(words: Word[], findText: string, replaceTe
   });
 }
 
-export const STOP_WORDS = new Set([
-  'ke', 'ki', 'ka', 'ko', 'se', 'mein', 'par', 'pe', 'ne', 'aur', 'ya', 'bhi', 'hi', 'to', 'toh',
-  'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'at', 'by', 'for', 'with', 'is', 'are', 'was',
-  'were', 'it', 'this', 'that', 'these', 'those', 'am', 'be', 'been', 'being', 'have', 'has', 'had',
-  'do', 'does', 'did', 'but', 'if', 'then', 'else', 'when', 'up', 'down', 'out', 'off', 'over', 'under',
-  'ye', 'yeh', 'woh', 'kuch', 'kar', 'raha', 'rahi', 'rahe', 'karna', 'karne'
-]);
-
-export const HOOK_WORDS = new Set([
-  'step', 'rule', 'secret', 'trick', 'hack', 'point', 'formula', 'part', 'tip', 'lesson', 'method',
-  'best', 'worst', 'free', 'viral', 'huge', 'biggest', 'never', 'always', 'stop', 'wait',
-  'easy', 'fast', 'simple', 'crazy', 'insane', 'magic', 'important', 'great', 'bold',
-  'sabse', 'bada', 'badi', 'bade', 'asli', 'kamaal', 'bawal', 'sach', 'pakka', 'bilkul',
-  'shandaar', 'shaandaar', 'dhyaan', 'zaruri', 'zaroori', 'sahi', 'khatarnak', 'ekdam',
-  'power', 'super', 'money', 'crore', 'lakh', 'success', 'growth', 'master', 'hero'
-]);
+export { STOP_WORDS, HOOK_WORDS } from './pages';
 
 /**
  * Automatically detects and synchronizes Spotlight (⚡ hero word) and Emphasize (★ power words)
@@ -887,71 +532,29 @@ export const HOOK_WORDS = new Set([
  */
 export function autoDetectHighlights(words: Word[], wordsPerLine = 4): Word[] {
   if (!words || words.length === 0) return [];
-  const groups = groupWords(words, wordsPerLine);
 
-  return groups.flatMap(group => {
+  return buildPages(words, wordsPerLine).flatMap(page => {
+    const group = page.words;
     if (group.length === 0) return [];
 
-    // If this group already has explicit spotlight keywords set by the user, preserve them cleanly
-    const hasExistingSpotlight = group.some(w => w.spotlight);
-    if (hasExistingSpotlight) {
-      return group.map(w => ({
-        ...w,
-        spotlight: !!w.spotlight,
-        emphasis: !w.spotlight && !!w.emphasis,
-      }));
+    // An explicit spotlight is the creator's decision; only fill in the stars.
+    if (group.some(w => w.spotlight)) {
+      return group.map(w => ({ ...w, spotlight: !!w.spotlight, emphasis: !w.spotlight && !!w.emphasis }));
     }
 
-    // Score words to select the primary Spotlight hero word for this line
+    // Same ranking the renderer uses, so the star the editor shows is the word
+    // that actually grows on screen.
     let bestScore = -Infinity;
     let bestIndex = -1;
-
     group.forEach((w, idx) => {
-      const clean = w.text.replace(/\W/g, '').toLowerCase();
-      const hasNumber = /\d/.test(w.text);
-      const isHook = HOOK_WORDS.has(clean) || hasNumber;
-      const isStop = STOP_WORDS.has(clean);
-
-      let score = w.emphasisScore ?? 0.5;
-      if (w.emphasis) score += 0.35;
-      if (isHook) score += 0.45;
-      if (clean.length >= 4) score += 0.1;
-      if (isStop) score -= 0.65;
-
-      // Slight preference for content words away from very end punctuation
-      const centerDist = Math.abs(idx - (group.length - 1) / 2);
-      score -= centerDist * 0.05;
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = idx;
-      }
+      const centreBias = Math.abs(idx - (group.length - 1) / 2) * 0.05;
+      const score = scoreOf(w) - centreBias;
+      if (score > bestScore) { bestScore = score; bestIndex = idx; }
     });
+    if (bestIndex === -1) bestIndex = Math.floor((group.length - 1) / 2);
 
-    if (bestIndex === -1) {
-      bestIndex = Math.floor((group.length - 1) / 2);
-    }
-
-    return group.map((w, idx) => {
-      if (idx === bestIndex) {
-        return {
-          ...w,
-          spotlight: true,
-          emphasis: false,
-        };
-      }
-      const clean = w.text.replace(/\W/g, '').toLowerCase();
-      const hasNumber = /\d/.test(w.text);
-      const isHook = HOOK_WORDS.has(clean) || hasNumber;
-      const isStop = STOP_WORDS.has(clean);
-      const isSecondaryEmphasis = !isStop && (w.emphasis || (w.emphasisScore ?? 0) >= 0.72 || isHook);
-      return {
-        ...w,
-        spotlight: false,
-        emphasis: isSecondaryEmphasis,
-      };
-    });
+    return group.map((w, idx) => (idx === bestIndex
+      ? { ...w, spotlight: true, emphasis: false }
+      : { ...w, spotlight: false, emphasis: isSecondaryEmphasis(w) }));
   });
 }
-
-

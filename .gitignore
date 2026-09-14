@@ -12,3 +12,6 @@ test-results/
 
 data/test-fixtures/*
 !data/test-fixtures/manifest.json
+
+# Local render/verification output
+out/

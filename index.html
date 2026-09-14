@@ -18,6 +18,22 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=bol4" />
     <link rel="manifest" href="/site.webmanifest?v=bol4" />
 
+    <!-- Zero-flash theme initialization -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('bol_theme');
+          var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', theme);
+          if (theme === 'dark') {
+            document.documentElement.classList.add('theme-dark');
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', '#111215');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
     <title>Bol — Hinglish caption studio</title>
   </head>
   <body>

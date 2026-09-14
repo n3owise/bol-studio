@@ -32,8 +32,12 @@ MAX_DURATION = 20 * 60
 LOCK = threading.RLock()
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bol-worker")
 LOGGER = logging.getLogger("bol")
-DEFAULT_SETTINGS = {"template": "karaoke", "accent": "#c2a1ff", "fontSize": 54, "position": 70,
-                    "wordsPerLine": 4, "uppercase": False, "motion": 1, "aspect": "original"}
+# Shared with the browser: src/lib/types.ts imports this same file. Keeping two
+# hand-written copies meant a project created here opened with a different
+# template, accent and words-per-line than one created in the editor.
+DEFAULT_SETTINGS = json.loads(
+    (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
+)
 
 
 def project_dir(project_id: str) -> Path:
@@ -276,14 +280,14 @@ class Settings(ValidatedModel):
         "karaoke", "editorial", "bounce", "kinetic", "neon", "glow-script", "scribble",
         "welcome-stack", "soft-focus", "double-trouble", "bubble-highlight", "mumbai",
         "editing-school", "kalakar-shadow", "pop-up"
-    ] = "karaoke"
-    accent: str = Field(default="#c2a1ff", pattern=r"^#[0-9a-fA-F]{6}$")
-    fontSize: float = Field(default=54, ge=20, le=100)
-    position: float = Field(default=70, ge=10, le=90)
-    wordsPerLine: StrictInt = Field(default=4, ge=1, le=8)
-    uppercase: StrictBool = False
-    motion: float = Field(default=1, ge=0, le=2)
-    aspect: Literal["original", "9:16", "1:1", "16:9"] = "original"
+    ] = DEFAULT_SETTINGS["template"]
+    accent: str = Field(default=DEFAULT_SETTINGS["accent"], pattern=r"^#[0-9a-fA-F]{6}$")
+    fontSize: float = Field(default=DEFAULT_SETTINGS["fontSize"], ge=20, le=100)
+    position: float = Field(default=DEFAULT_SETTINGS["position"], ge=10, le=90)
+    wordsPerLine: StrictInt = Field(default=DEFAULT_SETTINGS["wordsPerLine"], ge=1, le=8)
+    uppercase: StrictBool = DEFAULT_SETTINGS["uppercase"]
+    motion: float = Field(default=DEFAULT_SETTINGS["motion"], ge=0, le=2)
+    aspect: Literal["original", "9:16", "1:1", "16:9"] = DEFAULT_SETTINGS["aspect"]
 
 
 class ProjectPatch(ValidatedModel):
@@ -292,6 +296,8 @@ class ProjectPatch(ValidatedModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     videoEnabled: StrictBool | None = None
     revision: StrictInt | None = Field(default=None, ge=0)
+    textElements: list[dict] | None = None
+    canvasElements: list[dict] | None = None
 
 
 class TranscribeRequest(ValidatedModel):
@@ -400,6 +406,10 @@ def patch_project(project_id: str, request: ProjectPatch):
             if project["mediaType"] != "video":
                 raise HTTPException(409, "Audio projects do not have a video layer.")
             project["videoEnabled"] = request.videoEnabled
+        if request.textElements is not None:
+            project["textElements"] = request.textElements
+        if request.canvasElements is not None:
+            project["canvasElements"] = request.canvasElements
     return update_project(project_id, mutate)
 
 
@@ -460,3 +470,350 @@ def download_export(project_id: str, export_id: str):
     if not path.is_file():
         raise HTTPException(404, "Export file is missing. Please export again.")
     return FileResponse(path, media_type="video/mp4", filename=job["filename"])
+
+
+def inspect_asset_file(path: Path, original_filename: str) -> dict:
+    ext = Path(original_filename).suffix.lower()
+    video_exts = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
+    audio_exts = {".mp3", ".wav", ".m4a"}
+    image_exts = {".png", ".jpg", ".jpeg", ".webp"}
+    if ext not in (video_exts | audio_exts | image_exts):
+        raise HTTPException(422, "Unsupported file type.")
+
+    result = run_process(["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)], 30)
+    try:
+        info = json.loads(result.stdout)
+        streams = info.get("streams", [])
+        format_info = info.get("format", {})
+        video_stream = next((s for s in streams if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")), None)
+        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    except Exception:
+        raise HTTPException(422, "The media file could not be decoded.")
+
+    if ext in image_exts:
+        # Fallback to image stream if any
+        img_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+        width = int(img_stream.get("width", 0)) if img_stream else 800
+        height = int(img_stream.get("height", 0)) if img_stream else 600
+        return {"mediaType": "image", "width": width, "height": height, "duration": None}
+    elif ext in audio_exts or (audio_stream and not video_stream):
+        duration = float(format_info.get("duration") or (audio_stream or {}).get("duration") or 0)
+        return {"mediaType": "audio", "duration": round(duration, 2), "width": None, "height": None}
+    else:
+        duration = float(format_info.get("duration") or (video_stream or {}).get("duration") or 0)
+        width = int(video_stream.get("width", 720)) if video_stream else 720
+        height = int(video_stream.get("height", 1280)) if video_stream else 1280
+        return {"mediaType": "video", "duration": round(duration, 2), "width": width, "height": height}
+
+
+def generate_asset_thumb(source_path: Path, thumb_path: Path, media_type: str) -> None:
+    try:
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        if media_type == "video":
+            run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "0.5", "-i", str(source_path),
+                         "-frames:v", "1", "-vf", "scale=360:-1", str(thumb_path)], 20)
+        elif media_type == "image":
+            run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source_path),
+                         "-vf", "scale=360:-1", str(thumb_path)], 20)
+    except Exception as exc:
+        LOGGER.warning("Thumbnail generation skipped for %s: %s", source_path.name, exc)
+
+
+@app.get("/api/projects/{project_id}/media-thumbnail")
+def project_media_thumbnail(project_id: str):
+    directory = project_dir(project_id)
+    thumb_path = directory / "preview.thumb.jpg"
+    if not thumb_path.is_file():
+        source_path = directory / ("preview.mp4" if (directory / "preview.mp4").is_file() else "source.bin")
+        if source_path.is_file():
+            generate_asset_thumb(source_path, thumb_path, "video")
+    if thumb_path.is_file():
+        return FileResponse(thumb_path, media_type="image/jpeg")
+    raise HTTPException(404, "Thumbnail not ready.")
+
+
+@app.get("/api/projects/{project_id}/assets")
+def list_project_assets(project_id: str):
+    project = load_project(project_id)
+    directory = project_dir(project_id)
+    assets = list(project.get("mediaAssets", []))
+    
+    # Ensure primary project media is synthesized as an asset if not present
+    has_primary = any(a.get("id") == "primary" for a in assets)
+    if not has_primary and project.get("filename"):
+        source_file = directory / "source.bin"
+        size = source_file.stat().st_size if source_file.is_file() else 0
+        primary_asset = {
+            "id": "primary",
+            "name": project.get("name", "Main Video"),
+            "filename": project.get("filename", "clip.mp4"),
+            "mediaType": project.get("mediaType", "video"),
+            "size": size,
+            "duration": project.get("duration"),
+            "width": project.get("width"),
+            "height": project.get("height"),
+            "createdAt": project.get("created"),
+            "url": f"/api/projects/{project_id}/media",
+            "thumbnailUrl": f"/api/projects/{project_id}/media-thumbnail",
+            "greenScreen": project.get("greenScreen")
+        }
+        assets.insert(0, primary_asset)
+    return assets
+
+
+@app.post("/api/projects/{project_id}/assets", status_code=201)
+async def upload_project_asset(project_id: str, file: Annotated[UploadFile, File()]):
+    directory = project_dir(project_id)
+    assets_dir = directory / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    
+    raw_filename = Path((file.filename or "media").replace("\\", "/")).name[:240]
+    ext = Path(raw_filename).suffix.lower()
+    asset_id = str(uuid.uuid4())
+    dest_path = assets_dir / f"{asset_id}{ext}"
+    thumb_path = assets_dir / f"{asset_id}.thumb.jpg"
+
+    total = 0
+    try:
+        with dest_path.open("wb") as out_file:
+            while chunk := await file.read(1024 * 1024):
+                total += len(chunk)
+                if total > MAX_BYTES:
+                    raise HTTPException(413, "This file is larger than 1 GB.")
+                out_file.write(chunk)
+        if total == 0:
+            raise HTTPException(422, "The uploaded file is empty.")
+
+        meta = await asyncio.to_thread(inspect_asset_file, dest_path, raw_filename)
+        await asyncio.to_thread(generate_asset_thumb, dest_path, thumb_path, meta["mediaType"])
+
+        name_stem = Path(raw_filename).stem[:120] or "Untitled media"
+        asset = {
+            "id": asset_id,
+            "name": name_stem,
+            "filename": raw_filename,
+            "mediaType": meta["mediaType"],
+            "size": total,
+            "duration": meta["duration"],
+            "width": meta["width"],
+            "height": meta["height"],
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "sourceFile": f"assets/{asset_id}{ext}",
+            "thumbnailFile": f"assets/{asset_id}.thumb.jpg" if thumb_path.is_file() else None,
+            "url": f"/api/projects/{project_id}/assets/{asset_id}/file",
+            "thumbnailUrl": f"/api/projects/{project_id}/assets/{asset_id}/thumbnail" if thumb_path.is_file() else None,
+            "greenScreen": None,
+        }
+
+        def append_asset(p):
+            if "mediaAssets" not in p or not isinstance(p["mediaAssets"], list):
+                p["mediaAssets"] = []
+            p["mediaAssets"].append(asset)
+        update_project(project_id, append_asset)
+        return asset
+    except HTTPException:
+        dest_path.unlink(missing_ok=True)
+        thumb_path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        dest_path.unlink(missing_ok=True)
+        thumb_path.unlink(missing_ok=True)
+        LOGGER.exception("Asset upload failed")
+        raise HTTPException(500, f"Upload failed: {exc}")
+    finally:
+        await file.close()
+
+
+@app.get("/api/projects/{project_id}/assets/{asset_id}/file")
+def get_asset_file(project_id: str, asset_id: str):
+    directory = project_dir(project_id)
+    if asset_id == "primary":
+        project = load_project(project_id)
+        path = directory / ("preview.mp4" if project["mediaType"] == "video" else "preview.m4a")
+        if not path.is_file():
+            path = directory / "source.bin"
+        if not path.is_file():
+            raise HTTPException(404, "Primary media file not found.")
+        return FileResponse(path, media_type="video/mp4" if project["mediaType"] == "video" else "audio/mp4")
+
+    # Look in assets directory
+    assets_dir = directory / "assets"
+    matching = list(assets_dir.glob(f"{asset_id}.*"))
+    file_path = next((p for p in matching if not p.name.endswith(".thumb.jpg")), None)
+    if not file_path or not file_path.is_file():
+        raise HTTPException(404, "Asset file not found.")
+
+    ext = file_path.suffix.lower()
+    mime = "application/octet-stream"
+    if ext in {".mp4", ".mov", ".webm", ".avi", ".mkv"}:
+        mime = "video/mp4" if ext == ".mp4" else f"video/{ext[1:]}"
+    elif ext in {".mp3", ".wav", ".m4a"}:
+        mime = "audio/mpeg" if ext == ".mp3" else ("audio/wav" if ext == ".wav" else "audio/mp4")
+    elif ext in {".png", ".jpg", ".jpeg", ".webp"}:
+        mime = f"image/{'jpeg' if ext in ('.jpg', '.jpeg') else ext[1:]}"
+
+    return FileResponse(file_path, media_type=mime)
+
+
+@app.get("/api/projects/{project_id}/assets/{asset_id}/thumbnail")
+def get_asset_thumbnail(project_id: str, asset_id: str):
+    directory = project_dir(project_id)
+    if asset_id == "primary":
+        return project_media_thumbnail(project_id)
+    
+    thumb_path = directory / "assets" / f"{asset_id}.thumb.jpg"
+    if thumb_path.is_file():
+        return FileResponse(thumb_path, media_type="image/jpeg")
+    raise HTTPException(404, "Thumbnail not found.")
+
+
+@app.get("/api/projects/{project_id}/assets/{asset_id}/download")
+def download_asset_file(project_id: str, asset_id: str):
+    project = load_project(project_id)
+    directory = project_dir(project_id)
+    
+    if asset_id == "primary":
+        path = directory / "source.bin"
+        if not path.is_file():
+            path = directory / ("preview.mp4" if project["mediaType"] == "video" else "preview.m4a")
+        if not path.is_file():
+            raise HTTPException(404, "Primary media file not found.")
+        return FileResponse(path, filename=project.get("filename", "clip.mp4"))
+
+    matching = list((directory / "assets").glob(f"{asset_id}.*"))
+    file_path = next((p for p in matching if not p.name.endswith(".thumb.jpg")), None)
+    if not file_path or not file_path.is_file():
+        raise HTTPException(404, "Asset file not found.")
+
+    # Find filename in mediaAssets
+    asset = next((a for a in project.get("mediaAssets", []) if a.get("id") == asset_id), None)
+    filename = asset.get("filename", file_path.name) if asset else file_path.name
+    return FileResponse(file_path, filename=filename)
+
+
+class AssetPatchRequest(BaseModel):
+    name: str | None = None
+    greenScreen: dict | None = None
+
+
+@app.patch("/api/projects/{project_id}/assets/{asset_id}")
+def patch_asset(project_id: str, asset_id: str, request: AssetPatchRequest):
+    def mutate(p):
+        if asset_id == "primary":
+            if request.name is not None and request.name.strip():
+                p["name"] = request.name.strip()
+                ext = Path(p.get("filename", "")).suffix
+                p["filename"] = f"{request.name.strip()}{ext}"
+            if request.greenScreen is not None:
+                p["greenScreen"] = request.greenScreen
+            return
+
+        assets = p.get("mediaAssets", [])
+        asset = next((a for a in assets if a.get("id") == asset_id), None)
+        if not asset:
+            raise HTTPException(404, "Asset not found.")
+        if request.name is not None and request.name.strip():
+            asset["name"] = request.name.strip()
+            ext = Path(asset.get("filename", "")).suffix
+            asset["filename"] = f"{request.name.strip()}{ext}"
+        if request.greenScreen is not None:
+            asset["greenScreen"] = request.greenScreen
+    return update_project(project_id, mutate)
+
+
+@app.post("/api/projects/{project_id}/assets/{asset_id}/duplicate")
+def duplicate_asset(project_id: str, asset_id: str):
+    directory = project_dir(project_id)
+    project = load_project(project_id)
+    
+    if asset_id == "primary":
+        source_file = directory / "source.bin"
+        if not source_file.is_file():
+            source_file = directory / "preview.mp4"
+        if not source_file.is_file():
+            raise HTTPException(404, "Source file not found.")
+        orig_filename = project.get("filename", "clip.mp4")
+        orig_name = project.get("name", "Main Video")
+        orig_type = project.get("mediaType", "video")
+        orig_duration = project.get("duration")
+        orig_width = project.get("width")
+        orig_height = project.get("height")
+        orig_greenscreen = project.get("greenScreen")
+    else:
+        asset = next((a for a in project.get("mediaAssets", []) if a.get("id") == asset_id), None)
+        if not asset:
+            raise HTTPException(404, "Asset not found.")
+        orig_filename = asset["filename"]
+        orig_name = asset["name"]
+        orig_type = asset["mediaType"]
+        orig_duration = asset.get("duration")
+        orig_width = asset.get("width")
+        orig_height = asset.get("height")
+        orig_greenscreen = asset.get("greenScreen")
+        
+        matching = list((directory / "assets").glob(f"{asset_id}.*"))
+        source_file = next((p for p in matching if not p.name.endswith(".thumb.jpg")), None)
+        if not source_file or not source_file.is_file():
+            raise HTTPException(404, "Asset file not found.")
+
+    new_id = str(uuid.uuid4())
+    ext = Path(orig_filename).suffix.lower()
+    new_assets_dir = directory / "assets"
+    new_assets_dir.mkdir(parents=True, exist_ok=True)
+    new_dest = new_assets_dir / f"{new_id}{ext}"
+    shutil.copy2(source_file, new_dest)
+
+    new_thumb = new_assets_dir / f"{new_id}.thumb.jpg"
+    generate_asset_thumb(new_dest, new_thumb, orig_type)
+
+    stem = Path(orig_filename).stem
+    new_name = f"{orig_name} copy"
+    new_filename = f"{stem} copy{ext}"
+
+    new_asset = {
+        "id": new_id,
+        "name": new_name,
+        "filename": new_filename,
+        "mediaType": orig_type,
+        "size": new_dest.stat().st_size,
+        "duration": orig_duration,
+        "width": orig_width,
+        "height": orig_height,
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "sourceFile": f"assets/{new_id}{ext}",
+        "thumbnailFile": f"assets/{new_id}.thumb.jpg" if new_thumb.is_file() else None,
+        "url": f"/api/projects/{project_id}/assets/{new_id}/file",
+        "thumbnailUrl": f"/api/projects/{project_id}/assets/{new_id}/thumbnail" if new_thumb.is_file() else None,
+        "greenScreen": copy.deepcopy(orig_greenscreen) if orig_greenscreen else None,
+    }
+
+    def append(p):
+        if "mediaAssets" not in p or not isinstance(p["mediaAssets"], list):
+            p["mediaAssets"] = []
+        p["mediaAssets"].append(new_asset)
+    update_project(project_id, append)
+    return new_asset
+
+
+@app.delete("/api/projects/{project_id}/assets/{asset_id}")
+def delete_asset(project_id: str, asset_id: str):
+    directory = project_dir(project_id)
+    if asset_id == "primary":
+        def disable_video(p):
+            p["videoEnabled"] = False
+        update_project(project_id, disable_video)
+        return {"status": "ok", "message": "Primary media video layer disabled."}
+
+    def remove(p):
+        assets = p.get("mediaAssets", [])
+        p["mediaAssets"] = [a for a in assets if a.get("id") != asset_id]
+    update_project(project_id, remove)
+
+    # Remove files
+    assets_dir = directory / "assets"
+    for p in assets_dir.glob(f"{asset_id}.*"):
+        try:
+            p.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return {"status": "ok"}

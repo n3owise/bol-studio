@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Ban, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Download, Edit3, FileAudio, Film, Folder, FolderOpen, Headphones, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, MoreHorizontal, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings2, Smile, Sparkles, Split, Star, Subtitles, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -9,13 +9,26 @@ import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/700.css';
 import '@fontsource/noto-sans-devanagari/700.css';
 import './styles.css';
-import { API, request, upload } from './lib/api';
-import { defaults, type Project, type Settings, type Word } from './lib/types';
-import { appendWord, autoDetectHighlights, dimensions, drawCaptions, ensureValidIntervals, getContrastColor, groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { API, fetchMediaAssets, request, upload } from './lib/api';
+import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
+import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { groupWords } from './lib/pages';
+import { Player, type PlayerRef } from '@remotion/player';
+import { CaptionTrack } from './remotion/CaptionTrack';
+import { CAPTION_FPS } from './remotion/Root';
+import { drawKeyedMedia } from './lib/chromakey';
+import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
+import { CaptionsPanel } from './components/CaptionsPanel';
+import { TextPanel } from './components/TextPanel';
+import { createDefaultTextElement, drawTextElements, transformTextCase } from './lib/text';
+import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
 type Health = { status?: string; engine?: string; model?: string; [key: string]: unknown };
-type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'>;
+type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> & {
+  textElements?: CanvasTextElement[];
+  canvasElements?: CanvasVisualElement[];
+};
 
 function TemplatePreview({ id }: { id: string }) {
   if (id === 'kinetic') return <strong>BAWAAL.</strong>;
@@ -73,7 +86,86 @@ const SAMPLE_ITEMS = [
   },
 ];
 
+type NavPanelId = 'caption' | 'media' | 'text' | 'style' | 'audio' | 'settings';
+
+const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
+  { id: 'caption', label: 'Caption', icon: <Captions size={20} strokeWidth={1.75} /> },
+  { id: 'media', label: 'Media', icon: <Camera size={20} strokeWidth={1.75} /> },
+  { id: 'text', label: 'Text', icon: <Type size={20} strokeWidth={1.75} /> },
+  { id: 'style', label: 'Style', icon: <Clock size={20} strokeWidth={1.75} /> },
+  { id: 'audio', label: 'Audio', icon: <Music size={20} strokeWidth={1.75} /> },
+  { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} strokeWidth={1.75} /> },
+];
+
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('bol_theme');
+    if (saved === 'light' || saved === 'dark') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('bol_theme', next);
+      document.documentElement.setAttribute('data-theme', next);
+      if (next === 'dark') {
+        document.documentElement.classList.add('theme-dark');
+      } else {
+        document.documentElement.classList.remove('theme-dark');
+      }
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', next === 'dark' ? '#111215' : '#ffffff');
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (theme === 'dark') {
+      document.documentElement.classList.add('theme-dark');
+    } else {
+      document.documentElement.classList.remove('theme-dark');
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (e: MediaQueryListEvent) => {
+      const saved = localStorage.getItem('bol_theme');
+      if (!saved) {
+        const nextTheme = e.matches ? 'dark' : 'light';
+        setTheme(nextTheme);
+        document.documentElement.setAttribute('data-theme', nextTheme);
+        if (nextTheme === 'dark') {
+          document.documentElement.classList.add('theme-dark');
+        } else {
+          document.documentElement.classList.remove('theme-dark');
+        }
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', nextTheme === 'dark' ? '#111215' : '#ffffff');
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
+
+  useEffect(() => {
+    const handleThemeKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault();
+        const toggler = document.querySelector<HTMLButtonElement>('.theme-toggle-btn, .animated-theme-toggler');
+        if (toggler) {
+          toggler.click();
+        } else {
+          toggleTheme();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleThemeKey);
+    return () => window.removeEventListener('keydown', handleThemeKey);
+  }, [toggleTheme]);
+
   const [project, setProject] = useState<Project | null>(null);
   const projectRef = useRef<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -87,7 +179,10 @@ function App() {
   const dragCounterRef = useRef(0);
   const [script, setScript] = useState('roman');
   const [language, setLanguage] = useState('auto');
+  const [activeNavPanel, setActiveNavPanel] = useState<NavPanelId>('caption');
   const [rightTab, setRightTab] = useState('templates');
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templateCategory, setTemplateCategory] = useState<'all' | 'minimal' | 'bold' | 'kinetic' | 'editorial' | 'fun'>('all');
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [selectedWordIds, setSelectedWordIds] = useState<Set<string>>(new Set());
   const [draggingWordIds, setDraggingWordIds] = useState<string[]>([]);
@@ -110,6 +205,38 @@ function App() {
   const [dirty, setDirty] = useState(0);
   const [history, setHistory] = useState<EditState[]>([]);
   const [future, setFuture] = useState<EditState[]>([]);
+  const [projectAssets, setProjectAssets] = useState<MediaAsset[]>([]);
+  const [activeMediaAsset, setActiveMediaAsset] = useState<MediaAsset | null>(null);
+  const [canvasElements, setCanvasElements] = useState<CanvasVisualElement[]>([]);
+  const [selectedCanvasElementId, setSelectedCanvasElementId] = useState<string | null>(null);
+  const [greenScreenTargetEl, setGreenScreenTargetEl] = useState<CanvasVisualElement | null>(null);
+  const [textElements, setTextElements] = useState<CanvasTextElement[]>([]);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [isEditingCanvasTextId, setIsEditingCanvasTextId] = useState<string | null>(null);
+  const [copiedTextStyle, setCopiedTextStyle] = useState<Partial<CanvasTextElement> | null>(null);
+  const [snapGuideX, setSnapGuideX] = useState(false);
+  const [snapGuideY, setSnapGuideY] = useState(false);
+  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const videoCacheRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+
+  const handleSelectMediaForCanvas = useCallback((asset: MediaAsset) => {
+    if (asset.id === 'primary') {
+      setActiveMediaAsset(null);
+      setVideoEnabled(true);
+    } else {
+      setActiveMediaAsset(asset);
+      if (asset.mediaType === 'video') setVideoEnabled(true);
+    }
+  }, []);
+
+  const handleUpdateProjectAssets = useCallback((newAssets: MediaAsset[]) => {
+    setProjectAssets(newAssets);
+    if (activeMediaAsset) {
+      const updated = newAssets.find(a => a.id === activeMediaAsset.id);
+      if (updated) setActiveMediaAsset(updated);
+    }
+  }, [activeMediaAsset]);
+
   const saveChain = useRef<Promise<void>>(Promise.resolve());
   const savedDirty = useRef(0);
   const dirtyRef = useRef(0);
@@ -117,6 +244,7 @@ function App() {
   const input = useRef<HTMLInputElement>(null);
   const media = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const captionPlayer = useRef<PlayerRef>(null);
   const preview = useRef<HTMLDivElement>(null);
   const duration = project?.duration || 0;
   const words = project?.words ?? [];
@@ -126,6 +254,20 @@ function App() {
     const q = searchQuery.toLowerCase();
     return groups.filter(g => g.some(w => w.text.toLowerCase().includes(q)));
   }, [groups, searchQuery]);
+  const filteredTemplates = useMemo(() => {
+    return templates.filter(t => {
+      const q = templateSearch.trim().toLowerCase();
+      const matchesSearch = !q || t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.tag.toLowerCase().includes(q);
+      if (!matchesSearch) return false;
+      if (templateCategory === 'all') return true;
+      if (templateCategory === 'minimal') return t.id === 'soft-focus' || t.id === 'editorial' || t.id === 'karaoke';
+      if (templateCategory === 'bold') return t.id === 'welcome-stack' || t.id === 'double-trouble' || t.id === 'editing-school' || t.id === 'mumbai';
+      if (templateCategory === 'kinetic') return t.id === 'kinetic' || t.id === 'bounce' || t.id === 'pop-up';
+      if (templateCategory === 'editorial') return t.id === 'editorial' || t.id === 'soft-focus' || t.id === 'kalakar-shadow';
+      if (templateCategory === 'fun') return t.id === 'scribble' || t.id === 'bubble-highlight' || t.id === 'neon' || t.id === 'glow-script';
+      return true;
+    });
+  }, [templateSearch, templateCategory]);
   const size = dimensions(settings, project?.width || 720, project?.height || 1280);
   const busy = !!project && ['queued','processing','transcribing','extracting'].includes(project.status);
   const hasVideoLayer = project?.mediaType === 'video';
@@ -155,6 +297,7 @@ function App() {
     targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' };
   } | null>(null);
   const dragMovedRef = useRef(false);
+  const [timelineLiveTooltip, setTimelineLiveTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null);
 
   const rulerTicks = useMemo(() => {
     if (!duration || duration <= 0) return [];
@@ -401,8 +544,23 @@ function App() {
       if (!p || generation <= savedDirty.current) return;
       setSaveStatus('Saving…');
       try {
-        const result = await request<Project>(`/projects/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ words: p.words, settings: p.settings, name: p.name, videoEnabled: p.videoEnabled }) });
-        if (projectRef.current?.id === p.id) { savedDirty.current = generation; setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud'); setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous); }
+        const result = await request<Project>(`/projects/${p.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            words: p.words,
+            settings: p.settings,
+            name: p.name,
+            videoEnabled: p.videoEnabled,
+            textElements: p.textElements,
+            canvasElements: p.canvasElements,
+          }),
+        });
+        if (projectRef.current?.id === p.id) {
+          savedDirty.current = generation;
+          setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
+          setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous);
+        }
       } catch (e) { setSaveStatus('Unsaved changes'); notify((e as Error).message); throw e; }
     });
     saveChain.current = action; return action;
@@ -412,13 +570,501 @@ function App() {
 
   function markEdit(next: Project, record = true) {
     const previous = projectRef.current;
-    if (record && previous) { setHistory(h => [...h.slice(-39), { words: previous.words, settings: previous.settings, name: previous.name, videoEnabled: previous.videoEnabled }]); setFuture([]); }
-    projectRef.current = next; setProject(next); setSettings(next.settings); setSaveStatus('Saving…'); dirtyRef.current += 1; setDirty(dirtyRef.current);
+    if (record && previous) {
+      setHistory(h => [...h.slice(-39), {
+        words: previous.words,
+        settings: previous.settings,
+        name: previous.name,
+        videoEnabled: previous.videoEnabled,
+        textElements: previous.textElements,
+        canvasElements: previous.canvasElements,
+      }]);
+      setFuture([]);
+    }
+    projectRef.current = next;
+    setProject(next);
+    setSettings(next.settings);
+    if (next.textElements !== undefined) {
+      setTextElements(next.textElements);
+    }
+    if (next.canvasElements !== undefined) {
+      setCanvasElements(next.canvasElements);
+    }
+    setSaveStatus('Saving…');
+    dirtyRef.current += 1;
+    setDirty(dirtyRef.current);
   }
   function updateSettings(update: Partial<Settings>) {
     const next = { ...settings, ...update }; setSettings(next);
     if (projectRef.current && !busy) markEdit({ ...projectRef.current, settings: next });
   }
+
+  const handleAddText = useCallback((type: CanvasTextType) => {
+    const curTime = time || 0;
+    const totalDuration = duration || projectRef.current?.duration || 10;
+    const newEl = createDefaultTextElement(type, curTime, totalDuration);
+    const nextList = [...(projectRef.current?.textElements || textElements), newEl];
+    setTextElements(nextList);
+    setSelectedTextId(newEl.id);
+    setActiveNavPanel('text');
+    if (projectRef.current && !busy) {
+      markEdit({ ...projectRef.current, textElements: nextList });
+    }
+    notify(`Added ${type} to canvas`);
+  }, [time, duration, textElements, busy, notify]);
+
+  const handleUpdateText = useCallback((id: string, update: Partial<CanvasTextElement>) => {
+    setTextElements(prev => {
+      const nextList = prev.map(el => el.id === id ? { ...el, ...update } : el);
+      if (projectRef.current && !busy) {
+        markEdit({ ...projectRef.current, textElements: nextList });
+      }
+      return nextList;
+    });
+  }, [busy]);
+
+  const handleDeleteText = useCallback((id: string) => {
+    setTextElements(prev => {
+      const nextList = prev.filter(el => el.id !== id);
+      if (selectedTextId === id) setSelectedTextId(null);
+      if (isEditingCanvasTextId === id) setIsEditingCanvasTextId(null);
+      if (projectRef.current && !busy) {
+        markEdit({ ...projectRef.current, textElements: nextList });
+      }
+      return nextList;
+    });
+    notify('Removed text element');
+  }, [selectedTextId, isEditingCanvasTextId, busy, notify]);
+
+  const handleDuplicateText = useCallback((id: string) => {
+    const currentList = projectRef.current?.textElements || textElements;
+    const el = currentList.find(t => t.id === id);
+    if (!el) return;
+    const totalDuration = duration || projectRef.current?.duration || 10;
+    const newEl: CanvasTextElement = {
+      ...el,
+      id: `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      x: Math.min(90, el.x + 3),
+      y: Math.min(90, el.y + 3),
+      start: el.start + 0.5,
+      end: Math.min(totalDuration, el.end + 0.5),
+      zIndex: Date.now(),
+    };
+    const nextList = [...currentList, newEl];
+    setTextElements(nextList);
+    setSelectedTextId(newEl.id);
+    if (projectRef.current && !busy) {
+      markEdit({ ...projectRef.current, textElements: nextList });
+    }
+    notify('Duplicated text element');
+  }, [textElements, duration, busy, notify]);
+
+  const handleReorderText = useCallback((id: string, direction: 'forward' | 'backward' | 'front' | 'back') => {
+    setTextElements(prev => {
+      const idx = prev.findIndex(t => t.id === id);
+      if (idx === -1) return prev;
+      const nextList = [...prev];
+      const [item] = nextList.splice(idx, 1);
+      if (direction === 'forward') {
+        nextList.splice(Math.min(nextList.length, idx + 1), 0, item);
+      } else if (direction === 'backward') {
+        nextList.splice(Math.max(0, idx - 1), 0, item);
+      } else if (direction === 'front') {
+        nextList.push(item);
+      } else if (direction === 'back') {
+        nextList.unshift(item);
+      }
+      const updated = nextList.map((t, i) => ({ ...t, zIndex: 100 + i }));
+      if (projectRef.current && !busy) {
+        markEdit({ ...projectRef.current, textElements: updated });
+      }
+      return updated;
+    });
+  }, [busy]);
+
+  const handleCopyStyle = useCallback((element: CanvasTextElement) => {
+    setCopiedTextStyle({
+      fontFamily: element.fontFamily,
+      fontSize: element.fontSize,
+      fontWeight: element.fontWeight,
+      fontStyle: element.fontStyle,
+      textDecoration: element.textDecoration,
+      color: element.color,
+      backgroundColor: element.backgroundColor,
+      backgroundOpacity: element.backgroundOpacity,
+      strokeColor: element.strokeColor,
+      strokeWidth: element.strokeWidth,
+      shadowEnabled: element.shadowEnabled,
+      shadowColor: element.shadowColor,
+      shadowBlur: element.shadowBlur,
+      shadowX: element.shadowX,
+      shadowY: element.shadowY,
+      opacity: element.opacity,
+      lineHeight: element.lineHeight,
+      letterSpacing: element.letterSpacing,
+      wordSpacing: element.wordSpacing,
+      textCase: element.textCase,
+      animationIn: element.animationIn,
+      animationOut: element.animationOut,
+      animationDuration: element.animationDuration,
+    });
+    notify('Copied text style to clipboard');
+  }, [notify]);
+
+  const handlePasteStyle = useCallback((targetId: string) => {
+    if (!copiedTextStyle) return;
+    handleUpdateText(targetId, copiedTextStyle);
+    notify('Applied copied style');
+  }, [copiedTextStyle, handleUpdateText, notify]);
+
+  const handleStartDragText = useCallback((e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = textElements.find(t => t.id === id);
+    if (!el || el.locked) return;
+
+    setSelectedTextId(id);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = el.x;
+    const origY = el.y;
+    const frameRect = preview.current?.getBoundingClientRect();
+    if (!frameRect) return;
+
+    let currentX = origX;
+    let currentY = origY;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      let newX = origX + (dx / frameRect.width) * 100;
+      let newY = origY + (dy / frameRect.height) * 100;
+
+      let snappedX = false;
+      let snappedY = false;
+      if (Math.abs(newX - 50) < 2) {
+        newX = 50;
+        snappedX = true;
+      }
+      if (Math.abs(newY - 50) < 2) {
+        newY = 50;
+        snappedY = true;
+      }
+      setSnapGuideX(snappedX);
+      setSnapGuideY(snappedY);
+
+      newX = Math.max(5, Math.min(95, newX));
+      newY = Math.max(5, Math.min(95, newY));
+      currentX = newX;
+      currentY = newY;
+
+      setTextElements(prev => prev.map(item => item.id === id ? { ...item, x: newX, y: newY } : item));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setSnapGuideX(false);
+      setSnapGuideY(false);
+      handleUpdateText(id, { x: currentX, y: currentY });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [textElements, handleUpdateText]);
+
+  const handleStartResizeText = useCallback((e: React.MouseEvent, id: string, handle: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = textElements.find(t => t.id === id);
+    if (!el || el.locked) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origFontSize = el.fontSize;
+    let currentFontSize = origFontSize;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      const delta = (handle.includes('e') || handle.includes('s')) ? (dx + dy) : (-dx - dy);
+      const newFontSize = Math.max(12, Math.min(160, Math.round(origFontSize + delta * 0.4)));
+      currentFontSize = newFontSize;
+      setTextElements(prev => prev.map(item => item.id === id ? { ...item, fontSize: newFontSize } : item));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      handleUpdateText(id, { fontSize: currentFontSize });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [textElements, handleUpdateText]);
+
+  const handleStartDragTimelineText = useCallback((e: React.MouseEvent, id: string, mode: 'move' | 'start' | 'end') => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = textElements.find(t => t.id === id);
+    const totalDuration = duration || projectRef.current?.duration;
+    if (!el || !totalDuration) return;
+
+    setSelectedTextId(id);
+    const startClientX = e.clientX;
+    const origStart = el.start;
+    const origEnd = el.end;
+    const origDuration = origEnd - origStart;
+    const trackWidth = timelineTrackRef.current?.getBoundingClientRect().width || 1;
+    let finalStart = origStart;
+    let finalEnd = origEnd;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startClientX;
+      const deltaTime = (dx / trackWidth) * totalDuration;
+
+      if (mode === 'start') {
+        finalStart = Math.max(0, Math.min(origEnd - 0.2, origStart + deltaTime));
+      } else if (mode === 'end') {
+        finalEnd = Math.min(totalDuration, Math.max(origStart + 0.2, origEnd + deltaTime));
+      } else {
+        let newStart = origStart + deltaTime;
+        let newEnd = origEnd + deltaTime;
+        if (newStart < 0) {
+          newStart = 0;
+          newEnd = origDuration;
+        } else if (newEnd > totalDuration) {
+          newEnd = totalDuration;
+          newStart = Math.max(0, totalDuration - origDuration);
+        }
+        finalStart = newStart;
+        finalEnd = newEnd;
+      }
+
+      setTextElements(prev => prev.map(item => item.id === id ? { ...item, start: finalStart, end: finalEnd } : item));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      handleUpdateText(id, { start: finalStart, end: finalEnd });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [textElements, duration, handleUpdateText]);
+
+  const handleUpdateCanvasElement = useCallback((id: string, updates: Partial<CanvasVisualElement>) => {
+    setCanvasElements(prev => {
+      const next = prev.map(item => item.id === id ? { ...item, ...updates } : item);
+      if (projectRef.current && !busy) {
+        markEdit({ ...projectRef.current, canvasElements: next });
+      }
+      return next;
+    });
+  }, [busy]);
+
+  const handleDeleteCanvasElement = useCallback((id: string) => {
+    setCanvasElements(prev => {
+      const next = prev.filter(item => item.id !== id);
+      if (projectRef.current && !busy) {
+        markEdit({ ...projectRef.current, canvasElements: next });
+      }
+      return next;
+    });
+    setSelectedCanvasElementId(prev => (prev === id ? null : prev));
+  }, [busy]);
+
+  const handleAddMediaToCanvas = useCallback((asset: MediaAsset) => {
+    const url = asset.url || `/api/projects/${projectRef.current?.id}/assets/${asset.id}/file`;
+    const fullUrl = url.startsWith('http') ? url : `${API}${url}`;
+    const totalDuration = projectRef.current?.duration || duration || 5;
+
+    if (asset.mediaType === 'image') {
+      if (!imageCacheRef.current.has(fullUrl)) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = fullUrl;
+        imageCacheRef.current.set(fullUrl, img);
+      }
+    } else if (asset.mediaType === 'video') {
+      if (!videoCacheRef.current.has(fullUrl)) {
+        const vid = document.createElement('video');
+        vid.crossOrigin = 'anonymous';
+        vid.muted = true;
+        vid.playsInline = true;
+        vid.preload = 'auto';
+        vid.src = fullUrl;
+        videoCacheRef.current.set(fullUrl, vid);
+      }
+    }
+
+    const newEl: CanvasVisualElement = {
+      id: `canvas-${asset.mediaType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      assetId: asset.id,
+      name: asset.name,
+      type: asset.mediaType === 'video' ? 'video' : 'image',
+      url: fullUrl,
+      x: 50,
+      y: 50,
+      scale: 1.0,
+      start: 0,
+      end: totalDuration,
+      visible: true,
+      locked: false,
+      greenScreen: asset.greenScreen,
+    };
+
+    setCanvasElements(prev => {
+      const updated = [...prev, newEl];
+      if (projectRef.current && !busy) {
+        markEdit({ ...projectRef.current, canvasElements: updated });
+      }
+      return updated;
+    });
+    setSelectedCanvasElementId(newEl.id);
+    setSelectedTextId(null);
+  }, [duration, busy]);
+
+  const handleStartDragCanvasElement = useCallback((e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = canvasElements.find(item => item.id === id);
+    if (!el || el.locked) return;
+
+    setSelectedCanvasElementId(id);
+    setSelectedTextId(null);
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = el.x;
+    const origY = el.y;
+    const frameRect = preview.current?.getBoundingClientRect();
+    if (!frameRect) return;
+
+    let currentX = origX;
+    let currentY = origY;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      let newX = origX + (dx / frameRect.width) * 100;
+      let newY = origY + (dy / frameRect.height) * 100;
+
+      let snappedX = false;
+      let snappedY = false;
+      if (Math.abs(newX - 50) < 2) {
+        newX = 50;
+        snappedX = true;
+      }
+      if (Math.abs(newY - 50) < 2) {
+        newY = 50;
+        snappedY = true;
+      }
+      setSnapGuideX(snappedX);
+      setSnapGuideY(snappedY);
+
+      newX = Math.max(5, Math.min(95, newX));
+      newY = Math.max(5, Math.min(95, newY));
+      currentX = newX;
+      currentY = newY;
+
+      setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, x: newX, y: newY } : item));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setSnapGuideX(false);
+      setSnapGuideY(false);
+      handleUpdateCanvasElement(id, { x: currentX, y: currentY });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [canvasElements, handleUpdateCanvasElement]);
+
+  const handleStartResizeCanvasElement = useCallback((e: React.MouseEvent, id: string, handle: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = canvasElements.find(item => item.id === id);
+    if (!el || el.locked) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origScale = el.scale || 1.0;
+    let currentScale = origScale;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      const delta = (handle.includes('e') || handle.includes('s')) ? (dx + dy) : (-dx - dy);
+      const newScale = Math.max(0.15, Math.min(3.5, Number((origScale + delta * 0.005).toFixed(2))));
+      currentScale = newScale;
+      setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, scale: newScale } : item));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      handleUpdateCanvasElement(id, { scale: currentScale });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [canvasElements, handleUpdateCanvasElement]);
+
+  const handleStartDragTimelineMedia = useCallback((e: React.MouseEvent, id: string, mode: 'move' | 'start' | 'end') => {
+    e.preventDefault();
+    e.stopPropagation();
+    const el = canvasElements.find(item => item.id === id);
+    const totalDuration = duration || projectRef.current?.duration;
+    if (!el || !totalDuration) return;
+
+    setSelectedCanvasElementId(id);
+    setSelectedTextId(null);
+    const startClientX = e.clientX;
+    const origStart = el.start ?? 0;
+    const origEnd = el.end ?? totalDuration;
+    const origDuration = origEnd - origStart;
+    const trackWidth = timelineTrackRef.current?.getBoundingClientRect().width || 1;
+    let finalStart = origStart;
+    let finalEnd = origEnd;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const dx = moveEvent.clientX - startClientX;
+      const deltaTime = (dx / trackWidth) * totalDuration;
+
+      if (mode === 'start') {
+        finalStart = Math.max(0, Math.min(origEnd - 0.2, origStart + deltaTime));
+      } else if (mode === 'end') {
+        finalEnd = Math.min(totalDuration, Math.max(origStart + 0.2, origEnd + deltaTime));
+      } else {
+        let newStart = origStart + deltaTime;
+        let newEnd = origEnd + deltaTime;
+        if (newStart < 0) {
+          newStart = 0;
+          newEnd = origDuration;
+        } else if (newEnd > totalDuration) {
+          newEnd = totalDuration;
+          newStart = Math.max(0, totalDuration - origDuration);
+        }
+        finalStart = newStart;
+        finalEnd = newEnd;
+      }
+
+      setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, start: finalStart, end: finalEnd } : item));
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      handleUpdateCanvasElement(id, { start: finalStart, end: finalEnd });
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [canvasElements, duration, handleUpdateCanvasElement]);
+
   function updateWord(id: string, update: Partial<Word>) {
     const p = projectRef.current; if (!p) return;
     markEdit({ ...p, words: p.words.map(w => w.id === id ? { ...w, ...update } : w) });
@@ -552,6 +1198,108 @@ function App() {
     markEdit({ ...p, words: updated });
     notify('Added new caption.');
   }
+
+  const handleEditCaptionGroup = useCallback((groupIdx: number, newText: string, newStart: number, newEnd: number) => {
+    const p = projectRef.current;
+    if (!p) return;
+    const effectivePerLine = settings.template === 'kinetic' ? 1 : settings.wordsPerLine;
+    const currentGroups = groupWords(p.words, effectivePerLine);
+    if (groupIdx < 0 || groupIdx >= currentGroups.length) return;
+
+    const oldGroup = currentGroups[groupIdx];
+    const oldGroupIds = new Set(oldGroup.map(w => w.id));
+    const rawTokens = newText.trim().split(/\s+/).filter(Boolean);
+    const tokens = rawTokens.length > 0 ? rawTokens : ['caption'];
+
+    const durationPerWord = Math.max(0.04, (newEnd - newStart) / tokens.length);
+    const newWordsForGroup: Word[] = tokens.map((token, i) => {
+      const existing = oldGroup[i];
+      const wordStart = Number((newStart + i * durationPerWord).toFixed(3));
+      const wordEnd = Number((newStart + (i + 1) * durationPerWord - 0.005).toFixed(3));
+      return {
+        id: existing?.id || `w-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+        text: token,
+        original: token,
+        start: wordStart,
+        end: Math.max(wordStart + 0.03, wordEnd),
+        confidence: existing?.confidence ?? 1,
+        emphasis: existing?.emphasis ?? false,
+        emphasisScore: existing?.emphasisScore ?? 0.5,
+        spotlight: existing?.spotlight,
+        behind: existing?.behind,
+      };
+    });
+
+    const prefix = p.words.filter(w => !oldGroupIds.has(w.id) && w.end <= newStart);
+    const suffix = p.words.filter(w => !oldGroupIds.has(w.id) && w.start >= newEnd);
+    const updatedWords = [...prefix, ...newWordsForGroup, ...suffix];
+    updatedWords.sort((a, b) => a.start - b.start);
+    ensureValidIntervals(updatedWords, p.duration || 60);
+
+    markEdit({ ...p, words: updatedWords }, true);
+  }, [settings.template, settings.wordsPerLine]);
+
+  const handleDuplicateGroup = useCallback((group: Word[]) => {
+    const p = projectRef.current;
+    if (!p || !group.length) return;
+    const lastWord = group[group.length - 1];
+    const offsetStart = Number((lastWord.end + 0.05).toFixed(3));
+
+    const duplicatedWords: Word[] = group.map((w, idx) => {
+      const relStart = w.start - group[0].start;
+      const relEnd = w.end - group[0].start;
+      return {
+        ...w,
+        id: `w-dup-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+        start: Number((offsetStart + relStart).toFixed(3)),
+        end: Number((offsetStart + relEnd).toFixed(3)),
+      };
+    });
+
+    const updatedWords = [...p.words, ...duplicatedWords];
+    updatedWords.sort((a, b) => a.start - b.start);
+    ensureValidIntervals(updatedWords, p.duration || 60);
+
+    markEdit({ ...p, words: updatedWords }, true);
+    notify('Duplicated caption');
+  }, [notify]);
+
+  const handleAddCaptionAtTime = useCallback((atTime: number) => {
+    const p = projectRef.current;
+    if (!p) return;
+    const dur = p.duration || 60;
+    const startTime = Number(Math.max(0, Math.min(dur - 0.5, atTime)).toFixed(3));
+    const endTime = Number(Math.min(dur, startTime + 2.0).toFixed(3));
+
+    const newWord: Word = {
+      id: `w-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      text: 'New caption',
+      original: 'New caption',
+      start: startTime,
+      end: Math.max(startTime + 0.3, endTime),
+      confidence: 1,
+      emphasis: false,
+      emphasisScore: 0.5,
+    };
+
+    const updatedWords = [...p.words, newWord];
+    updatedWords.sort((a, b) => a.start - b.start);
+    ensureValidIntervals(updatedWords, dur);
+
+    markEdit({ ...p, words: updatedWords }, true);
+    setSelectedWord(newWord.id);
+    setSelectedWordIds(new Set([newWord.id]));
+    notify('Added new caption');
+  }, [notify]);
+
+  const handleClearAllCaptions = useCallback(() => {
+    const p = projectRef.current;
+    if (!p) return;
+    markEdit({ ...p, words: [] }, true);
+    setSelectedWord(null);
+    setSelectedWordIds(new Set());
+    notify('All captions cleared');
+  }, [notify]);
   function handleDropWords(
     sourceWordIds: string[],
     targetGroupIdx: number,
@@ -572,7 +1320,15 @@ function App() {
       return;
     }
 
-    const neededMax = Math.max(effectivePerLine, targetGroup.length + validMovingIds.length);
+    // Calculate how many words the target line will have after this drop
+    const movingWordsAlreadyInTarget = targetGroup.filter(w => validMovingIds.includes(w.id)).length;
+    const wordsBeingAdded = validMovingIds.length - movingWordsAlreadyInTarget;
+    const targetLineWordCount = targetGroup.length + wordsBeingAdded;
+
+    const neededMax = settings.template === 'kinetic'
+      ? 1
+      : Math.min(12, Math.max(targetLineWordCount, settings.wordsPerLine));
+
     const updatedWords = moveWordsToLine(p.words, validMovingIds, targetGroupIdx, targetPosition, neededMax);
 
     const nextSettings = neededMax > settings.wordsPerLine && settings.template !== 'kinetic'
@@ -581,6 +1337,11 @@ function App() {
 
     markEdit({ ...p, words: updatedWords, settings: nextSettings }, true);
     setSelectedWordIds(new Set(validMovingIds));
+    const firstMovedWord = updatedWords.find(w => validMovingIds.includes(w.id));
+    if (firstMovedWord) {
+      setSelectedWord(firstMovedWord.id);
+      seek(firstMovedWord.start);
+    }
     const label = validMovingIds.length > 1
       ? `${validMovingIds.length} words`
       : `"${p.words.find(w => w.id === validMovingIds[0])?.text.replace(/[.!?।]+$/, '')}"`;
@@ -757,22 +1518,18 @@ function App() {
     const nextWord = wordIdx < p.words.length - 1 ? p.words[wordIdx + 1] : null;
 
     const MIN_WORD_DURATION = 0.04;
-    // Allow boundary to adjust shared boundary with neighboring words (down to 0.04s min duration)
-    const minStart = prevWord ? Number((prevWord.start + 0.04).toFixed(3)) : 0;
-    const maxEnd = nextWord ? Number((nextWord.end - 0.04).toFixed(3)) : duration;
+    // Boundary respects neighboring words without corrupting them
+    const minStart = prevWord ? Number((prevWord.end + 0.005).toFixed(3)) : 0;
+    const maxEnd = nextWord ? Number((nextWord.start - 0.005).toFixed(3)) : duration;
 
     const startX = e.clientX;
     const origStart = word.start;
     const origEnd = word.end;
-    const origPrevEnd = prevWord ? prevWord.end : 0;
-    const origNextStart = nextWord ? nextWord.start : duration;
 
     let currentStart = origStart;
     let currentEnd = origEnd;
-    let currentPrevEnd = origPrevEnd;
-    let currentNextStart = origNextStart;
 
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = 'ew-resize';
     document.body.style.userSelect = 'none';
 
     const onMouseMove = (moveEvent: MouseEvent) => {
@@ -781,53 +1538,55 @@ function App() {
 
       if (edge === 'left') {
         const rawTargetStart = Number((origStart + dt).toFixed(3));
-        currentStart = Math.max(minStart, Math.min(origEnd - MIN_WORD_DURATION, rawTargetStart));
-        if (prevWord) {
-          currentPrevEnd = Math.min(origPrevEnd, Number((currentStart - 0.005).toFixed(3)));
-        }
+        const maxStart = Number((origEnd - MIN_WORD_DURATION).toFixed(3));
+        currentStart = Math.max(minStart, Math.min(maxStart, rawTargetStart));
+        currentEnd = origEnd;
 
-        const updatedWords = p.words.map(w => {
-          if (w.id === word.id) return { ...w, start: currentStart };
-          if (prevWord && w.id === prevWord.id) return { ...w, end: currentPrevEnd };
-          return w;
-        });
+        const updatedWords = p.words.map(w =>
+          w.id === word.id ? { ...w, start: currentStart, end: currentEnd } : w
+        );
         markEdit({ ...p, words: updatedWords }, false);
         seek(currentStart);
       } else {
         const rawTargetEnd = Number((origEnd + dt).toFixed(3));
-        currentEnd = Math.min(maxEnd, Math.max(origStart + MIN_WORD_DURATION, rawTargetEnd));
-        if (nextWord) {
-          currentNextStart = Math.max(origNextStart, Number((currentEnd + 0.005).toFixed(3)));
-        }
+        const minEnd = Number((origStart + MIN_WORD_DURATION).toFixed(3));
+        currentEnd = Math.min(maxEnd, Math.max(minEnd, rawTargetEnd));
+        currentStart = origStart;
 
-        const updatedWords = p.words.map(w => {
-          if (w.id === word.id) return { ...w, end: currentEnd };
-          if (nextWord && w.id === nextWord.id) return { ...w, start: currentNextStart };
-          return w;
-        });
+        const updatedWords = p.words.map(w =>
+          w.id === word.id ? { ...w, start: currentStart, end: currentEnd } : w
+        );
         markEdit({ ...p, words: updatedWords }, false);
         seek(currentEnd);
       }
+
+      setTimelineLiveTooltip({
+        x: moveEvent.clientX,
+        y: moveEvent.clientY - 50,
+        lines: [
+          `Start: ${timecode(currentStart)}`,
+          `End: ${timecode(currentEnd)}`,
+          `Duration: ${(currentEnd - currentStart).toFixed(2)}s`,
+        ],
+      });
     };
 
     const onMouseUp = () => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setTimelineLiveTooltip(null);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
 
       const latestProj = projectRef.current;
       if (!latestProj) return;
 
-      const finalWords = latestProj.words.map(w => {
-        if (w.id === word.id) return { ...w, start: currentStart, end: currentEnd };
-        if (prevWord && w.id === prevWord.id) return { ...w, end: currentPrevEnd };
-        if (nextWord && w.id === nextWord.id) return { ...w, start: currentNextStart };
-        return w;
-      });
+      const finalWords = latestProj.words.map(w =>
+        w.id === word.id ? { ...w, start: currentStart, end: currentEnd } : w
+      );
       ensureValidIntervals(finalWords, duration);
       markEdit({ ...latestProj, words: finalWords }, true);
-      notify(`Adjusted "${word.text}" duration: ${(currentEnd - currentStart).toFixed(2)}s`);
+      notify(`Adjusted "${word.text}" timing: ${timecode(currentStart)} - ${timecode(currentEnd)} (${(currentEnd - currentStart).toFixed(2)}s)`);
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -1202,11 +1961,21 @@ function App() {
 
       markEdit({ ...p, words: updatedWords }, false);
       seek(Number((gStart + clampedDt).toFixed(3)));
+
+      setTimelineLiveTooltip({
+        x: moveEvent.clientX,
+        y: moveEvent.clientY - 50,
+        lines: [
+          `Move: ${clampedDt >= 0 ? '+' : ''}${clampedDt.toFixed(2)}s`,
+          `Start: ${timecode(gStart + clampedDt)} · End: ${timecode(gEnd + clampedDt)}`,
+        ],
+      });
     };
 
     const onMouseUp = () => {
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setTimelineLiveTooltip(null);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
 
@@ -1328,11 +2097,11 @@ function App() {
   }
   function undo() {
     const p = projectRef.current; const previous = history.at(-1); if (!p || !previous) return;
-    setFuture(f => [...f,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled }]); setHistory(h => h.slice(0,-1)); markEdit({ ...p,...previous },false);
+    setFuture(f => [...f,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,textElements:p.textElements,canvasElements:p.canvasElements }]); setHistory(h => h.slice(0,-1)); markEdit({ ...p,...previous },false);
   }
   function redo() {
     const p = projectRef.current; const next = future.at(-1); if (!p || !next) return;
-    setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
+    setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,textElements:p.textElements,canvasElements:p.canvasElements }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
   }
   function seek(value: number) { if (!project) return; const t = Math.max(0,Math.min(duration,value)); setTime(t); if (media.current) media.current.currentTime=t; }
   const togglePlay = useCallback(() => {
@@ -1346,39 +2115,211 @@ function App() {
     const tick = () => { if (media.current) setTime(media.current.currentTime); frame = requestAnimationFrame(tick); };
     frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame);
   }, [playing, project]);
+  // The <Player> is never played on its own: the <video> element owns the clock
+  // and the caption layer is seeked to match, so audio and captions cannot drift.
+  useEffect(() => {
+    const player = captionPlayer.current;
+    if (!player) return;
+    const target = Math.round(time * CAPTION_FPS);
+    if (Math.abs(player.getCurrentFrame() - target) >= 1) player.seekTo(target);
+  }, [time]);
+
   useEffect(() => {
     const ctx = canvas.current?.getContext('2d');
-    if (ctx) {
-      if (!project || words.length === 0) ctx.clearRect(0, 0, size.width, size.height);
-      else drawCaptions(ctx, size.width, size.height, words, settings, time, groups);
+    if (!ctx) return;
+    ctx.clearRect(0, 0, size.width, size.height);
+    if (!project) return;
+
+    // 1. If active media has greenScreen enabled, render keyed video frame
+    if (activeMediaAsset?.greenScreen?.enabled && media.current && hasVideoLayer && videoEnabled) {
+      drawKeyedMedia(ctx, media.current, 0, 0, size.width, size.height, activeMediaAsset.greenScreen);
     }
-  }, [project, words, settings, time, size.width, size.height, groups]);
+
+    // 2. Draw canvas overlay image & video elements
+    for (const el of canvasElements) {
+      if (el.visible === false) continue;
+      if (el.start !== undefined && time < el.start) continue;
+      if (el.end !== undefined && time > el.end) continue;
+
+      if (el.type === 'video') {
+        let vid = videoCacheRef.current.get(el.url);
+        if (!vid) {
+          vid = document.createElement('video');
+          vid.crossOrigin = 'anonymous';
+          vid.muted = true;
+          vid.playsInline = true;
+          vid.preload = 'auto';
+          vid.src = el.url;
+          videoCacheRef.current.set(el.url, vid);
+        }
+        if (vid.readyState >= 2) {
+          const elW = (size.width * 0.32) * (el.scale || 1.0);
+          const elH = (vid.videoHeight / (vid.videoWidth || 1)) * elW;
+          const elX = (el.x / 100) * size.width - elW / 2;
+          const elY = (el.y / 100) * size.height - elH / 2;
+          const elementTime = Math.max(0, time - (el.start || 0));
+          if (Math.abs(vid.currentTime - (elementTime % (vid.duration || 1))) > 0.1) {
+            vid.currentTime = elementTime % (vid.duration || 1);
+          }
+          drawKeyedMedia(ctx, vid, elX, elY, elW, elH, el.greenScreen);
+        }
+      } else {
+        let img = imageCacheRef.current.get(el.url);
+        if (!img) {
+          img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = el.url;
+          img.onload = () => {
+            const c = canvas.current?.getContext('2d');
+            if (c && projectRef.current && textElements.length > 0) {
+              drawTextElements(c, size.width, size.height, textElements, time);
+            }
+          };
+          imageCacheRef.current.set(el.url, img);
+        }
+        if (img.complete && img.naturalWidth > 0) {
+          const elW = (size.width * 0.32) * (el.scale || 1.0);
+          const elH = (img.naturalHeight / (img.naturalWidth || 1)) * elW;
+          const elX = (el.x / 100) * size.width - elW / 2;
+          const elY = (el.y / 100) * size.height - elH / 2;
+          drawKeyedMedia(ctx, img, elX, elY, elW, elH, el.greenScreen);
+        }
+      }
+    }
+
+    // 3. Captions are no longer drawn here. They render above this canvas in a
+    // Remotion <Player> using the exact composition the exporter renders, so the
+    // preview cannot drift from the finished file.
+
+    // 4. Draw visual text elements on top
+    if (textElements.length > 0) {
+      drawTextElements(ctx, size.width, size.height, textElements, time);
+    }
+  }, [project, words, settings, time, size.width, size.height, groups, activeMediaAsset, canvasElements, selectedCanvasElementId, hasVideoLayer, videoEnabled, textElements]);
+
   useEffect(() => {
     void document.fonts.ready.then(() => {
       const ctx = canvas.current?.getContext('2d');
-      if (ctx) {
-        if (!project || words.length === 0) ctx.clearRect(0, 0, size.width, size.height);
-        else drawCaptions(ctx, size.width, size.height, words, settings, time, groups);
+      if (ctx && project) {
+        if (textElements.length > 0) {
+          drawTextElements(ctx, size.width, size.height, textElements, time);
+        }
       }
     });
-  }, [project, words, settings, time, groups, size.width, size.height]);
+  }, [project, words, settings, time, groups, size.width, size.height, textElements]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (isEditingCanvasTextId) { setIsEditingCanvasTextId(null); return; }
         if (timelinePopover) { setTimelinePopover(null); return; }
         if (wordMenu) { setWordMenu(null); return; }
         if (captionToolsOpen) { setCaptionToolsOpen(false); return; }
         if (editingWordId) { setEditingWordId(null); return; }
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); void flushSave().catch(()=>{}); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); handleSplitAtCurrent(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && selectedTextId) {
+        e.preventDefault();
+        handleDuplicateText(selectedTextId);
+        return;
+      }
       if ((e.target as HTMLElement)?.closest('input, textarea, select, dialog, button, a, [contenteditable]')) return;
+      if (selectedTextId && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        handleDeleteText(selectedTextId);
+        return;
+      }
+      if (selectedCanvasElementId && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        handleDeleteCanvasElement(selectedCanvasElementId);
+        return;
+      }
+      if (selectedCanvasElementId && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 5 : 1;
+        setCanvasElements(prev => {
+          const el = prev.find(t => t.id === selectedCanvasElementId);
+          if (!el || el.locked) return prev;
+          let nx = el.x;
+          let ny = el.y;
+          if (e.key === 'ArrowLeft') nx = Math.max(0, nx - step);
+          if (e.key === 'ArrowRight') nx = Math.min(100, nx + step);
+          if (e.key === 'ArrowUp') ny = Math.max(0, ny - step);
+          if (e.key === 'ArrowDown') ny = Math.min(100, ny + step);
+          const updated = prev.map(t => t.id === selectedCanvasElementId ? { ...t, x: nx, y: ny } : t);
+          if (projectRef.current && !busy) markEdit({ ...projectRef.current, canvasElements: updated });
+          return updated;
+        });
+        return;
+      }
+      if (selectedTextId && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const step = e.shiftKey ? 5 : 1;
+        setTextElements(prev => {
+          const el = prev.find(t => t.id === selectedTextId);
+          if (!el || el.locked) return prev;
+          let nx = el.x;
+          let ny = el.y;
+          if (e.key === 'ArrowLeft') nx = Math.max(0, nx - step);
+          if (e.key === 'ArrowRight') nx = Math.min(100, nx + step);
+          if (e.key === 'ArrowUp') ny = Math.max(0, ny - step);
+          if (e.key === 'ArrowDown') ny = Math.min(100, ny + step);
+          const updated = prev.map(t => t.id === selectedTextId ? { ...t, x: nx, y: ny } : t);
+          if (projectRef.current && !busy) markEdit({ ...projectRef.current, textElements: updated });
+          return updated;
+        });
+        return;
+      }
+      if (selectedWord && !selectedCanvasElementId && !selectedTextId) {
+        if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+          e.preventDefault();
+          const p = projectRef.current;
+          if (p) {
+            const wIdx = p.words.findIndex(w => w.id === selectedWord);
+            if (wIdx !== -1) {
+              const curW = p.words[wIdx];
+              const prevW = wIdx > 0 ? p.words[wIdx - 1] : null;
+              const nextW = wIdx < p.words.length - 1 ? p.words[wIdx + 1] : null;
+              const step = e.key === 'ArrowLeft' ? -0.05 : 0.05;
+              const minS = prevW ? Number((prevW.end + 0.005).toFixed(3)) : 0;
+              const maxE = nextW ? Number((nextW.start - 0.005).toFixed(3)) : duration;
+              const curDur = curW.end - curW.start;
+              let newS = Number((curW.start + step).toFixed(3));
+              let newE = Number((curW.end + step).toFixed(3));
+              if (step < 0 && newS < minS) {
+                newS = minS;
+                newE = Number((newS + curDur).toFixed(3));
+              } else if (step > 0 && newE > maxE) {
+                newE = maxE;
+                newS = Number((newE - curDur).toFixed(3));
+              }
+              const updated = p.words.map(w => w.id === selectedWord ? { ...w, start: newS, end: newE } : w);
+              ensureValidIntervals(updated, duration);
+              markEdit({ ...p, words: updated }, true);
+              seek(newS);
+              notify(`Nudged "${curW.text}" to ${timecode(newS)}`);
+            }
+          }
+          return;
+        }
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault();
+          handleDeleteWord(selectedWord);
+          return;
+        }
+      }
       if (e.key === 'ArrowUp') { e.preventDefault(); setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2)))); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2)))); return; }
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener('keydown',onKey); return () => window.removeEventListener('keydown',onKey);
-  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId,selectedWord,time,project]);
+  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId,selectedWord,time,project,selectedTextId,selectedCanvasElementId,isEditingCanvasTextId,handleDuplicateText,handleDeleteText,handleDeleteCanvasElement,busy]);
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
@@ -1391,6 +2332,7 @@ function App() {
       result.settings = result.settings || defaults;
       result.words = autoDetectHighlights(result.words || [], result.settings?.wordsPerLine || 4);
       setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
+      setTextElements(result.textElements || []); setSelectedTextId(null); setIsEditingCanvasTextId(null);
       setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
@@ -1425,6 +2367,20 @@ function App() {
     e.stopPropagation();
     dragCounterRef.current = 0;
     setIsDraggingOver(false);
+
+    // Check if internal media asset was dragged from Project Media library
+    const mediaAssetJson = e.dataTransfer.getData('application/json');
+    if (mediaAssetJson) {
+      try {
+        const asset = JSON.parse(mediaAssetJson) as MediaAsset;
+        if (asset && asset.id) {
+          handleAddMediaToCanvas(asset);
+          notify(`Added "${asset.name}" to canvas`);
+          return;
+        }
+      } catch {}
+    }
+
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
       void importFile(files[0]);
@@ -1441,6 +2397,8 @@ function App() {
       const normalizedWords = hasSpotlight ? (result.words || []) : autoDetectHighlights(result.words || [], wordsPerLine);
       const normalized = { ...result, words: normalizedWords, script: projectScript, language: projectLanguage };
       setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null);
+      setActiveMediaAsset(null); setCanvasElements(result.canvasElements || []); setSelectedCanvasElementId(null);
+      setTextElements(result.textElements || []); setSelectedTextId(null); setIsEditingCanvasTextId(null);
     }
     catch(e) { notify((e as Error).message); }
   }
@@ -1516,6 +2474,11 @@ function App() {
           </button>
         </div>
         <div className="nav-divider" />
+        <AnimatedThemeToggler
+          theme={theme}
+          onThemeChange={setTheme}
+          className="theme-toggle-btn"
+        />
         <button
           className="nav-btn ghost"
           aria-label="Your projects"
@@ -1538,103 +2501,208 @@ function App() {
     </header>
 
     <div className="studio">
-      <main className="editor-grid">
-        <section className="style-panel panel">
-          <div className="sidebar-header">
-            <div className="sidebar-header-left">
-              <span className="sidebar-brand-tag">
-                <Subtitles size={15} />
-                <span>STUDIO</span>
-              </span>
-              {project?.words.length ? (
-                <span className="sidebar-word-count">{project.words.length} words</span>
-              ) : null}
-            </div>
-            <div className="sidebar-header-right">
-              {!!(project?.words.length && !busy) && (
-                <>
-                  <button
-                    type="button"
-                    className="sidebar-tool-btn"
-                    title="Find & Replace words"
-                    onClick={() => {
-                      setSearchFindText('');
-                      setSearchReplaceText('');
-                      setModal('search-replace');
-                    }}
-                  >
-                    <Search size={14} />
-                    <span>Find</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="sidebar-tool-btn"
-                    title="Auto-Emphasize key words"
-                    onClick={handleAutoStar}
-                  >
-                    <Sparkles size={14} />
-                    <span>Auto Star</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="sidebar-tool-btn"
-                    title="Clear all emphasis stars"
-                    onClick={handleClearAllEmphasis}
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
+      <aside className="studio-nav-rail" aria-label="Main navigation panels">
+        <div className="rail-nav-group">
+          {NAV_PANELS.map(panel => (
+            <button
+              key={panel.id}
+              type="button"
+              className={`rail-nav-item ${activeNavPanel === panel.id ? 'active' : ''}`}
+              title={panel.label}
+              aria-label={panel.label}
+              aria-pressed={activeNavPanel === panel.id}
+              onClick={() => setActiveNavPanel(panel.id)}
+            >
+              <span className="rail-nav-icon">{panel.icon}</span>
+              <span className="rail-nav-label">{panel.label}</span>
+            </button>
+          ))}
+        </div>
 
-          <div className="panel-tabs">
-            <button className={rightTab === 'templates' ? 'active' : ''} onClick={() => setRightTab('templates')}>
-              <Layers size={15} /> Templates
-            </button>
-            <button className={rightTab === 'customize' ? 'active' : ''} onClick={() => setRightTab('customize')}>
-              <Settings2 size={15} /> Caption Settings
-            </button>
-          </div>
-          <div className="style-content">
-            {rightTab === 'templates' ? (
+        <div className="rail-footer-group">
+          <button
+            type="button"
+            className="rail-nav-item rail-help-btn"
+            title="Help & Shortcuts"
+            aria-label="Help & Shortcuts"
+            onClick={() => setModal('help')}
+          >
+            <span className="rail-nav-icon"><CircleHelp size={20} strokeWidth={1.75} /></span>
+          </button>
+        </div>
+      </aside>
+
+      <main className="editor-grid">
+        {activeNavPanel === 'caption' ? (
+          <CaptionsPanel
+            project={project}
+            projectAssets={projectAssets}
+            activeMediaAsset={activeMediaAsset}
+            time={time}
+            playing={playing}
+            groups={groups}
+            settings={settings}
+            selectedWord={selectedWord}
+            selectedWordIds={selectedWordIds}
+            duration={duration}
+            busy={busy}
+            onSelectWord={selectWord}
+            onSeek={seek}
+            onTogglePlay={togglePlay}
+            onUpdateSettings={updateSettings}
+            onUpdateWord={updateWord}
+            onUpdateWords={updateWords}
+            onDeleteWord={handleDeleteWord}
+            onDeleteWords={handleDeleteWords}
+            onDeleteGroup={handleDeleteLine}
+            onSplitLine={handleSplitLine}
+            onMoveToPreviousLine={handleMoveToPreviousLine}
+            onMoveToNextLine={handleMoveToNextLine}
+            onDropWord={handleDropWord}
+            onDropWords={handleDropWords}
+            onSplitGroup={(group, wIdx) => {
+              const splitWord = wIdx !== undefined ? group[wIdx] : group[Math.floor(group.length / 2)];
+              if (splitWord) handleSplitLine(splitWord.id);
+            }}
+            onMergeGroups={(srcIdx, tgtIdx) => {
+              const firstIdx = Math.min(srcIdx, tgtIdx);
+              const firstGroup = groups[firstIdx];
+              if (firstGroup?.length && projectRef.current) {
+                const lastWord = firstGroup[firstGroup.length - 1];
+                const updated = mergeLines(projectRef.current.words, lastWord.id);
+                markEdit({ ...projectRef.current, words: updated });
+                notify('Merged captions');
+              }
+            }}
+            onDuplicateGroup={handleDuplicateGroup}
+            onAddCaptionAtTime={handleAddCaptionAtTime}
+            onEditCaptionGroup={handleEditCaptionGroup}
+            onClearAllCaptions={handleClearAllCaptions}
+            onRegenerateCaptions={async (sourceAssetId, scriptParam, languageParam) => {
+              if (sourceAssetId && sourceAssetId !== activeMediaAsset?.id) {
+                const asset = projectAssets.find(a => a.id === sourceAssetId);
+                if (asset) handleSelectMediaForCanvas(asset);
+              }
+              if (scriptParam) setScript(scriptParam);
+              if (languageParam) setLanguage(languageParam);
+              await retryTranscription();
+            }}
+            onStartTranscription={async (sourceAssetId, scriptParam, languageParam, opts) => {
+              if (sourceAssetId && sourceAssetId !== activeMediaAsset?.id) {
+                const asset = projectAssets.find(a => a.id === sourceAssetId);
+                if (asset) handleSelectMediaForCanvas(asset);
+              }
+              setScript(scriptParam);
+              setLanguage(languageParam);
+              if (opts.wordsPerLine !== settings.wordsPerLine) {
+                updateSettings({ wordsPerLine: opts.wordsPerLine });
+              }
+              await retryTranscription();
+            }}
+            onCancelTranscription={() => {
+              if (projectRef.current) {
+                markEdit({ ...projectRef.current, status: 'ready', progress: 100 });
+                notify('Transcription cancelled');
+              }
+            }}
+            onGoToMedia={() => setActiveNavPanel('media')}
+            onBrowseTemplates={() => setActiveNavPanel('style')}
+            notify={notify}
+            downloadTranscript={downloadTranscript}
+          />
+        ) : activeNavPanel === 'media' ? (
+          <MediaPanel
+            project={project}
+            onSelectMediaForCanvas={handleSelectMediaForCanvas}
+            onAddImageToCanvas={handleAddMediaToCanvas}
+            onAddMediaToCanvas={handleAddMediaToCanvas}
+            onRemoveMediaAsset={(assetId) => {
+              setCanvasElements(prev => {
+                const updated = prev.filter(el => el.assetId !== assetId);
+                if (projectRef.current && !busy) {
+                  markEdit({ ...projectRef.current, canvasElements: updated });
+                }
+                return updated;
+              });
+            }}
+            onUpdateProjectAssets={handleUpdateProjectAssets}
+            notify={notify}
+            onStartProjectFromUpload={importFile}
+          />
+        ) : activeNavPanel === 'style' ? (
+          <section className="style-panel panel">
+            <div className="panel-tabs">
+              <button className={rightTab === 'templates' ? 'active' : ''} onClick={() => setRightTab('templates')}>
+                Templates
+              </button>
+              <button className={rightTab === 'customize' ? 'active' : ''} onClick={() => setRightTab('customize')}>
+                Caption Settings
+              </button>
+            </div>
+
+            {rightTab === 'templates' && (
               <>
-                <div className="style-intro">
-                  <div>
-                    <h2>Choose Template</h2>
-                    <p>15 viral styles engineered for engagement.</p>
-                  </div>
-                  <span className="template-number">{String(templates.length).padStart(2, '0')}</span>
-                </div>
-                <div className="template-grid">
-                  {templates.map(template => (
-                    <TemplateCard
-                      key={template.id}
-                      template={template}
-                      selected={settings.template === template.id}
-                      disabled={busy}
-                      onClick={() => {
-                        updateSettings({ template: template.id, accent: template.accent });
-                      }}
+                <div className="template-search-row">
+                  <div className="template-search-input-wrap">
+                    <Search size={14} className="template-search-icon" />
+                    <input
+                      type="text"
+                      placeholder="Search templates..."
+                      value={templateSearch}
+                      onChange={e => setTemplateSearch(e.target.value)}
+                      className="template-search-input"
                     />
+                    <button type="button" className="template-filter-btn" title="Filter templates">
+                      <SlidersHorizontal size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="template-category-pills">
+                  {(['all', 'minimal', 'bold', 'kinetic', 'editorial', 'fun'] as const).map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      className={`category-pill ${templateCategory === cat ? 'active' : ''}`}
+                      onClick={() => setTemplateCategory(cat)}
+                    >
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </button>
                   ))}
                 </div>
-                <div className="selected-template-note">
-                  <Sparkles size={16} />
-                  <div>
-                    <strong>{templates.find(t => t.id === settings.template)?.name}</strong>
-                    <span>{templates.find(t => t.id === settings.template)?.description}</span>
-                  </div>
-                  <button className="icon-button" aria-label="Customize selected template" onClick={() => setRightTab('customize')}>
-                    <ArrowRight size={18} />
-                  </button>
-                </div>
               </>
-            ) : (
-              <>
-                <div className="style-intro">
-                  <div>
-                    <h2>Caption Settings</h2>
+            )}
+
+            <div className="style-content">
+              {rightTab === 'templates' ? (
+                <>
+                  <div className="template-grid">
+                    {filteredTemplates.map(template => (
+                      <TemplateCard
+                        key={template.id}
+                        template={template}
+                        selected={settings.template === template.id}
+                        disabled={busy}
+                        onClick={() => {
+                          updateSettings({ template: template.id, accent: template.accent });
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="template-create-scratch-row">
+                    <button type="button" className="template-create-scratch-btn" onClick={() => setRightTab('customize')}>
+                      <Plus size={15} />
+                      <span>Create from scratch</span>
+                      <span className="pro-badge">PRO</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="style-intro">
+                    <div>
+                      <h2>Caption Settings</h2>
                     <p>Typography, layout, animation & colors.</p>
                   </div>
                   <WandSparkles size={23} />
@@ -1802,6 +2870,45 @@ function App() {
             </div>
           </div>
         </section>
+      ) : activeNavPanel === 'text' ? (
+        <TextPanel
+          textElements={textElements}
+          selectedTextId={selectedTextId}
+          onSelectText={(id) => setSelectedTextId(id)}
+          onAddText={handleAddText}
+          onUpdateText={handleUpdateText}
+          onDeleteText={handleDeleteText}
+          onDuplicateText={handleDuplicateText}
+          onReorderText={handleReorderText}
+          copiedStyle={copiedTextStyle}
+          onCopyStyle={handleCopyStyle}
+          onPasteStyle={handlePasteStyle}
+        />
+      ) : (
+        <section className="style-panel panel placeholder-panel">
+          <div className="panel-tabs">
+            <button className="active">
+              {NAV_PANELS.find(p => p.id === activeNavPanel)?.label}
+            </button>
+          </div>
+          <div className="panel-placeholder-content">
+            <div className="placeholder-icon-wrap">
+              {NAV_PANELS.find(p => p.id === activeNavPanel)?.icon}
+            </div>
+            <h3 className="placeholder-title">{NAV_PANELS.find(p => p.id === activeNavPanel)?.label} Panel</h3>
+            <p className="placeholder-subtitle">
+              This panel is ready for customization.
+            </p>
+            <button
+              type="button"
+              className="placeholder-back-btn"
+              onClick={() => setActiveNavPanel('caption')}
+            >
+              Back to Caption
+            </button>
+          </div>
+        </section>
+      )}
 
         <section className="preview-panel">
           <div className="preview-toolbar"><div><span className="section-label">PREVIEW</span></div>{project&&<div className="preview-tools">{hasVideoLayer&&!busy&&<button className={`media-toggle ${videoEnabled?'':'removed'}`} aria-pressed={videoEnabled} aria-label={videoEnabled?'Remove video layer':'Restore video layer'} onClick={()=>setVideoEnabled(!videoEnabled)}>{videoEnabled?<Trash2 size={13}/>:<RotateCcw size={13}/>}<span>{videoEnabled?'Remove video':'Restore video'}</span></button>}<select aria-label="Video aspect ratio" value={settings.aspect} onChange={e=>updateSettings({aspect:e.target.value as Settings['aspect']})} disabled={busy}><option value="original">Original</option><option value="9:16">9:16 · Reel</option><option value="1:1">1:1 · Square</option><option value="16:9">16:9 · Landscape</option></select><button className="icon-button tiny" aria-label="Fullscreen preview" onClick={()=>void preview.current?.requestFullscreen().catch(()=>notify('Fullscreen is unavailable in this browser.'))}><Maximize2 size={15}/></button></div>}</div>
@@ -1901,9 +3008,9 @@ function App() {
               >
                 <video
                   ref={media}
-                  className={project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''}
-                  key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}`}
-                  src={busy ? undefined : `${API}/api/projects/${project.id}/media`}
+                  className={`${project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''} ${activeMediaAsset?.greenScreen?.enabled ? 'video-keyed' : ''}`}
+                  key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}-${activeMediaAsset?.id || 'primary'}`}
+                  src={busy ? undefined : (activeMediaAsset ? (activeMediaAsset.url?.startsWith('http') ? activeMediaAsset.url : `${API}${activeMediaAsset.url}`) : `${API}/api/projects/${project.id}/media`)}
                   playsInline
                   preload="metadata"
                   muted={muted}
@@ -1919,7 +3026,309 @@ function App() {
                     <span>AUDIO PROJECT</span>
                   </div>
                 )}
-                <canvas ref={canvas} width={size.width} height={size.height} aria-label="Animated caption preview" />
+                <Player
+                  ref={captionPlayer}
+                  component={CaptionTrack}
+                  inputProps={{ words, settings, background: 'transparent' }}
+                  durationInFrames={Math.max(1, Math.round((duration || 1) * CAPTION_FPS))}
+                  fps={CAPTION_FPS}
+                  compositionWidth={size.width}
+                  compositionHeight={size.height}
+                  controls={false}
+                  clickToPlay={false}
+                  doubleClickToFullscreen={false}
+                  spaceKeyToPlayOrPause={false}
+                  acknowledgeRemotionLicense
+                  className="caption-player"
+                  // Remotion sets `position: relative` as an inline style on the
+                  // player container, which beats any stylesheet rule — the layer
+                  // ended up in normal flow below the video and was clipped away
+                  // by the frame's overflow. Positioning has to be inline too.
+                  style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                />
+                <canvas
+                  ref={canvas}
+                  width={size.width}
+                  height={size.height}
+                  aria-label="Animated caption preview"
+                  onClick={() => {
+                    if (activeWord) {
+                      selectWord(activeWord.id);
+                    } else {
+                      const curGroup = groups.find(g => time >= g[0].start && time < (g[g.length - 1].end + 0.08));
+                      if (curGroup?.length) {
+                        selectWord(curGroup[0].id);
+                      }
+                    }
+                  }}
+                />
+                {settings.showSafeArea && (
+                  <div className="safe-area-overlay" aria-hidden="true">
+                    <div className="safe-area-guide-box">
+                      <div className="safe-area-guide-header">Safe Area · Short Form</div>
+                      <div className="safe-area-label top">Header / Profile</div>
+                      <div className="safe-area-label right">Action Icons</div>
+                      <div className="safe-area-label bottom">Caption & Title</div>
+                    </div>
+                  </div>
+                )}
+                {selectedCanvasElementId && (
+                  <div className="canvas-element-action-overlay">
+                    <button
+                      type="button"
+                      className="canvas-delete-element-btn"
+                      onClick={() => {
+                        setCanvasElements(prev => prev.filter(el => el.id !== selectedCanvasElementId));
+                        setSelectedCanvasElementId(null);
+                        notify('Removed visual element from canvas');
+                      }}
+                      title="Remove visual element from canvas"
+                      aria-label="Remove visual element from canvas"
+                    >
+                      <Trash2 size={13} />
+                      <span>Remove element</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Snapping alignment guide lines */}
+                {snapGuideX && <div className="canvas-snap-guide vertical" />}
+                {snapGuideY && <div className="canvas-snap-guide horizontal" />}
+
+                {/* Interactive Canvas Text Overlays */}
+                {textElements.map(el => {
+                  const isVisible = el.visible !== false && (time >= el.start && time <= el.end || selectedTextId === el.id);
+                  if (!isVisible) return null;
+                  const isSelected = selectedTextId === el.id;
+                  const isEditing = isEditingCanvasTextId === el.id;
+
+                  return (
+                    <div
+                      key={el.id}
+                      className={`canvas-text-box-wrapper ${isSelected ? 'selected' : ''} ${el.locked ? 'locked' : ''}`}
+                      style={{
+                        left: `${el.x}%`,
+                        top: `${el.y}%`,
+                        transform: `translate(-50%, -50%) rotate(${el.rotation || 0}deg)`,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedTextId(el.id);
+                        setActiveNavPanel('text');
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        if (!el.locked) {
+                          setSelectedTextId(el.id);
+                          setIsEditingCanvasTextId(el.id);
+                        }
+                      }}
+                      onMouseDown={(e) => {
+                        if (el.locked || isEditing) return;
+                        handleStartDragText(e, el.id);
+                      }}
+                    >
+                      {isEditing ? (
+                        <textarea
+                          autoFocus
+                          className="canvas-inline-text-editor"
+                          value={el.text}
+                          style={{
+                            fontFamily: el.fontFamily || 'DM Sans',
+                            fontSize: `${Math.max(12, Math.round((el.fontSize / 1080) * (preview.current?.clientWidth || 360)))}px`,
+                            fontWeight: el.fontWeight || 'bold',
+                            fontStyle: el.fontStyle || 'normal',
+                            color: el.color || '#FFFFFF',
+                            textAlign: el.align === 'justify' ? 'center' : (el.align || 'center'),
+                          }}
+                          onChange={(e) => handleUpdateText(el.id, { text: e.target.value })}
+                          onBlur={() => setIsEditingCanvasTextId(null)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              setIsEditingCanvasTextId(null);
+                            } else if (e.key === 'Escape') {
+                              setIsEditingCanvasTextId(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div
+                          className="canvas-text-hit-target"
+                          style={{
+                            fontFamily: el.fontFamily || 'DM Sans',
+                            fontSize: `${Math.max(12, Math.round((el.fontSize / 1080) * (preview.current?.clientWidth || 360)))}px`,
+                            fontWeight: el.fontWeight || 'bold',
+                            fontStyle: el.fontStyle || 'normal',
+                            lineHeight: el.lineHeight || 1.2,
+                          }}
+                        >
+                          <span style={{ opacity: 0, userSelect: 'none', pointerEvents: 'none' }}>
+                            {transformTextCase(el.text || ' ', el.textCase)}
+                          </span>
+                        </div>
+                      )}
+
+                      {isSelected && !isEditing && (
+                        <>
+                          <div className="canvas-selection-box" />
+                          {!el.locked && (
+                            <>
+                              <div className="resize-handle handle-nw" onMouseDown={(e) => handleStartResizeText(e, el.id, 'nw')} />
+                              <div className="resize-handle handle-ne" onMouseDown={(e) => handleStartResizeText(e, el.id, 'ne')} />
+                              <div className="resize-handle handle-se" onMouseDown={(e) => handleStartResizeText(e, el.id, 'se')} />
+                              <div className="resize-handle handle-sw" onMouseDown={(e) => handleStartResizeText(e, el.id, 'sw')} />
+                              <div className="resize-handle handle-n" onMouseDown={(e) => handleStartResizeText(e, el.id, 'n')} />
+                              <div className="resize-handle handle-e" onMouseDown={(e) => handleStartResizeText(e, el.id, 'e')} />
+                              <div className="resize-handle handle-s" onMouseDown={(e) => handleStartResizeText(e, el.id, 's')} />
+                              <div className="resize-handle handle-w" onMouseDown={(e) => handleStartResizeText(e, el.id, 'w')} />
+                            </>
+                          )}
+
+                          {/* Floating Quick Toolbar */}
+                          <div className="canvas-floating-toolbar" onMouseDown={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className={`floating-tool-btn ${el.fontWeight === 'bold' || el.fontWeight === '800' || el.fontWeight === '700' ? 'active' : ''}`}
+                              onClick={() => {
+                                const isBold = el.fontWeight === 'bold' || el.fontWeight === '800' || el.fontWeight === '700';
+                                handleUpdateText(el.id, { fontWeight: isBold ? 'normal' : 'bold' });
+                              }}
+                              title="Bold"
+                            >
+                              <Bold size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className={`floating-tool-btn ${el.fontStyle === 'italic' ? 'active' : ''}`}
+                              onClick={() => handleUpdateText(el.id, { fontStyle: el.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                              title="Italic"
+                            >
+                              <Italic size={13} />
+                            </button>
+                            <div className="floating-tool-divider" />
+                            <button
+                              type="button"
+                              className={`floating-tool-btn ${el.align === 'left' ? 'active' : ''}`}
+                              onClick={() => handleUpdateText(el.id, { align: 'left' })}
+                              title="Align Left"
+                            >
+                              <AlignLeft size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className={`floating-tool-btn ${el.align === 'center' || !el.align ? 'active' : ''}`}
+                              onClick={() => handleUpdateText(el.id, { align: 'center' })}
+                              title="Align Center"
+                            >
+                              <AlignCenter size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className={`floating-tool-btn ${el.align === 'right' ? 'active' : ''}`}
+                              onClick={() => handleUpdateText(el.id, { align: 'right' })}
+                              title="Align Right"
+                            >
+                              <AlignRight size={13} />
+                            </button>
+                            <div className="floating-tool-divider" />
+                            <label className="floating-color-btn" title="Text Color">
+                              <span className="floating-color-swatch" style={{ backgroundColor: el.color || '#FFFFFF' }} />
+                              <input
+                                type="color"
+                                className="floating-color-picker"
+                                value={el.color || '#FFFFFF'}
+                                onChange={(e) => handleUpdateText(el.id, { color: e.target.value })}
+                              />
+                            </label>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Interactive Canvas Media Overlays */}
+                {canvasElements.map(el => {
+                  const isVisible = el.visible !== false && ((el.start === undefined || time >= el.start) && (el.end === undefined || time <= el.end) || selectedCanvasElementId === el.id);
+                  if (!isVisible) return null;
+                  const isSelected = selectedCanvasElementId === el.id;
+
+                  return (
+                    <div
+                      key={el.id}
+                      className={`canvas-media-box-wrapper ${isSelected ? 'selected' : ''} ${el.locked ? 'locked' : ''}`}
+                      style={{
+                        left: `${el.x}%`,
+                        top: `${el.y}%`,
+                        transform: `translate(-50%, -50%) rotate(${el.rotation || 0}deg)`,
+                        width: `${32 * (el.scale || 1.0)}%`,
+                        aspectRatio: '16 / 9',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedCanvasElementId(el.id);
+                        setSelectedTextId(null);
+                      }}
+                      onMouseDown={(e) => {
+                        if (el.locked) return;
+                        handleStartDragCanvasElement(e, el.id);
+                      }}
+                    >
+                      <div className="canvas-media-hit-target" />
+
+                      {isSelected && (
+                        <>
+                          <div className="canvas-selection-box media-selection-box" />
+                          {!el.locked && (
+                            <>
+                              <div className="resize-handle handle-nw" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'nw')} />
+                              <div className="resize-handle handle-ne" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'ne')} />
+                              <div className="resize-handle handle-se" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'se')} />
+                              <div className="resize-handle handle-sw" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'sw')} />
+                              <div className="resize-handle handle-n" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'n')} />
+                              <div className="resize-handle handle-e" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'e')} />
+                              <div className="resize-handle handle-s" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 's')} />
+                              <div className="resize-handle handle-w" onMouseDown={(e) => handleStartResizeCanvasElement(e, el.id, 'w')} />
+                            </>
+                          )}
+
+                          {/* Floating Action Toolbar */}
+                          <div className="canvas-floating-toolbar media-floating-toolbar" onMouseDown={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className="floating-tool-btn with-text"
+                              onClick={() => setGreenScreenTargetEl(el)}
+                              title="Green Screen / Chroma Key"
+                            >
+                              <Wand2 size={13} />
+                              <span>Green Screen</span>
+                            </button>
+                            <div className="floating-tool-divider" />
+                            <button
+                              type="button"
+                              className="floating-tool-btn"
+                              onClick={() => handleUpdateCanvasElement(el.id, { scale: 1.0 })}
+                              title="Reset Size"
+                            >
+                              <RotateCcw size={13} />
+                            </button>
+                            <div className="floating-tool-divider" />
+                            <button
+                              type="button"
+                              className="floating-tool-btn danger"
+                              onClick={() => handleDeleteCanvasElement(el.id)}
+                              title="Remove from Canvas"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+
                 {busy && (
                   <div className="preview-processing">
                     <LoaderCircle size={18} className="spin" />
@@ -1927,9 +3336,9 @@ function App() {
                   </div>
                 )}
                 {isDraggingOver && (
-                  <div className="stage-drag-overlay">
-                    <UploadCloud size={36} />
-                    <span>Drop to import media</span>
+                  <div className="stage-drag-overlay stage-drop-target-active">
+                    <UploadCloud size={36} color="#2EE368" />
+                    <span>Drop media onto canvas</span>
                   </div>
                 )}
               </div>
@@ -2098,6 +3507,111 @@ function App() {
                   </div>
                 ) : null}
 
+                {/* 2.5. Text Elements Lane */}
+                {project && duration > 0 && textElements.length > 0 && (
+                  <div className="timeline-text-lane">
+                    {textElements.map(el => {
+                      const isSelected = selectedTextId === el.id;
+                      const leftPct = Math.max(0, Math.min(100, (el.start / duration) * 100));
+                      const widthPct = Math.max(1.2, Math.min(100 - leftPct, ((el.end - el.start) / duration) * 100));
+
+                      return (
+                        <div
+                          key={el.id}
+                          className={`timeline-text-block ${isSelected ? 'selected' : ''} ${el.visible === false ? 'hidden' : ''}`}
+                          style={{
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedTextId(el.id);
+                            setActiveNavPanel('text');
+                            seek(el.start);
+                          }}
+                          onMouseDown={(e) => handleStartDragTimelineText(e, el.id, 'move')}
+                          title={`Text: "${el.text}" (${el.start.toFixed(1)}s - ${el.end.toFixed(1)}s)`}
+                        >
+                          <div
+                            className="timeline-block-handle left"
+                            title="Drag to adjust start"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleStartDragTimelineText(e, el.id, 'start');
+                            }}
+                          />
+                          <div className="timeline-text-block-content">
+                            <Type size={12} className="timeline-text-icon" />
+                            <span className="timeline-text-title">{el.text || 'Text'}</span>
+                          </div>
+                          <div
+                            className="timeline-block-handle right"
+                            title="Drag to adjust end"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleStartDragTimelineText(e, el.id, 'end');
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* 2.6. Media Elements Lane */}
+                {project && duration > 0 && canvasElements.length > 0 && (
+                  <div className="timeline-media-lane">
+                    {canvasElements.map(el => {
+                      const isSelected = selectedCanvasElementId === el.id;
+                      const elStart = el.start ?? 0;
+                      const elEnd = el.end ?? duration;
+                      const leftPct = Math.max(0, Math.min(100, (elStart / duration) * 100));
+                      const widthPct = Math.max(1.5, Math.min(100 - leftPct, ((elEnd - elStart) / duration) * 100));
+
+                      return (
+                        <div
+                          key={el.id}
+                          className={`timeline-media-block ${isSelected ? 'selected' : ''} ${el.visible === false ? 'hidden' : ''}`}
+                          style={{
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedCanvasElementId(el.id);
+                            setSelectedTextId(null);
+                            seek(elStart);
+                          }}
+                          onMouseDown={(e) => handleStartDragTimelineMedia(e, el.id, 'move')}
+                          title={`Media: "${el.name}" (${elStart.toFixed(1)}s - ${elEnd.toFixed(1)}s)`}
+                        >
+                          <div
+                            className="timeline-block-handle left"
+                            title="Drag to trim start"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleStartDragTimelineMedia(e, el.id, 'start');
+                            }}
+                          />
+                          <div className="timeline-media-block-content">
+                            <ImageIcon size={12} className="timeline-media-icon" />
+                            <span className="timeline-media-title">{el.name || 'Media'}</span>
+                            <span className="timeline-media-dur">{(elEnd - elStart).toFixed(1)}s</span>
+                          </div>
+                          <div
+                            className="timeline-block-handle right"
+                            title="Drag to trim end"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleStartDragTimelineMedia(e, el.id, 'end');
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* 3. Clean White Caption Cards Lane */}
                 <div className="timeline-groups-lane">
                   {project && duration > 0 && groups.map((g, gIdx) => {
@@ -2188,13 +3702,15 @@ function App() {
                           })}
                         </div>
 
-                        {/* Bottom Drag Strip */}
+                        {/* Dedicated Group Bar beneath words */}
                         <div
-                          className="timeline-group-drag-strip"
-                          title="Drag sentence to move"
+                          className="timeline-group-bar"
+                          title="Drag caption group to shift timing"
                           onMouseDown={(e) => startGroupDrag(e, g)}
                         >
-                          <span className="drag-dots">············································</span>
+                          <div className="group-bar-track">
+                            <span className="group-bar-grip" />
+                          </div>
                         </div>
 
                         {/* Group Right Trim Bracket */}
@@ -2258,6 +3774,23 @@ function App() {
             </div>
           </div>
         </section>
+        {timelineLiveTooltip && (
+          <div
+            className="timeline-live-tooltip"
+            style={{
+              position: 'fixed',
+              left: `${timelineLiveTooltip.x}px`,
+              top: `${timelineLiveTooltip.y}px`,
+              transform: 'translate(-50%, -100%)',
+              pointerEvents: 'none',
+              zIndex: 99999,
+            }}
+          >
+            {timelineLiveTooltip.lines.map((line, i) => (
+              <div key={i} className="tooltip-line">{line}</div>
+            ))}
+          </div>
+        )}
       </main>
       <footer className="statusbar">
         <div
@@ -2769,6 +4302,28 @@ function App() {
           <div className="popover-arrow" />
         </div>
       </>
+    )}
+
+    {greenScreenTargetEl && (
+      <GreenScreenModal
+        asset={{
+          id: greenScreenTargetEl.assetId || greenScreenTargetEl.id,
+          name: greenScreenTargetEl.name,
+          filename: greenScreenTargetEl.name,
+          mediaType: greenScreenTargetEl.type,
+          size: 0,
+          duration: duration,
+          createdAt: '',
+          url: greenScreenTargetEl.url,
+          greenScreen: greenScreenTargetEl.greenScreen,
+        }}
+        onClose={() => setGreenScreenTargetEl(null)}
+        onApply={(config) => {
+          handleUpdateCanvasElement(greenScreenTargetEl.id, { greenScreen: config });
+          setGreenScreenTargetEl(null);
+          notify(`Updated green screen for "${greenScreenTargetEl.name}"`);
+        }}
+      />
     )}
   </div>;
 }
