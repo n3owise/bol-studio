@@ -2427,7 +2427,8 @@ function App() {
     <header className="studio-navbar">
       <div className="navbar-left">
         <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
-          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo" />
+          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo logo-light-only" />
+          <img src="/bol.studio-white.svg" alt="bol.studio" className="navbar-brand-logo logo-dark-only" />
         </button>
         {project && (
           <>

@@ -379,6 +379,26 @@ h1, h2, h3, p {
   display: block;
 }
 
+.logo-light-only {
+  display: block;
+}
+
+.logo-dark-only {
+  display: none;
+}
+
+:root[data-theme="dark"] .logo-light-only,
+[data-theme="dark"] .logo-light-only,
+.theme-dark .logo-light-only {
+  display: none !important;
+}
+
+:root[data-theme="dark"] .logo-dark-only,
+[data-theme="dark"] .logo-dark-only,
+.theme-dark .logo-dark-only {
+  display: block !important;
+}
+
 .brand-text {
   font-family: var(--font-display);
   font-weight: 800;
