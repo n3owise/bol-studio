@@ -826,31 +826,38 @@ def test_projects_without_an_owner_stay_visible_so_nothing_needs_migrating(clien
         assert legacy in {p["id"] for p in client.get("/api/projects", headers=owner).json()}
 
 
-def test_the_space_entrypoint_serves_the_real_app_with_its_middleware():
+def test_the_space_entrypoint_actually_enforces_the_gate(monkeypatch, tmp_path):
     """The deployment must not quietly drop every protection it has.
 
-    The Spaces entrypoint used to do `demo.app.include_router(app.router)`,
-    which copies the routes off the FastAPI app and none of its middleware.
-    Every protection in this module is middleware — the API key gate, the
-    per-workspace ownership check, the CORS allowlist — so all three were absent
-    on the deployment while each endpoint still answered perfectly. An open,
-    unscoped backend that looks correct from the outside is the worst possible
-    outcome, and nothing about the endpoints would have revealed it.
+    Two separate ways this broke, both invisible from outside. First the
+    entrypoint did `demo.app.include_router(app.router)`, which copies routes
+    and no middleware — every protection here is middleware, so the Space ran
+    with the API key gate, the per-workspace check and the CORS allowlist all
+    missing while each endpoint answered perfectly. Then, once the middleware
+    was registered, it was registered on `demo.app` — a different object from
+    the one `demo.launch()` builds, so it was discarded before the first
+    request and the routes went with it.
 
-    Importing the entrypoint here is deliberate: it is the only way to check
-    what the deployment actually serves rather than what this file defines.
+    Both times the middleware looked right when inspected. So this drives the
+    entrypoint's app with real requests instead of reading its attributes,
+    because reading them is what gave the wrong answer twice.
     """
     pytest.importorskip("gradio", reason="the Spaces entrypoint needs gradio")
     pytest.importorskip("spaces", reason="the Spaces entrypoint needs the ZeroGPU shim")
-    import app as entrypoint
 
-    # Gradio owns the server on a Gradio-SDK Space, so what matters is not that
-    # this is our app object, but that whatever serves requests carries our
-    # middleware — which include_router alone does not give it.
-    names = {getattr(m.cls, "__name__", str(m.cls)) for m in entrypoint.application.user_middleware}
-    assert "CORSMiddleware" in names
-    # The API key gate and the workspace check are both BaseHTTPMiddleware.
-    assert sum(1 for m in entrypoint.application.user_middleware
-               if getattr(m.cls, "__name__", "") == "BaseHTTPMiddleware") >= 2, (
-        "both the API key gate and the ownership check have to be in the stack"
-    )
+    monkeypatch.setenv("BOL_API_KEY", "gate-open-sesame")
+    import importlib
+    import server.app as server_module
+    importlib.reload(server_module)
+    entrypoint = importlib.reload(importlib.import_module("app"))
+    monkeypatch.setattr(server_module, "DATA_DIR", tmp_path)
+
+    with TestClient(entrypoint.application) as client:
+        assert client.get("/api/projects").status_code == 401, "no key must be refused"
+        assert client.get("/api/projects", headers={"X-API-Key": "wrong"}).status_code == 401
+        ok = client.get("/api/projects", headers={"X-API-Key": "gate-open-sesame"})
+        assert ok.status_code == 200, "the right key must get through"
+        # And our routes are actually mounted, not just Gradio's.
+        assert client.get("/api/limits", headers={"X-API-Key": "gate-open-sesame"}).status_code == 200
+
+    importlib.reload(server_module)

@@ -14,10 +14,15 @@ ZeroGPU's wrapper already holds port 7860, so starting our own uvicorn beside it
 fails to bind. Handing our FastAPI app to `demo.launch(_app=...)` does not work
 either — Gradio 6 requires its own App subclass there.
 
-So the routes are copied onto Gradio's app as before, and `install_middleware`
-puts the gate, the workspace check and the CORS allowlist onto that same app.
-One definition, registered from server/app.py, applied to whatever ends up
-serving — which is the part that was missing, not the routes.
+The app that serves has to be built here, because `demo.launch()` calls
+`App.create_app()` internally and discards whatever is hanging off `demo.app`.
+Attaching the routes and middleware to `demo.app` therefore attached them to an
+object that was thrown away before the first request: the deployment answered
+Gradio's own routes and 404ed every one of ours.
+
+So the Gradio App is constructed once, given our routes and our middleware, and
+handed back to `launch` — which accepts it because it is a real Gradio App,
+unlike the plain FastAPI app it refuses.
 """
 from __future__ import annotations
 
@@ -102,11 +107,17 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
     status_btn = gr.Button("GPU Check", visible=False)
     status_btn.click(fn=gpu_worker)
 
-# The routes, and then the protections that guard them. The second line is the
+from gradio.routes import App as GradioApp
+
+# Build it once, and keep a reference: `demo.app` is a different object that
+# launch() replaces, so anything registered there never serves a request.
+application = GradioApp.create_app(demo)
+# The routes, and then the protections that guard them. The second call is the
 # one that was missing: include_router copies routes and no middleware, so the
 # Space ran open and unscoped while every endpoint behaved perfectly.
-demo.app.include_router(app.router)
-application = install_middleware(demo.app)
+application.include_router(app.router)
+install_middleware(application)
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", 7860)), ssr_mode=False)
+    demo.launch(_app=application, server_name="0.0.0.0",
+                server_port=int(os.getenv("PORT", 7860)), ssr_mode=False)
