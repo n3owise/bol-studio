@@ -301,7 +301,19 @@ except ValueError:
 API_KEY = os.getenv("BOL_API_KEY", "").strip()
 # The Gradio landing page and the health check stay reachable so the Space shows
 # as up without a key.
-_OPEN_PATHS = {"/", "/api/health", "/docs", "/openapi.json", "/favicon.ico"}
+_OPEN_PATHS = {"/api/health", "/api/docs", "/api/openapi.json"}
+
+
+def _is_guarded(path: str) -> bool:
+    """Whether the key is required for this path.
+
+    Only our own API is guarded. The landing page is Gradio's, and it calls its
+    own endpoints during boot — /gradio_api/startup-events among them — from
+    inside the container with no key. Answering those with 401 stopped the app
+    from starting at all, which is a gate doing its job to a request that was
+    never the point of having one.
+    """
+    return path.startswith("/api/") and path not in _OPEN_PATHS
 
 
 # Which workspace a request belongs to.
@@ -369,7 +381,7 @@ async def scope_to_owner(request: Request, call_next):
 
 
 async def require_api_key(request: Request, call_next):
-    if not API_KEY or request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
+    if not API_KEY or request.method == "OPTIONS" or not _is_guarded(request.url.path):
         return await call_next(request)
     # Media, thumbnails and downloads are loaded by <video src> and <img src>,
     # which cannot set headers, so the key is accepted as a query parameter too.

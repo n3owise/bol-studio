@@ -861,3 +861,21 @@ def test_the_space_entrypoint_actually_enforces_the_gate(monkeypatch, tmp_path):
         assert client.get("/api/limits", headers={"X-API-Key": "gate-open-sesame"}).status_code == 200
 
     importlib.reload(server_module)
+
+
+def test_the_key_guards_our_api_and_nothing_else(monkeypatch):
+    """The gate must not answer requests that were never its business.
+
+    Gradio calls its own endpoints from inside the container while booting —
+    /gradio_api/startup-events among them — with no key. Guarding every path
+    answered those with 401, and the Space failed to start at all: a gate doing
+    its job to the wrong request, which looks identical to a broken deployment.
+    """
+    monkeypatch.setattr(backend, "API_KEY", "any-key")
+    assert backend._is_guarded("/api/projects")
+    assert backend._is_guarded("/api/projects/abc/exports")
+    # Gradio's own surface, and the landing page, are not ours to guard.
+    for path in ("/", "/gradio_api/startup-events", "/theme.css", "/assets/index.js"):
+        assert not backend._is_guarded(path), f"{path} must not need our key"
+    # Health stays reachable so uptime checks work without a key.
+    assert not backend._is_guarded("/api/health")
