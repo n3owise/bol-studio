@@ -167,7 +167,8 @@ def transcription_job(project_id: str) -> None:
         project = update_project(project_id, lambda p: p.update(status="processing", progress=5, message="Extracting the audio track."))
         prepare_media(project)
         result = transcribe(project_dir(project_id) / "audio.wav", project["duration"], project["script"], project.get("language", "hi"),
-                            lambda percent, message: set_progress(project_id, percent, message))
+                            lambda percent, message: set_progress(project_id, percent, message),
+                            glossary=project.get("glossary") or [])
         # The current project is reread under the lock: concurrent name/style edits survive.
         update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
                       message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
@@ -319,6 +320,8 @@ class Word(ValidatedModel):
     timingApproximate: StrictBool = False
     spotlight: StrictBool = False
     behind: StrictBool = False
+    # Set when the word came from the project glossary rather than the recogniser.
+    fromGlossary: StrictBool = False
 
     @field_validator("text")
     @classmethod
@@ -379,6 +382,7 @@ class Settings(BaseModel):
 class ProjectPatch(ValidatedModel):
     words: list[Word] | None = Field(default=None, max_length=20000)
     settings: Settings | None = None
+    glossary: list[str] | None = Field(default=None, max_length=200)
     name: str | None = Field(default=None, min_length=1, max_length=120)
     videoEnabled: StrictBool | None = None
     revision: StrictInt | None = Field(default=None, ge=0)
@@ -389,6 +393,9 @@ class ProjectPatch(ValidatedModel):
 class TranscribeRequest(ValidatedModel):
     script: Literal["roman", "native"] | None = None
     language: Literal["hi", "en", "auto"] | None = None
+    # Brand names, handles and domains the recogniser cannot know. Stored on the
+    # project so a re-transcription reuses them.
+    glossary: list[str] | None = Field(default=None, max_length=200)
 
 
 class ExportRequest(ValidatedModel):
@@ -495,6 +502,8 @@ def patch_project(project_id: str, request: ProjectPatch):
             if project["mediaType"] != "video":
                 raise HTTPException(409, "Audio projects do not have a video layer.")
             project["videoEnabled"] = request.videoEnabled
+        if request.glossary is not None:
+            project["glossary"] = [t.strip()[:80] for t in request.glossary if t and t.strip()][:200]
         if request.textElements is not None:
             project["textElements"] = request.textElements
         if request.canvasElements is not None:

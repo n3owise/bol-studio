@@ -83,7 +83,7 @@ interface CaptionsPanelProps {
   onAddCaptionAtTime: (time: number) => void;
   onEditCaptionGroup: (groupIdx: number, newText: string, newStart: number, newEnd: number) => void;
   onClearAllCaptions: () => void;
-  onRegenerateCaptions: (sourceAssetId?: string, script?: string, language?: string) => Promise<void>;
+  onRegenerateCaptions: (sourceAssetId?: string, script?: string, language?: string, glossary?: string[]) => Promise<void>;
   onStartTranscription: (
     sourceAssetId: string | null,
     script: string,
@@ -93,6 +93,7 @@ interface CaptionsPanelProps {
       filterFiller: boolean;
       multiSpeaker: boolean;
       wordsPerLine: number;
+      glossary?: string[];
       maxLines: number;
     }
   ) => Promise<void>;
@@ -191,6 +192,9 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   });
 
   const [spokenLang, setSpokenLang] = useState<'auto' | 'hi' | 'en'>('auto');
+  // Brand names, handles and domains the recogniser cannot know. Seeded from
+  // the project so they survive a re-run.
+  const [brandWords, setBrandWords] = useState((project?.glossary ?? []).join(', '));
   const [captionScript, setCaptionScript] = useState<'roman' | 'native' | 'en' | 'same'>('roman');
   const [autoPunctuation, setAutoPunctuation] = useState(true);
   const [filterFiller, setFilterFiller] = useState(false);
@@ -932,6 +936,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
         multiSpeaker,
         wordsPerLine: wordsPerCaption,
         maxLines,
+        glossary: brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200),
       });
       setPanelViewOverride(null);
     } catch (e) {
@@ -1248,6 +1253,27 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                         2 Lines
                       </button>
                     </div>
+                  </div>
+
+                  <div className="advanced-field">
+                    <div className="slider-label-row">
+                      <span>Brand words</span>
+                      <span className="slider-badge">
+                        {brandWords.split(',').filter(t => t.trim()).length || 'none'}
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      className="brand-words-input"
+                      value={brandWords}
+                      onChange={e => setBrandWords(e.target.value)}
+                      placeholder="kalakar.io, Bol Studio, Ewa"
+                      aria-label="Brand words the recognizer should spell your way"
+                    />
+                    <p className="field-hint">
+                      Names, handles and domains, comma separated. Only these are replaced &mdash;
+                      nothing else in your transcript is second-guessed.
+                    </p>
                   </div>
 
                   <label className="toggle-row compact">
@@ -2029,6 +2055,25 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
               <p>
                 Regenerating captions may replace your current caption text and timing.
               </p>
+              {/* This is the moment brand words matter: you have seen the
+                  transcript spell your domain phonetically and want it fixed on
+                  the next pass. The first-run generate view was the only place
+                  to set them, which is the one time you have not read the
+                  transcript yet. */}
+              <label className="modal-field">
+                <span>Brand words</span>
+                <input
+                  type="text"
+                  className="brand-words-input"
+                  value={brandWords}
+                  onChange={e => setBrandWords(e.target.value)}
+                  placeholder="kalakar.io, Bol Studio, Ewa"
+                  aria-label="Brand words the recognizer should spell your way"
+                />
+                <span className="field-hint">
+                  Names, handles and domains, comma separated. Only these are replaced.
+                </span>
+              </label>
             </div>
             <div className="modal-footer">
               <button
@@ -2047,7 +2092,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                     await onRegenerateCaptions(
                       selectedSourceId === 'primary' ? undefined : selectedSourceId,
                       captionScript,
-                      spokenLang
+                      spokenLang,
+                      brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200)
                     );
                   } catch (e) {
                     notify((e as Error).message);

@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+
+from server.glossary import apply_glossary
 from scipy.io import wavfile
 
 
@@ -417,7 +419,13 @@ def normalize_words(segments: list[dict], duration: float, script: str) -> list[
                 # A zero-duration alignment carries no reliable interval.
                 continue
             probability = raw.get("probability", .0)
-            confidence = float(probability) if isinstance(probability, (int, float)) and math.isfinite(probability) else 0.0
+            # An unknown confidence is not a low one. sherpa-onnx reports no
+            # per-token probability for Whisper models, so record 1.0 with
+            # confidenceApproximate set rather than 0.0, which would read as
+            # "the model is sure this is wrong".
+            confidence = (float(probability)
+                          if isinstance(probability, (int, float)) and math.isfinite(probability)
+                          else 1.0)
             word = {"id": f"w{len(words)+1}", "original": original,
                     "text": romanize_hinglish(original) if script == "roman" else original,
                     "start": start, "end": end, "confidence": round(min(1, max(0, confidence)), 3),
@@ -564,8 +572,12 @@ def _sherpa_tokens_to_words(result, duration: float) -> list[dict]:
         nonlocal current_text, current_start, current_end
         text = current_text.strip()
         if text:
+            # sherpa-onnx leaves ys_log_probs empty for Whisper models, so there
+            # is no per-token probability to report. A constant 0.75 looked like
+            # a measurement and was not one; `confidenceApproximate` marks it as
+            # unknown so the editor can decline to show a number.
             words.append({"word": text, "start": current_start, "end": current_end,
-                          "probability": .75, "confidenceApproximate": True})
+                          "probability": None, "confidenceApproximate": True})
         current_text = ""
         current_start = 0.0
         current_end = 0.0
@@ -593,7 +605,10 @@ def _sherpa_decode(audio: np.ndarray, rate: int, duration: float, model: str, pr
     # Decode overlapping windows so a longer reel is not silently truncated at
     # 30 seconds, then deduplicate words that occur in the overlap.
     window = 24.0
-    overlap = .6
+    # A Whisper-family decoder needs context around a cut. At 0.6s the overlap
+    # was under one word, so a clause straddling a boundary could lose its
+    # opening. Words duplicated across the overlap are merged below.
+    overlap = 2.5
     all_words: list[dict] = []
     detected_language = "hi"
     offset = 0.0
@@ -665,7 +680,8 @@ def _english_companion_decode(audio_path: Path, backend: str, model: str, progre
     return [{"words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]} for segment in stream]
 
 
-def transcribe(audio_path: Path, duration: float, script: str, language: str, progress: Callable[[int, str], None]) -> dict:
+def transcribe(audio_path: Path, duration: float, script: str, language: str,
+               progress: Callable[[int, str], None], glossary: list[str] | None = None) -> dict:
     backend, model = model_config()
     # The specialist is intentionally a Roman-Hinglish model. Keep the native
     # Devanagari option available by falling back to the multilingual model for
@@ -710,6 +726,12 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str, pr
     elif backend != "sherpa-hinglish" and script == "roman" and any(_word_is_devanagari(str(raw.get("word", ""))) for segment in segments for raw in segment.get("words", [])):
         progress(72, "Checking English switches in the mixed speech.")
         words = merge_code_mixed_english(words, _english_companion_decode(audio_path, backend, model, progress))
+    # Brand names, handles and domains come back spelled phonetically, and no
+    # model fixes that — the correct spelling is only known to the creator. This
+    # runs before boundary refinement so a merged term is timed as one word.
+    if glossary:
+        progress(76, "Applying your brand words.")
+        words = apply_glossary(words, glossary)
     progress(80, "Refining speech pauses and word timing with acoustic energy analysis.")
     words = refine_word_boundaries_with_vad(words, audio, rate, duration)
     progress(88, "Preparing Hinglish spelling and measuring spoken emphasis.")

@@ -1,5 +1,5 @@
 import captionDefaults from './caption-defaults.json';
-export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean };
+export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean; fromGlossary?: boolean };
 export type Settings = {
   template: string;
   accent: string;
@@ -128,6 +128,8 @@ export type Project = {
   revision: number;
   mediaAssets?: MediaAsset[];
   canvasElements?: CanvasVisualElement[];
+  /** Brand names, handles and domains the recogniser cannot know. */
+  glossary?: string[];
   textElements?: CanvasTextElement[];
   activeMediaAssetId?: string;
 };

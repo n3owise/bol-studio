@@ -2492,7 +2492,7 @@ function App() {
   async function retryTranscription() {
     if(!project) return;
     const currentProject = project;
-    try { await flushSave(); const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({script:currentProject.script,language:currentProject.language})}); if (projectRef.current?.id === currentProject.id) { setProject(result); projectRef.current=result; setScript(result.script); setLanguage(result.language); } }
+    try { await flushSave(); const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({script:currentProject.script,language:currentProject.language,glossary:currentProject.glossary ?? []})}); if (projectRef.current?.id === currentProject.id) { setProject(result); projectRef.current=result; setScript(result.script); setLanguage(result.language); } }
     catch(e){notify((e as Error).message);}
   }
 
@@ -2664,13 +2664,18 @@ function App() {
             onAddCaptionAtTime={handleAddCaptionAtTime}
             onEditCaptionGroup={handleEditCaptionGroup}
             onClearAllCaptions={handleClearAllCaptions}
-            onRegenerateCaptions={async (sourceAssetId, scriptParam, languageParam) => {
+            onRegenerateCaptions={async (sourceAssetId, scriptParam, languageParam, glossary) => {
               if (sourceAssetId && sourceAssetId !== activeMediaAsset?.id) {
                 const asset = projectAssets.find(a => a.id === sourceAssetId);
                 if (asset) handleSelectMediaForCanvas(asset);
               }
               if (scriptParam) setScript(scriptParam);
               if (languageParam) setLanguage(languageParam);
+              if (glossary && projectRef.current) {
+                const next = { ...projectRef.current, glossary };
+                markEdit(next, false);
+                projectRef.current = next;
+              }
               await retryTranscription();
             }}
             onStartTranscription={async (sourceAssetId, scriptParam, languageParam, opts) => {
@@ -2682,6 +2687,12 @@ function App() {
               setLanguage(languageParam);
               if (opts.wordsPerLine !== settings.wordsPerLine) {
                 updateSettings({ wordsPerLine: opts.wordsPerLine });
+              }
+              // Brand words are stored on the project so a re-run reuses them.
+              if (opts.glossary && projectRef.current) {
+                const next = { ...projectRef.current, glossary: opts.glossary };
+                markEdit(next, false);
+                projectRef.current = next;
               }
               await retryTranscription();
             }}
@@ -4212,7 +4223,7 @@ function App() {
         </div>
       </Modal>
     )}
-    {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word. Review names, slang, and spellings. Underlined words have lower model confidence.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest words to highlight. These are suggestions: click any word and toggle its star.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
+    {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word against the audio. Review names, slang, and spellings &mdash; the recognizer does not report how sure it is, so give proper nouns a second look.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest words to highlight. These are suggestions: click any word and toggle its star.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
 
     {modal === 'search-replace' && (
       <Modal title="Search & Replace" onClose={() => setModal(null)}>

@@ -473,3 +473,57 @@ def test_cors_does_not_default_to_every_origin():
     open could call this API from their browser."""
     assert "*" not in backend._cors_origins
     assert any("localhost:5173" in origin for origin in backend._cors_origins)
+
+
+def test_glossary_replaces_only_terms_the_creator_supplied():
+    """The recogniser spells brand names phonetically, and only the creator
+    knows the right spelling — so this never guesses at a word it was not told
+    about. "Ewa" is a real name the model got right; it must survive."""
+    from server.glossary import apply_glossary
+
+    def word(text, start, end):
+        return {"text": text, "start": start, "end": end, "original": text}
+
+    spoken = [
+        word("go", 0.7, 0.9), word("to", 0.9, 1.0), word("kalaakaar", 1.0, 1.7),
+        word("dot", 1.7, 1.9), word("I", 1.9, 2.0), word("O", 2.0, 2.2),
+    ]
+    out = apply_glossary(spoken, ["kalakar.io"])
+    assert [w["text"] for w in out] == ["go", "to", "kalakar.io"]
+
+    merged = out[-1]
+    assert merged["start"] == 1.0 and merged["end"] == 2.2, "the run keeps its full span"
+    assert merged["original"] == "kalaakaar dot I O", "the spoken form is preserved"
+    assert merged["fromGlossary"] is True
+
+    untouched = apply_glossary(
+        [word("Ewa", 0, 0.3), word("ko", 0.3, 0.5), word("dekh", 0.5, 0.8)],
+        ["kalakar.io", "Bol Studio"],
+    )
+    assert [w["text"] for w in untouched] == ["Ewa", "ko", "dekh"]
+
+    # The longest matching term wins, so "Bol" never shadows "Bol Studio".
+    both = apply_glossary([word("bol", 0, 0.3), word("studio", 0.3, 0.7)], ["Bol Studio", "Bol"])
+    assert [w["text"] for w in both] == ["Bol Studio"]
+
+    # No glossary is a no-op.
+    assert [w["text"] for w in apply_glossary(spoken, [])] == [w["text"] for w in spoken]
+
+
+def test_glossary_round_trips_through_the_api(client):
+    project = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")}).json()
+    patched = client.patch(
+        f"/api/projects/{project['id']}",
+        json={"glossary": ["kalakar.io", "  Bol Studio  ", ""]},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["glossary"] == ["kalakar.io", "Bol Studio"], "blank terms dropped, whitespace trimmed"
+
+
+def test_a_word_may_carry_the_glossary_flag():
+    """transcribe() marks replaced words, and Word forbids unknown fields, so
+    the flag has to be declared or every save would 422."""
+    assert backend.Word(
+        id="w1", text="kalakar.io", original="kalaakaar dot I O", start=0.0, end=1.0,
+        confidence=1.0, emphasis=False, emphasisScore=0.5, fromGlossary=True,
+    ).fromGlossary is True
