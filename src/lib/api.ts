@@ -1,7 +1,20 @@
 import type { MediaAsset, Project } from './types';
 
-const defaultBase = import.meta.env.DEV ? '' : 'https://n3owise-bol-studio-backend.hf.space';
-export const API = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
+/**
+ * Empty by default, so every call is a relative /api/... on whatever origin the
+ * app is served from.
+ *
+ * Both environments already forward that: Vite proxies /api to the local server
+ * in development, and vercel.json rewrites /api to the Space in production. The
+ * production default used to be the Space's own URL instead, which bypassed
+ * that rewrite and made every request cross-origin — which matters because
+ * CORS cannot be enforced on a Space at all; their proxy reflects whatever
+ * Origin it is sent. Going through the rewrite makes the browser talk only to
+ * bol-studio.me, so none of that applies.
+ *
+ * VITE_API_BASE still overrides it for a backend somewhere else.
+ */
+export const API = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 
 /**
  * Shared key for a deployed backend, set at build time with VITE_API_KEY.
