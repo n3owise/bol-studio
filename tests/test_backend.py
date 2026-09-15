@@ -844,10 +844,9 @@ def test_the_space_entrypoint_serves_the_real_app_with_its_middleware():
     pytest.importorskip("spaces", reason="the Spaces entrypoint needs the ZeroGPU shim")
     import app as entrypoint
 
-    assert entrypoint.application is backend.app, (
-        "the Space must serve the FastAPI app itself. Mounting Gradio onto it keeps the "
-        "middleware; copying routes onto a Gradio app throws the middleware away."
-    )
+    # Gradio owns the server on a Gradio-SDK Space, so what matters is not that
+    # this is our app object, but that whatever serves requests carries our
+    # middleware — which include_router alone does not give it.
     names = {getattr(m.cls, "__name__", str(m.cls)) for m in entrypoint.application.user_middleware}
     assert "CORSMiddleware" in names
     # The API key gate and the workspace check are both BaseHTTPMiddleware.

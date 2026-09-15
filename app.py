@@ -9,9 +9,15 @@ ownership check, the CORS allowlist — so all three were silently absent on the
 deployment while the endpoints themselves worked perfectly. A Space deployed
 that way is an open, unscoped backend that looks correct from the outside.
 
-So the FastAPI app is the application, and Gradio is mounted onto it as the
-landing page. Requests reach the middleware stack first, exactly as they do
-locally and in the tests.
+Gradio has to own the server here: a Gradio-SDK Space runs `demo.launch()`, and
+ZeroGPU's wrapper already holds port 7860, so starting our own uvicorn beside it
+fails to bind. Handing our FastAPI app to `demo.launch(_app=...)` does not work
+either — Gradio 6 requires its own App subclass there.
+
+So the routes are copied onto Gradio's app as before, and `install_middleware`
+puts the gate, the workspace check and the CORS allowlist onto that same app.
+One definition, registered from server/app.py, applied to whatever ends up
+serving — which is the part that was missing, not the routes.
 """
 from __future__ import annotations
 
@@ -62,7 +68,8 @@ threading.Thread(target=_background_init, daemon=True).start()
 
 import gradio as gr
 
-from server.app import ALLOWED_ORIGINS, API_KEY, DATA_DIR, MAX_EXPORT_SECONDS, app
+from server.app import (ALLOWED_ORIGINS, API_KEY, DATA_DIR, MAX_EXPORT_SECONDS, app,
+                        install_middleware)
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -95,14 +102,11 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
     status_btn = gr.Button("GPU Check", visible=False)
     status_btn.click(fn=gpu_worker)
 
-# Gradio hangs off the FastAPI app, not the other way round, so every request
-# passes through the middleware in server/app.py before it reaches a route.
-application = gr.mount_gradio_app(app, demo, path="/")
+# The routes, and then the protections that guard them. The second line is the
+# one that was missing: include_router copies routes and no middleware, so the
+# Space ran open and unscoped while every endpoint behaved perfectly.
+demo.app.include_router(app.router)
+application = install_middleware(demo.app)
 
 if __name__ == "__main__":
-    # Handing the mounted app to Gradio rather than starting uvicorn ourselves.
-    # A Gradio-SDK Space already owns port 7860, so a second server there fails
-    # with EADDRINUSE and the Space never comes up — which is exactly what
-    # calling uvicorn.run here did.
-    demo.launch(_app=application, server_name="0.0.0.0",
-                server_port=int(os.getenv("PORT", 7860)), ssr_mode=False)
+    demo.launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", 7860)), ssr_mode=False)

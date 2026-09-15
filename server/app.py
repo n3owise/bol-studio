@@ -21,6 +21,7 @@ from typing import Annotated, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
@@ -277,12 +278,6 @@ ALLOWED_ORIGINS = [
     for v in os.getenv("BOL_ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", DEFAULT_ORIGINS)).split(",")
     if v.strip()
 ]
-app.add_middleware(CORSMiddleware,
-                   allow_origins=ALLOWED_ORIGINS,
-                   allow_methods=["*"],
-                   allow_headers=["*"],
-                   allow_credentials=False)
-
 # A shared key, enabled by setting BOL_API_KEY. Unset — the local default — the
 # gate is open so `npm run dev` needs no configuration.
 #
@@ -351,7 +346,6 @@ def owns(project: dict, owner: str) -> bool:
     return not stored or stored == owner
 
 
-@app.middleware("http")
 async def scope_to_owner(request: Request, call_next):
     """Refuse another workspace's project before the endpoint ever sees it.
 
@@ -374,7 +368,6 @@ async def scope_to_owner(request: Request, call_next):
     return await call_next(request)
 
 
-@app.middleware("http")
 async def require_api_key(request: Request, call_next):
     if not API_KEY or request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
         return await call_next(request)
@@ -538,6 +531,35 @@ def validate_word_intervals(words: list[dict], duration: float) -> None:
         if word["end"] <= word["start"] or word["start"] < previous_end - .0001 or word["end"] > duration + .0001:
             raise HTTPException(422, "Word timestamps must be ordered, non-overlapping and within the clip duration; each end must follow its start.")
         previous_end = word["end"]
+
+
+def install_middleware(target: FastAPI) -> FastAPI:
+    """Put the gate, the workspace check and the CORS allowlist on `target`.
+
+    This exists as a function because the Hugging Face entrypoint does not serve
+    this module's `app` — under the Gradio SDK it serves Gradio's own FastAPI
+    app with these routes copied onto it, and `include_router` copies routes
+    and no middleware. Every protection here is middleware, so the deployment
+    ran with all three missing while each endpoint answered perfectly.
+
+    Registering them from one place means the deployment cannot drift from what
+    the tests exercise. Applying it twice to the same app would stack duplicate
+    layers, so it refuses rather than doing it quietly.
+    """
+    if getattr(target.state, "bol_middleware_installed", False):
+        return target
+    target.add_middleware(BaseHTTPMiddleware, dispatch=scope_to_owner)
+    target.add_middleware(BaseHTTPMiddleware, dispatch=require_api_key)
+    target.add_middleware(CORSMiddleware,
+                          allow_origins=ALLOWED_ORIGINS,
+                          allow_methods=["*"],
+                          allow_headers=["*"],
+                          allow_credentials=False)
+    target.state.bol_middleware_installed = True
+    return target
+
+
+install_middleware(app)
 
 
 @app.get("/api/limits")
