@@ -540,30 +540,28 @@ def test_vocal_isolation_is_opt_in_and_round_trips(client):
     assert turned_on.json()["isolateVocals"] is True
 
 
-def test_vocal_isolation_returns_the_original_audio_when_it_cannot_run(monkeypatch):
-    """A transcription with background music beats no transcription at all, so
-    every failure path hands back the input untouched."""
-    import numpy as np
+def test_vocal_isolation_declines_rather_than_degrading(monkeypatch, tmp_path):
+    """Every failure path returns None so the caller keeps the original audio.
+    A transcription with background music beats no transcription at all."""
+    from pathlib import Path
     from server import denoise
-
-    audio = np.random.default_rng(0).normal(0, 0.05, 16000).astype(np.float32)
 
     monkeypatch.setattr(denoise, "available", lambda: False)
-    assert denoise.isolate_vocals(audio, 16000) is audio
+    assert denoise.isolate_vocals_from_source(Path("/nonexistent.mp4"), 16000, 100) is None
 
     monkeypatch.setattr(denoise, "available", lambda: True)
-    monkeypatch.setattr(denoise, "_load", lambda: (_ for _ in ()).throw(RuntimeError("no weights")))
-    np.testing.assert_array_equal(denoise.isolate_vocals(audio, 16000), audio)
+    assert denoise.isolate_vocals_from_source(tmp_path / "missing.mp4", 16000, 100) is None
 
 
-def test_vocal_isolation_preserves_length_so_timestamps_still_index_it():
-    """The caller slices this array by word timestamp; two resamples can drift
-    it by a sample or two."""
-    import numpy as np
+def test_vocal_isolation_separates_at_the_source_rate_not_the_16k_copy():
+    """Separating the 16 kHz recognition copy degraded clean speech: upsampled
+    to the model's 44.1 kHz it carries no energy above 8 kHz, nothing like the
+    training data, and the recogniser hallucinated a word off the artefacts.
+    Only the source-reading entry point should exist."""
     from server import denoise
 
-    if not denoise.available():
-        import pytest as _pytest
-        _pytest.skip("torchaudio not installed")
-    audio = np.random.default_rng(1).normal(0, 0.05, 16000 * 2).astype(np.float32)
-    assert len(denoise.isolate_vocals(audio, 16000)) == len(audio)
+    assert hasattr(denoise, "isolate_vocals_from_source")
+    assert not hasattr(denoise, "isolate_vocals"), (
+        "the 16 kHz round-trip made clean audio worse and must not come back"
+    )
+    assert denoise.MODEL_RATE == 44100

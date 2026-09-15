@@ -169,7 +169,8 @@ def transcription_job(project_id: str) -> None:
         result = transcribe(project_dir(project_id) / "audio.wav", project["duration"], project["script"], project.get("language", "hi"),
                             lambda percent, message: set_progress(project_id, percent, message),
                             glossary=project.get("glossary") or [],
-                            isolateVocals=bool(project.get("isolateVocals")))
+                            isolateVocals=bool(project.get("isolateVocals")),
+                            source_path=project_dir(project_id) / "source.bin")
         # The current project is reread under the lock: concurrent name/style edits survive.
         update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
                       message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
