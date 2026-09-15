@@ -309,6 +309,71 @@ API_KEY = os.getenv("BOL_API_KEY", "").strip()
 _OPEN_PATHS = {"/", "/api/health", "/docs", "/openapi.json", "/favicon.ico"}
 
 
+# Which workspace a request belongs to.
+#
+# Projects used to be keyed by id alone, so /api/projects returned every project
+# on the server: two people sharing a deployment saw each other's uploads in
+# their workspace, and could open, edit and delete them. Scoping them costs one
+# field, and it is the same field a real account system will fill in later —
+# after login, the session's user id goes here instead of the browser's, and
+# nothing else about the data model changes.
+#
+# It is separation, not authentication. The value arrives in a header the client
+# sends, so anyone can set it to anything. It keeps friends out of each other's
+# work by default; it does not defend against a friend who opens the developer
+# tools. Say so plainly rather than letting it look like a security boundary.
+OWNER_HEADER = "x-bol-owner"
+# Matches /api/projects/<uuid>, the prefix of every per-project endpoint.
+_PROJECT_PATH = re.compile(r"^/api/projects/([0-9a-fA-F-]{36})(?:/|$)")
+
+
+def owner_of(request: Request) -> str:
+    """The caller's workspace, from the header — or the query string.
+
+    Media, thumbnails and downloads are fetched by <video src> and <img src>,
+    which cannot set headers, so those requests carry it as ?owner= exactly the
+    way they already carry the API key. Without that fallback a browser asks for
+    its own project's video as a stranger and is correctly refused.
+    """
+    supplied = request.headers.get(OWNER_HEADER) or request.query_params.get("owner") or ""
+    return supplied.strip()[:200]
+
+
+def owns(project: dict, owner: str) -> bool:
+    """Whether `owner` may see this project.
+
+    A project with no owner is visible to everyone. That covers every project
+    created before this existed, and a local checkout where nobody sends the
+    header — which is what keeps `npm run dev` working with no configuration,
+    and means deploying this needs no migration.
+    """
+    stored = (project.get("owner") or "").strip()
+    return not stored or stored == owner
+
+
+@app.middleware("http")
+async def scope_to_owner(request: Request, call_next):
+    """Refuse another workspace's project before the endpoint ever sees it.
+
+    Done here rather than in each handler because there are seventeen endpoints
+    under /api/projects/{id} and the next one added would not have been covered.
+    A missing check reads exactly like a working endpoint, so the safe default
+    has to be structural.
+
+    The refusal is 404, not 403: whether a project exists is itself none of the
+    caller's business.
+    """
+    match = _PROJECT_PATH.match(request.url.path)
+    if match and request.method != "OPTIONS":
+        try:
+            project = load_project(match.group(1))
+        except HTTPException:
+            project = None
+        if project is not None and not owns(project, owner_of(request)):
+            return JSONResponse({"detail": "Project not found."}, status_code=404)
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def require_api_key(request: Request, call_next):
     if not API_KEY or request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
@@ -491,19 +556,22 @@ def health():
 
 
 @app.get("/api/projects")
-def projects():
+def projects(request: Request):
+    owner = owner_of(request)
     result = []
     with LOCK:
         for path in DATA_DIR.glob("*/project.json"):
             try:
-                result.append(json.loads(path.read_text()))
+                project = json.loads(path.read_text())
             except (OSError, ValueError):
                 continue
+            if owns(project, owner):
+                result.append(project)
     return sorted(result, key=lambda p: p.get("created", ""), reverse=True)
 
 
 @app.post("/api/projects", status_code=201)
-async def upload_project(file: Annotated[UploadFile, File()], script: Annotated[Literal["roman", "native"], Form()] = "roman",
+async def upload_project(request: Request, file: Annotated[UploadFile, File()], script: Annotated[Literal["roman", "native"], Form()] = "roman",
                          language: Annotated[Literal["hi", "en", "auto"], Form()] = "hi"):
     project_id = str(uuid.uuid4())
     directory = project_dir(project_id)
@@ -523,7 +591,8 @@ async def upload_project(file: Annotated[UploadFile, File()], script: Annotated[
         project = {"id": project_id, "name": Path(filename).stem[:120] or "Untitled clip", "filename": filename,
                    **metadata, "videoEnabled": metadata["mediaType"] == "video", "created": datetime.now(timezone.utc).isoformat(), "status": "queued", "progress": 0,
                    "message": "Queued for local transcription.", "words": [], "settings": copy.deepcopy(DEFAULT_SETTINGS),
-                   "waveform": [], "exports": [], "script": script, "language": language, "revision": 1}
+                   "waveform": [], "exports": [], "script": script, "language": language, "revision": 1,
+                   "owner": owner_of(request)}
         write_project(project)
         EXECUTOR.submit(transcription_job, project_id)
         return project

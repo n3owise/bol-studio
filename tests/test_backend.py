@@ -763,3 +763,64 @@ def test_deployed_requirements_match_the_local_ones():
         f"these are installed locally but not on a deployed Space: {sorted(missing)}. "
         "Add them to server/requirements.txt, or the feature silently disappears there."
     )
+
+
+def test_a_workspace_cannot_see_or_touch_another_ones_projects(client):
+    """Two people sharing a deployment must not share a workspace.
+
+    /api/projects returned every project on the server, so a second visitor saw
+    the first one's uploads listed as their own and could open, edit and delete
+    them. This is the check that stops that, and it is enforced in middleware
+    rather than per endpoint: seventeen routes sit under /api/projects/{id}, and
+    a missing check on any one of them reads exactly like a working endpoint.
+    """
+    def upload(owner):
+        response = client.post(
+            "/api/projects",
+            files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+            headers={"X-Bol-Owner": owner},
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["id"]
+
+    mine = upload("alice")
+    theirs = upload("bob")
+
+    # Each of us lists only our own.
+    listed = lambda owner: {p["id"] for p in client.get("/api/projects", headers={"X-Bol-Owner": owner}).json()}
+    assert mine in listed("alice") and theirs not in listed("alice")
+    assert theirs in listed("bob") and mine not in listed("bob")
+
+    # Reading, editing and exporting someone else's is refused — as 404, because
+    # whether it exists is not the caller's business either.
+    alice = {"X-Bol-Owner": "alice"}
+    assert client.get(f"/api/projects/{theirs}", headers=alice).status_code == 404
+    assert client.patch(f"/api/projects/{theirs}", json={"name": "stolen"}, headers=alice).status_code == 404
+    assert client.get(f"/api/projects/{theirs}/media", headers=alice).status_code == 404
+    # Bob gets the ordinary "preview not ready yet" instead, so the 404 above is
+    # the ownership refusal and not something every caller would have seen.
+    assert client.get(f"/api/projects/{theirs}/media", headers={"X-Bol-Owner": "bob"}).status_code == 409
+    assert client.get(f"/api/projects/{theirs}/assets", headers=alice).status_code == 404
+
+    # Bob's project is untouched by the attempt.
+    assert client.get(f"/api/projects/{theirs}", headers={"X-Bol-Owner": "bob"}).json()["name"] == "clip"
+
+    # The query-string form works too: <video src> cannot send headers.
+    assert client.get(f"/api/projects/{theirs}/media?owner=alice").status_code == 404
+
+
+def test_projects_without_an_owner_stay_visible_so_nothing_needs_migrating(client):
+    """Every project created before this existed has no owner field.
+
+    Scoping those to nobody would have hidden the user's own work behind an
+    upgrade, and a local checkout sends no header at all. An unowned project is
+    therefore visible to everyone, which is what keeps `npm run dev` working
+    with no configuration and makes deploying this a no-op for existing data.
+    """
+    response = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")})
+    legacy = response.json()["id"]
+    assert response.json().get("owner") == "", "no header means no owner is stamped"
+
+    for owner in ({}, {"X-Bol-Owner": "alice"}, {"X-Bol-Owner": "bob"}):
+        assert client.get(f"/api/projects/{legacy}", headers=owner).status_code == 200
+        assert legacy in {p["id"] for p in client.get("/api/projects", headers=owner).json()}
