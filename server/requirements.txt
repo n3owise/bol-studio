@@ -1,3 +1,12 @@
+# Backend dependencies. The Dockerfile installs server/requirements-cpu.txt,
+# which includes this file, so this is what a deployed Space actually gets.
+#
+# Keep it in step with the root requirements.txt, which is what a local
+# checkout installs. The two had drifted: vocal isolation and emoji suggestion
+# were added to the root file and not this one, so a Space rebuild would have
+# quietly shipped a backend where both reported themselves unavailable — the
+# graceful degradation working exactly as designed, for a reason nobody
+# intended.
 fastapi>=0.116,<1
 uvicorn>=0.35,<1
 python-multipart>=0.0.20,<1
@@ -9,3 +18,13 @@ sherpa-onnx>=1.13,<2
 httpx>=0.28,<1
 pytest>=8,<10
 huggingface-hub>=0.23
+gradio>=4.0.0
+
+# Optional: Hybrid Demucs for the opt-in vocal isolation toggle. The feature
+# degrades to a no-op if this is absent.
+torchaudio>=2.1
+
+# Optional: the encoder behind emoji suggestion (English captions only). Pulls
+# a ~90MB model on first use and caches it. The feature reports itself
+# unavailable and is a no-op if this is absent.
+sentence-transformers>=3,<6

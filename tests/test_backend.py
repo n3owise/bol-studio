@@ -1,4 +1,6 @@
 import copy
+import re
+from pathlib import Path
 import io
 import json
 import subprocess
@@ -728,3 +730,36 @@ def test_transcribe_accepts_the_translate_flag(client, project, translate):
                            json={"language": "hi", "script": "native", "translate": translate})
     assert response.status_code == 200, response.text
     assert response.json()["translate"] is translate
+
+
+def test_deployed_requirements_match_the_local_ones():
+    """A Space rebuild must not quietly ship fewer features than a checkout.
+
+    The Dockerfile installs server/requirements-cpu.txt, which includes
+    server/requirements.txt — a different file from the root requirements.txt a
+    local checkout uses. Vocal isolation and emoji suggestion were added to the
+    root one and not the deployed one, and because both degrade to a no-op when
+    their dependency is missing, the Space would have reported them unavailable
+    with nothing failing and nothing to notice.
+    """
+    repo = Path(__file__).resolve().parent.parent
+
+    def packages(path):
+        """Every package pip would install, following -r includes the way pip does."""
+        names = set()
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("-r"):
+                names |= packages(path.parent / line.split(maxsplit=1)[1].strip())
+                continue
+            names.add(re.split(r"[<>=;\[ ]", line)[0].lower())
+        return names
+
+    # The Dockerfile installs the -cpu file, which pulls in the other one.
+    missing = packages(repo / "requirements.txt") - packages(repo / "server" / "requirements-cpu.txt")
+    assert not missing, (
+        f"these are installed locally but not on a deployed Space: {sorted(missing)}. "
+        "Add them to server/requirements.txt, or the feature silently disappears there."
+    )
