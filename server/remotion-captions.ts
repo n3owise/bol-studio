@@ -21,15 +21,63 @@ export function captionBundle(onProgress?: (percent: number) => void): Promise<s
 }
 
 /**
+ * Deliver frames to `onFrame` in index order, one at a time.
+ *
+ * Remotion renders frames concurrently and delivers them out of order, so they
+ * are held until the next expected index arrives. The subtle part is the "one
+ * at a time": an earlier version ran the same loop directly inside each
+ * concurrent delivery, which dispatched frames in the right order but left
+ * several `onFrame` bodies running at once as soon as one of them awaited.
+ *
+ * That is not merely untidy — the consumer composites every frame onto a single
+ * shared canvas, so a second call reaching `clearRect` while the first was
+ * awaiting its caption image wiped a half-drawn frame. Roughly one frame in
+ * twenty came out blank or missing its caption, scattered irregularly through
+ * the export, which is exactly how a race looks from the outside.
+ *
+ * Chaining onto `queue` keeps exactly one `onFrame` in flight. Callers await
+ * what `push` returns, which also applies backpressure: a slow consumer stops
+ * the renderer rather than letting the held map grow without bound.
+ */
+export function createOrderedDispatcher(onFrame: (index: number, png: Buffer) => Promise<void>) {
+  const pending = new Map<number, Buffer>();
+  let next = 0;
+  let queue: Promise<void> = Promise.resolve();
+  let failure: unknown;
+
+  const push = (index: number, png: Buffer): Promise<void> => {
+    if (failure) return Promise.reject(failure);
+    pending.set(index, png);
+    queue = queue.then(async () => {
+      if (failure) return;
+      while (pending.has(next)) {
+        const buffer = pending.get(next)!;
+        pending.delete(next);
+        const current = next;
+        next += 1;
+        await onFrame(current, buffer);
+      }
+    }).catch(error => { failure ??= error; });
+    return queue.then(() => { if (failure) throw failure; });
+  };
+
+  return {
+    push,
+    /** Wait for everything already pushed to finish being delivered. */
+    settle: () => queue.then(() => { if (failure) throw failure; }),
+    /** How many frames have been handed to `onFrame`. */
+    get delivered() { return next; },
+    /** How many arrived early and are still waiting their turn. */
+    get held() { return pending.size; },
+  };
+}
+
+/**
  * Render the caption layer and hand each frame to `onFrame` **in order**.
  *
  * Frames are streamed, never staged on disk. Writing a PNG per frame cost about
  * 74 KB each, which is 5 GB of temporary files for a twenty-minute export — the
- * longest clip this app accepts. Remotion renders frames concurrently and so
- * delivers them out of order; they are held in a small map until the next
- * expected index arrives, and because `onFrameBuffer` may return a promise,
- * awaiting the drain also applies backpressure so a slow consumer cannot make
- * that map grow without bound.
+ * longest clip this app accepts.
  */
 export async function streamCaptionFrames(options: {
   words: Word[];
@@ -58,19 +106,7 @@ export async function streamCaptionFrames(options: {
 
   const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps });
 
-  const pending = new Map<number, Buffer>();
-  let next = 0;
-  let failure: unknown;
-
-  const drain = async () => {
-    while (pending.has(next)) {
-      const png = pending.get(next)!;
-      pending.delete(next);
-      const index = next;
-      next += 1;
-      await onFrame(index, png);
-    }
-  };
+  const dispatcher = createOrderedDispatcher(onFrame);
 
   await renderFrames({
     composition: { ...composition, width, height, fps, durationInFrames: frameCount },
@@ -78,27 +114,19 @@ export async function streamCaptionFrames(options: {
     inputProps,
     outputDir: null,
     imageFormat: 'png',
-    onFrameBuffer: async (buffer: Buffer, frameIndex: number) => {
-      if (failure) throw failure;
-      pending.set(frameIndex, buffer);
-      try {
-        await drain();
-      } catch (error) {
-        failure ??= error;
-        throw error;
-      }
-    },
+    // Awaiting the push is what applies backpressure: Remotion will not run
+    // ahead of the encoder, so the held map stays small.
+    onFrameBuffer: (buffer: Buffer, frameIndex: number) => dispatcher.push(frameIndex, buffer),
     onFrameUpdate: rendered => options.onProgress?.(rendered),
     onStart: () => undefined,
     concurrency: options.concurrency ?? null,
     cancelSignal: options.signal as never,
   });
 
-  if (failure) throw failure;
   // Anything still held back means Remotion delivered fewer frames than the
   // composition declares; surface it rather than writing a short video.
-  await drain();
-  if (next !== frameCount) {
-    throw new Error(`The caption renderer produced ${next} of ${frameCount} frames.`);
+  await dispatcher.settle();
+  if (dispatcher.delivered !== frameCount) {
+    throw new Error(`The caption renderer produced ${dispatcher.delivered} of ${frameCount} frames.`);
   }
 }

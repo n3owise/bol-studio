@@ -12,6 +12,7 @@ import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
 import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
+import { createOrderedDispatcher } from '../server/remotion-captions.ts';
 import {
   createDefaultTextElement,
   drawTextElements,
@@ -1134,4 +1135,48 @@ test('a page shows at most one emoji, and never on the word it already enlarges'
 
   // No annotations at all is the ordinary case for a Hinglish transcript.
   assert.equal(pickEmoji(buildPages([word('kuch', 0, .3), word('nahi', .35, .6)], 7)[0]), null);
+});
+
+test('caption frames reach the encoder one at a time, in order', async () => {
+  // The consumer composites every frame onto one shared canvas and awaits an
+  // image decode partway through. So two overlapping calls are not a tidiness
+  // problem: the second one's clearRect wipes the first one's half-drawn frame.
+  // An export came back with about one frame in twenty blank or missing its
+  // caption, scattered irregularly — the signature of exactly that.
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const seen: number[] = [];
+
+  const dispatcher = createOrderedDispatcher(async (index) => {
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    // Yield the way loadImage and the ffmpeg write both do. Without
+    // serialisation this is where the next call slips in.
+    await new Promise(resolve => setTimeout(resolve, index % 3));
+    seen.push(index);
+    inFlight -= 1;
+  });
+
+  // Remotion renders concurrently and delivers out of order; push them that way
+  // and do not await each one, which is what the renderer does.
+  const order = [3, 0, 2, 1, 6, 5, 4, 9, 7, 8];
+  await Promise.all(order.map(index => dispatcher.push(index, Buffer.from([index]))));
+  await dispatcher.settle();
+
+  assert.equal(maxInFlight, 1, 'only one frame may be composited at a time');
+  assert.deepEqual(seen, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'frames arrive in index order');
+  assert.equal(dispatcher.delivered, 10);
+  assert.equal(dispatcher.held, 0, 'nothing is left stranded');
+});
+
+test('a failing frame stops the export instead of writing a short video', async () => {
+  const dispatcher = createOrderedDispatcher(async (index) => {
+    if (index === 2) throw new Error('FFmpeg stopped');
+  });
+  await dispatcher.push(0, Buffer.alloc(0));
+  await dispatcher.push(1, Buffer.alloc(0));
+  await assert.rejects(() => dispatcher.push(2, Buffer.alloc(0)), /FFmpeg stopped/);
+  // The failure sticks, so later frames cannot quietly carry on past it.
+  await assert.rejects(() => dispatcher.push(3, Buffer.alloc(0)), /FFmpeg stopped/);
+  assert.equal(dispatcher.delivered, 3);
 });
