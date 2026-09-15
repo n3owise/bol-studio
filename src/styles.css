@@ -10028,3 +10028,20 @@ kbd {
   gap: 10px;
   margin-top: 20px;
 }
+
+.modal-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.28));
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.modal-toggle input { margin-top: 2px; flex-shrink: 0; }
+
+.modal-toggle span { display: flex; flex-direction: column; gap: 3px; }
+.modal-toggle strong { font-size: 13px; font-weight: 600; }
+.modal-toggle em { font-size: 11.5px; line-height: 1.45; font-style: normal; opacity: 0.65; }

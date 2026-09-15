@@ -174,7 +174,8 @@ def transcription_job(project_id: str) -> None:
                             lambda percent, message: set_progress(project_id, percent, message),
                             glossary=project.get("glossary") or [],
                             isolateVocals=bool(project.get("isolateVocals")),
-                            source_path=project_dir(project_id) / "source.bin")
+                            source_path=project_dir(project_id) / "source.bin",
+                            emoji=bool(project.get("emoji")))
         # The current project is reread under the lock: concurrent name/style edits survive.
         update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
                       message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
@@ -346,6 +347,11 @@ class Word(ValidatedModel):
     # None leaves it to the clause breaker. Word is extra="forbid", so this has
     # to be declared here or every save carrying one would be rejected.
     lineBreak: StrictBool | None = None
+    # An emoji matched to this word, and how sure the match was (1.0 when the
+    # word is one the vocabulary lists outright). The editor decides which of a
+    # line's candidates is actually drawn — see pickEmoji in src/lib/pages.ts.
+    emoji: str | None = Field(default=None, max_length=16)
+    emojiScore: float | None = Field(default=None, ge=0, le=1)
 
     @field_validator("text")
     @classmethod
@@ -421,6 +427,7 @@ class ProjectPatch(ValidatedModel):
     settings: Settings | None = None
     glossary: list[str] | None = Field(default=None, max_length=200)
     isolateVocals: StrictBool | None = None
+    emoji: StrictBool | None = None
     name: str | None = Field(default=None, min_length=1, max_length=120)
     videoEnabled: StrictBool | None = None
     revision: StrictInt | None = Field(default=None, ge=0)
@@ -437,6 +444,9 @@ class TranscribeRequest(ValidatedModel):
     # Strip background music before recognition. Off by default: on clean speech
     # it costs time and removes nothing.
     isolateVocals: StrictBool | None = None
+    # Match an emoji to words. English only — the encoder is English-trained and
+    # would score Hinglish confidently and wrongly. Ignored for other languages.
+    emoji: StrictBool | None = None
 
 
 class ExportRequest(ValidatedModel):

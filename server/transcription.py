@@ -18,6 +18,7 @@ import numpy as np
 
 from server.denoise import available as denoise_available, isolate_vocals_from_source
 from server.glossary import apply_glossary
+from server.emoji import suggest_emoji as emoji_suggest
 from scipy.io import wavfile
 
 
@@ -683,7 +684,8 @@ def _english_companion_decode(audio_path: Path, backend: str, model: str, progre
 
 def transcribe(audio_path: Path, duration: float, script: str, language: str,
                progress: Callable[[int, str], None], glossary: list[str] | None = None,
-               isolateVocals: bool = False, source_path: Path | None = None) -> dict:
+               isolateVocals: bool = False, source_path: Path | None = None,
+               emoji: bool = False) -> dict:
     backend, model = model_config()
     # The specialist is intentionally a Roman-Hinglish model. Keep the native
     # Devanagari option available by falling back to the multilingual model for
@@ -747,6 +749,13 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
     words = refine_word_boundaries_with_vad(words, audio, rate, duration)
     progress(88, "Preparing Hinglish spelling and measuring spoken emphasis.")
     suggest_emphasis(words, audio, rate)
+    # English only, and only when asked. The encoder behind this is trained on
+    # English; Hinglish written in Latin letters lands nowhere near the right
+    # description while still scoring high enough to look deliberate, so
+    # offering it there would mean shipping confident nonsense.
+    if emoji and language == "en":
+        progress(94, "Matching emoji to words.")
+        emoji_suggest(words)
     return {"words": words, "waveform": waveform, "model": model, "detectedLanguage": detected_language,
             "emphasisMethod": EMPHASIS_METHOD,
             "timingMethod": "Whisper word alignment. Multiword ASR units are kept together; flagged adjustments are approximate."}

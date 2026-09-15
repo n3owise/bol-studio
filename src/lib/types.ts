@@ -10,7 +10,10 @@ export type Word = { id: string; text: string; original: string; start: number; 
    * the timings it touched, and could not be told apart from a full stop the
    * recogniser produced on its own.
    */
-  lineBreak?: boolean };
+  lineBreak?: boolean;
+  /** An emoji the recogniser matched to this word, and how sure it was. */
+  emoji?: string;
+  emojiScore?: number };
 export type Settings = {
   template: string;
   accent: string;
@@ -153,6 +156,8 @@ export type Project = {
   glossary?: string[];
   /** Strip background music before recognition. Off by default. */
   isolateVocals?: boolean;
+  /** Whether the last run matched emoji to words; reused on a re-run. */
+  emoji?: boolean;
   textElements?: CanvasTextElement[];
   activeMediaAssetId?: string;
 };

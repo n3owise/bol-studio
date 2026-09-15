@@ -12,3 +12,7 @@ gradio>=4.0.0
 # Optional: Hybrid Demucs for the opt-in vocal isolation toggle. The feature
 # degrades to a no-op if this is absent.
 torchaudio>=2.1
+# Optional: the encoder behind emoji suggestion (English captions only). Pulls
+# a ~90MB model on first use and caches it. The feature reports itself
+# unavailable and is a no-op if this is absent.
+sentence-transformers>=3,<6

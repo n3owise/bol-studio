@@ -313,6 +313,31 @@ function pickHeroes(words: Word[], alwaysPromote: boolean): number[] {
 }
 
 /**
+ * Which single word on a page shows its emoji, if any.
+ *
+ * The recogniser annotates every word it can match, which is far too many to
+ * draw: a line reading "money 💰 fast ⚡ money 💰" is what makes automatic emoji
+ * look cheap. One per page keeps it rare enough to land.
+ *
+ * It is never the hero. The hero is already the loudest thing on the page —
+ * it is bigger, it carries the accent colour, and on a stacked template it has
+ * a row to itself — so hanging an emoji off it adds nothing and crowds the one
+ * element the whole layout is built around. Put it on a supporting word and the
+ * page gains a second point of interest instead of doubling the first.
+ */
+export function pickEmoji(page: CaptionPage): { index: number; emoji: string } | null {
+  let bestIndex = -1;
+  let bestScore = -Infinity;
+  page.words.forEach((word, index) => {
+    if (!word.emoji || page.heroIndices.includes(index)) return;
+    const score = word.emojiScore ?? 0;
+    if (score > bestScore) { bestScore = score; bestIndex = index; }
+  });
+  if (bestIndex === -1) return null;
+  return { index: bestIndex, emoji: page.words[bestIndex].emoji! };
+}
+
+/**
  * The contiguous run of hero words that forms the centre row of a stacked
  * lockup. Spotlights that sit apart from it stay in the supporting rows, where
  * they keep the accent colour but not the hero size.

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from scipy.io import wavfile
 
 from server import app as backend
+from server import emoji as emoji_module
 from server.transcription import (_sherpa_tokens_to_words, merge_code_mixed_english, model_config,
                                   normalize_words, refine_word_boundaries_with_vad, romanize_hinglish, suggest_emphasis, transcribe)
 
@@ -659,3 +660,34 @@ def test_post_upload_language_choices_are_all_accepted(client, project, label, s
     saved = response.json()
     assert saved["script"] == script
     assert saved["language"] == language
+
+
+def test_emoji_matches_meaning_and_leaves_ordinary_words_alone():
+    """The vocabulary supplies the taste; the encoder supplies the synonyms.
+
+    A plain cosine threshold cannot separate the two groups — measured over real
+    transcript words, matches bottom out near 0.32 while noise peaks near 0.44 —
+    so a listed keyword is an exact hit and the model is held to a high bar for
+    everything else. This pins both halves of that.
+    """
+    if not emoji_module.available():
+        pytest.skip("sentence-transformers is optional; emoji suggestion is a no-op without it")
+
+    words = [{"text": w} for w in
+             "the most important thing is your time and your brain".split()]
+    emoji_module.suggest_emoji(words)
+    picked = {w["text"]: w["emoji"] for w in words if w.get("emoji")}
+    assert picked == {"important": "❗", "time": "⏰", "brain": "🧠"}
+
+    # Function words and vague nouns carry no image. These are what make
+    # automatic emoji look cheap, so none of them may match at any score.
+    plain = [{"text": w} for w in
+             "because these words belong to the same thing and nothing else".split()]
+    emoji_module.suggest_emoji(plain)
+    assert not [w for w in plain if w.get("emoji")]
+
+    # "money" sits in the money bag's keywords and not the flying note's, so the
+    # two cannot trade places the way they did when both listed it.
+    money = [{"text": "money"}, {"text": "cash"}]
+    emoji_module.suggest_emoji(money)
+    assert [w.get("emoji") for w in money] == ["💰", "💰"]

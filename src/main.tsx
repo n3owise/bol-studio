@@ -227,6 +227,12 @@ function App() {
    * setting to nudge afterwards — it means transcribing again from scratch.
    */
   const [languagePrompt, setLanguagePrompt] = useState<'open' | null>(null);
+  /**
+   * Match emoji to words. Offered for English only: the encoder behind it is
+   * English-trained, and Hinglish written in Latin letters scores confidently
+   * against the wrong description rather than scoring low and being skipped.
+   */
+  const [wantEmoji, setWantEmoji] = useState(false);
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
   const [resolution, setResolution] = useState<720 | 1080 | 2160>(720);
   const [exportFps, setExportFps] = useState<24 | 25 | 30 | 50 | 60>(30);
@@ -2535,7 +2541,7 @@ function App() {
    * starts a run would send the previous values and transcribe in the wrong
    * language without ever saying so.
    */
-  async function startTranscription(overrides?: { script?: string; language?: string }) {
+  async function startTranscription(overrides?: { script?: string; language?: string; emoji?: boolean }) {
     const currentProject = projectRef.current;
     if(!currentProject) return;
     const body = {
@@ -2543,6 +2549,7 @@ function App() {
       language: overrides?.language ?? currentProject.language,
       glossary: currentProject.glossary ?? [],
       isolateVocals: !!currentProject.isolateVocals,
+      emoji: overrides?.emoji ?? !!currentProject.emoji,
     };
     try {
       await flushSave();
@@ -4358,6 +4365,15 @@ function App() {
           </button>
         ))}
       </div>
+      {language === 'en' && (
+        <label className="modal-toggle">
+          <input type="checkbox" checked={wantEmoji} onChange={e=>setWantEmoji(e.target.checked)} />
+          <span>
+            <strong>Add emoji to matching words</strong>
+            <em>One per line at most, and never on the big word &mdash; it is already carrying the line. English only.</em>
+          </span>
+        </label>
+      )}
       <div className="modal-actions">
         <button type="button" className="button secondary" onClick={()=>setLanguagePrompt(null)}>
           Not now
@@ -4366,7 +4382,10 @@ function App() {
           type="button"
           className="button primary"
           disabled={busy}
-          onClick={() => { setLanguagePrompt(null); void startTranscription({ script, language }); }}
+          onClick={() => {
+            setLanguagePrompt(null);
+            void startTranscription({ script, language, emoji: language === 'en' && wantEmoji });
+          }}
         >
           <WandSparkles size={15}/> Generate captions
         </button>

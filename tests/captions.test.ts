@@ -7,7 +7,7 @@ import {
   groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
   replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
-import { MAX_WORDS_PER_PAGE, buildPages, heroRun } from '../src/lib/pages.ts';
+import { MAX_WORDS_PER_PAGE, buildPages, heroRun, pickEmoji } from '../src/lib/pages.ts';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.ts';
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
@@ -1098,4 +1098,40 @@ test('safe-area zones describe each app and flag a caption hidden behind them', 
   assert.equal(safeAreaFor('none'), null);
   assert.equal(safeAreaFor(undefined), null);
   assert.equal(safeAreaFor('reels')?.name, 'Instagram Reels');
+});
+
+test('a page shows at most one emoji, and never on the word it already enlarges', () => {
+  const tagged = (text: string, start: number, end: number, emoji?: string, score = 0.9): Word =>
+    ({ ...word(text, start, end), ...(emoji ? { emoji, emojiScore: score } : {}) });
+
+  // The recogniser annotates every word it can match; drawing them all is what
+  // makes automatic emoji look cheap.
+  const words = [
+    tagged('I', 0, .2), tagged('made', .25, .45), tagged('serious', .5, .8),
+    tagged('money', .85, 1.2, '💰', 1), tagged('really', 1.25, 1.5),
+    tagged('fast', 1.55, 1.9, '⚡', 0.7),
+  ];
+  const [page] = buildPages(words, 7, { alwaysPromote: true });
+  const pick = pickEmoji(page);
+  assert.ok(pick, 'a page with candidates shows one');
+  assert.ok(!page.heroIndices.includes(pick!.index), 'never the hero');
+
+  // "money" is both the surest emoji match and a HOOK_WORD, so the template
+  // promotes it — and the emoji steps aside to the next candidate rather than
+  // doubling up on the word the layout is already built around. The two
+  // features wanting the same word is the normal case, not an edge one.
+  assert.equal(page.words[page.heroIndices[0]].text, 'money');
+  assert.equal(pick!.emoji, '⚡');
+  assert.equal(page.words[pick!.index].text, 'fast');
+
+  // When the only candidate IS the hero, the page shows none rather than
+  // crowding the one element the layout is built around.
+  const heroOnly = buildPages(
+    [tagged('the', 0, .2), tagged('money', .25, .6, '💰', 1), tagged('story', .65, .9)]
+      .map(w => (w.text === 'money' ? { ...w, spotlight: true } : w)),
+    7, { alwaysPromote: true });
+  assert.equal(pickEmoji(heroOnly[0]), null);
+
+  // No annotations at all is the ordinary case for a Hinglish transcript.
+  assert.equal(pickEmoji(buildPages([word('kuch', 0, .3), word('nahi', .35, .6)], 7)[0]), null);
 });

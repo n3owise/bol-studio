@@ -3,7 +3,7 @@ import { interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
 import { theme } from './theme';
 import { treatmentFor, type FontRole } from './treatments';
 import { CaptionWord } from './CaptionWord';
-import { heroRun, type CaptionPage as Page } from '../lib/pages';
+import { pickEmoji, heroRun, type CaptionPage as Page } from '../lib/pages';
 import type { Settings, Word } from '../lib/types';
 import captionFonts from '../lib/caption-fonts.json';
 
@@ -101,6 +101,9 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
 
   const enterFrameFor = (word: Word) => Math.max(0, Math.round((word.start - page.start) * fps));
 
+  // At most one emoji a page, never on the hero — see pickEmoji.
+  const emojiPick = pickEmoji(page);
+
   const renderWord = (
     word: Word,
     role: 'hero' | 'sub',
@@ -124,10 +127,17 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     const rowWeight = row === 'prefix' ? treatment.prefixWeight
       : row === 'suffix' ? treatment.suffixWeight
         : undefined;
+    const shown = upper ? word.text.toLocaleUpperCase() : word.text;
+    // Appended to the word rather than placed as its own element: it then
+    // inherits the word's entrance, exit and fit-to-width scaling for free, and
+    // cannot drift out of sync with the text it belongs to.
+    const withEmoji = emojiPick && page.words[emojiPick.index]?.id === word.id
+      ? `${shown} ${emojiPick.emoji}`
+      : shown;
     return (
       <CaptionWord
         key={word.id}
-        text={upper ? word.text.toLocaleUpperCase() : word.text}
+        text={withEmoji}
         enterFrame={enterFrameFor(word)}
         role={role}
         size={size}
