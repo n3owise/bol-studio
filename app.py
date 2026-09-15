@@ -111,7 +111,13 @@ from gradio.routes import App as GradioApp
 
 # Build it once, and keep a reference: `demo.app` is a different object that
 # launch() replaces, so anything registered there never serves a request.
-application = GradioApp.create_app(demo)
+#
+# `parent_app` is how Gradio is told to keep its hands off CORS. Its
+# CustomCORSMiddleware reflects whatever Origin it is sent unless the parent app
+# already has a CORSMiddleware, and it looks for that on this argument alone.
+# Without it the deployment happily told https://evil.example it was allowed,
+# overruling our allowlist from inside.
+application = GradioApp.create_app(demo, parent_app=app)
 # The routes, and then the protections that guard them. The second call is the
 # one that was missing: include_router copies routes and no middleware, so the
 # Space ran open and unscoped while every endpoint behaved perfectly.
