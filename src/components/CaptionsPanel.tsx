@@ -176,7 +176,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
 
   const [panelViewOverride, setPanelViewOverride] = useState<'empty' | 'generate' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'emphasized' | 'spotlighted' | 'edited'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'highlighted' | 'edited'>('all');
   const [panelMenuOpen, setPanelMenuOpen] = useState(false);
   const [activeRowMenuIdx, setActiveRowMenuIdx] = useState<number | null>(null);
   const [modalType, setModalType] = useState<'regenerate-confirm' | 'clear-confirm' | null>(null);
@@ -369,9 +369,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const searchResults = useMemo(() => {
     let list = groups.map((g, idx) => ({ group: g, idx }));
 
-    if (activeFilter === 'emphasized') {
-      list = list.filter(({ group }) => group.some(w => w.emphasis));
-    } else if (activeFilter === 'spotlighted') {
+    if (activeFilter === 'highlighted') {
       list = list.filter(({ group }) => group.some(w => w.spotlight));
     } else if (activeFilter === 'edited') {
       list = list.filter(({ group }) => group.some(w => w.text !== w.original));
@@ -822,51 +820,20 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     }, 200);
   };
 
-  // Toggle Highlight (Emphasize or Spotlight)
-  const handleToggleWordHighlight = (type: 'emphasize' | 'spotlight') => {
+  /** Toggle the one highlight a word can carry. See setWordHighlight in main.tsx. */
+  const handleToggleWordHighlight = () => {
     if (!wordPopover) return;
     const w = wordPopover.word;
-    let nextEmphasis = false;
-    let nextSpotlight = false;
-
-    if (type === 'emphasize') {
-      const currentEmphasized = w.emphasis && !w.spotlight;
-      nextEmphasis = !currentEmphasized;
-      nextSpotlight = false;
-    } else {
-      const currentSpotlight = w.spotlight;
-      nextSpotlight = !currentSpotlight;
-      nextEmphasis = false;
-    }
+    const patch = { emphasis: false, spotlight: !w.spotlight };
 
     if (selectedWordIds.size > 1 && selectedWordIds.has(w.id)) {
-      onUpdateWords(selectedWordIds, {
-        emphasis: nextEmphasis,
-        spotlight: nextSpotlight,
-      });
+      onUpdateWords(selectedWordIds, patch);
     } else {
-      onUpdateWord(w.id, {
-        emphasis: nextEmphasis,
-        spotlight: nextSpotlight,
-      });
+      onUpdateWord(w.id, patch);
     }
 
-    setWordPopover(p => p ? {
-      ...p,
-      word: {
-        ...p.word,
-        emphasis: nextEmphasis,
-        spotlight: nextSpotlight,
-      },
-    } : null);
-
-    notify(
-      nextSpotlight
-        ? `Spotlight applied to "${w.text}"`
-        : nextEmphasis
-        ? `Emphasized "${w.text}"`
-        : `Removed emphasis from "${w.text}"`
-    );
+    setWordPopover(p => p ? { ...p, word: { ...p.word, ...patch } } : null);
+    notify(patch.spotlight ? `Highlighted "${w.text}"` : `Removed the highlight from "${w.text}"`);
   };
 
   // Apply Case Transformation
@@ -1416,7 +1383,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
             </div>
 
             <div className="captions-filter-row">
-              {(['all', 'emphasized', 'spotlighted', 'edited'] as const).map(filterKey => (
+              {(['all', 'highlighted', 'edited'] as const).map(filterKey => (
                 <button
                   key={filterKey}
                   type="button"
@@ -1425,10 +1392,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                 >
                   {filterKey === 'all'
                     ? 'All'
-                    : filterKey === 'emphasized'
-                    ? '★ Emphasized'
-                    : filterKey === 'spotlighted'
-                    ? '⚡ Spotlight'
+                    : filterKey === 'highlighted'
+                    ? '⚡ Highlighted'
                     : 'Edited'}
                 </button>
               ))}
@@ -1852,9 +1817,9 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                         >
                                           <span className="caption-word-text">{w.text}</span>
                                           {w.spotlight ? (
-                                            <span className="caption-word-spotlight-badge" title="Spotlight Hero Word">⚡</span>
+                                            <span className="caption-word-spotlight-badge" title="Highlighted">⚡</span>
                                           ) : w.emphasis ? (
-                                            <span className="caption-word-star-badge" title="Emphasized Word">★</span>
+                                            <span className="caption-word-star-badge" title="Suggested — click to highlight">⚡</span>
                                           ) : null}
                                         </div>
                                       </div>
@@ -1950,22 +1915,12 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                 <div className="popover-quick-actions">
                   <button
                     type="button"
-                    className={`popover-action-btn ${wordPopover.word.emphasis && !wordPopover.word.spotlight ? 'active' : ''}`}
-                    title="Toggle Emphasis (★)"
-                    onClick={() => handleToggleWordHighlight('emphasize')}
-                  >
-                    <span className="popover-star-icon">★</span>
-                    <span>Emphasize</span>
-                  </button>
-
-                  <button
-                    type="button"
                     className={`popover-action-btn ${wordPopover.word.spotlight ? 'active' : ''}`}
-                    title="Toggle Spotlight (⚡)"
-                    onClick={() => handleToggleWordHighlight('spotlight')}
+                    title={wordPopover.word.spotlight ? 'Remove highlight' : 'Highlight this word (⚡)'}
+                    onClick={handleToggleWordHighlight}
                   >
                     <span className="popover-zap-icon">⚡</span>
-                    <span>Spotlight</span>
+                    <span>{wordPopover.word.spotlight ? 'Highlighted' : 'Highlight'}</span>
                   </button>
                 </div>
 

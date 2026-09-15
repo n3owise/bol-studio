@@ -1425,12 +1425,12 @@ function App() {
     const p = projectRef.current; if (!p) return;
     const updated = autoDetectHighlights(p.words, settings.wordsPerLine);
     markEdit({ ...p, words: updated });
-    notify('Auto-suggested spotlights & emphasis applied.');
+    notify('Suggested highlights applied.');
   }
   function handleClearAllEmphasis() {
     const p = projectRef.current; if (!p) return;
     markEdit({ ...p, words: p.words.map(w => ({ ...w, emphasis: false, spotlight: false })) });
-    notify('All spotlights and emphasis cleared.');
+    notify('All highlights cleared.');
   }
   function commitInlineEdit() {
     if (!editingWordId) return;
@@ -1485,50 +1485,35 @@ function App() {
       behind: !!word.behind,
     });
   }
-  function setWordHighlight(style: 'emphasize' | 'spotlight' | 'clear') {
+  /**
+   * Highlight is one decision, not two.
+   *
+   * There used to be an Emphasize toggle beside this one, and the pair read as
+   * two strengths of the same thing. They were not. `spotlight` is what the
+   * renderer actually enlarges and accents; `emphasis` only nudged the score
+   * that picks a hero when nothing is spotlighted, so on any page that already
+   * had a spotlight it did nothing at all. A control that silently does nothing
+   * is worse than no control, so Emphasize is gone from the interface.
+   *
+   * `emphasis` survives on the word as what it always really was: the
+   * recogniser's acoustic suggestion. It picks the hero on pages the creator
+   * has not touched, and shows as a faint badge meaning "we would pick this".
+   * Highlighting a word is an explicit decision that replaces the suggestion.
+   */
+  function setWordHighlight(style: 'highlight' | 'clear') {
     if (!timelinePopover) return;
     const wordId = timelinePopover.word.id;
-    let nextEmphasis = false;
-    let nextSpotlight = false;
-
-    if (style === 'emphasize') {
-      const currentEmphasized = timelinePopover.emphasis && !timelinePopover.spotlight;
-      nextEmphasis = !currentEmphasized;
-      nextSpotlight = false;
-    } else if (style === 'spotlight') {
-      const currentSpotlight = timelinePopover.spotlight;
-      nextSpotlight = !currentSpotlight;
-      nextEmphasis = false;
-    } else if (style === 'clear') {
-      nextEmphasis = false;
-      nextSpotlight = false;
-    }
+    const nextSpotlight = style === 'highlight' ? !timelinePopover.spotlight : false;
+    const patch = { emphasis: false, spotlight: nextSpotlight };
 
     if (selectedWordIds.size > 1 && selectedWordIds.has(wordId)) {
-      updateWords(selectedWordIds, {
-        emphasis: nextEmphasis,
-        spotlight: nextSpotlight,
-      });
+      updateWords(selectedWordIds, patch);
     } else {
-      updateWord(wordId, {
-        emphasis: nextEmphasis,
-        spotlight: nextSpotlight,
-      });
+      updateWord(wordId, patch);
     }
 
     setTimelinePopover(p =>
-      p
-        ? {
-            ...p,
-            emphasis: nextEmphasis,
-            spotlight: nextSpotlight,
-            word: {
-              ...p.word,
-              emphasis: nextEmphasis,
-              spotlight: nextSpotlight,
-            },
-          }
-        : null
+      p ? { ...p, ...patch, word: { ...p.word, ...patch } } : null
     );
   }
   function saveTimelineWordEdit() {
@@ -3098,7 +3083,7 @@ function App() {
             <div className="tip-card">
               <div className="tip-icon"><Star size={17} /></div>
               <strong>Timeline word editor</strong>
-              <p>Click any word on the bottom timeline to open its editor, adjust duration dividers, and feature keywords with vibrant spotlighting.</p>
+              <p>Click any word on the bottom timeline to open its editor, adjust duration dividers, and highlight the keyword each line should grow around.</p>
             </div>
           </div>
         </section>
@@ -3903,9 +3888,9 @@ function App() {
 
                                   <span className="timeline-word-cell-text">{w.text}</span>
                                   {w.spotlight ? (
-                                    <span className="timeline-word-spotlight-badge" title="Spotlight Hero Keyword">⚡</span>
+                                    <span className="timeline-word-spotlight-badge" title="Highlighted">⚡</span>
                                   ) : w.emphasis ? (
-                                    <span className="timeline-word-star" title="Emphasized Keyword">★</span>
+                                    <span className="timeline-word-star" title="Suggested — click the word to highlight it">⚡</span>
                                   ) : null}
 
                                   {/* Right trim handle */}
@@ -4241,7 +4226,7 @@ function App() {
         </div>
       </Modal>
     )}
-    {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word against the audio. Review names, slang, and spellings &mdash; the recognizer does not report how sure it is, so give proper nouns a second look.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest words to highlight. These are suggestions: click any word and toggle its star.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
+    {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word against the audio. Review names, slang, and spellings &mdash; the recognizer does not report how sure it is, so give proper nouns a second look.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest a word to highlight in each line, shown with a dashed outline. They are only suggestions: click any word and toggle its highlight to decide for yourself.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
 
     {modal === 'search-replace' && (
       <Modal title="Search & Replace" onClose={() => setModal(null)}>
@@ -4368,38 +4353,9 @@ function App() {
               : `"${wordMenu.word.text}"`}
           </div>
 
-          <button
-            type="button"
-            className={`word-menu-item ${
-              selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                ? (Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.emphasis) ? 'active' : '')
-                : (wordMenu.word.emphasis ? 'active' : '')
-            }`}
-            onClick={() => {
-              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                const allEmphasized = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.emphasis);
-                const next = !allEmphasized;
-                updateWords(selectedWordIds, { emphasis: next, spotlight: false });
-              } else {
-                const next = !wordMenu.word.emphasis;
-                updateWord(wordMenu.word.id, { emphasis: next, spotlight: false });
-              }
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Zap size={18} fill={(selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id) ? Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.emphasis) : wordMenu.word.emphasis) ? 'currentColor' : 'none'} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Emphasize</span>
-              <span className="word-menu-item-desc">
-                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                  ? `Toggle star on ${selectedWordIds.size} words`
-                  : 'Make this word stand out'}
-              </span>
-            </div>
-          </button>
-
+          {/* One highlight control. Emphasize used to sit above this and did
+              nothing the renderer could see unless no word on the page was
+              highlighted — see setWordHighlight. */}
           <button
             type="button"
             className={`word-menu-item ${
@@ -4409,25 +4365,23 @@ function App() {
             }`}
             onClick={() => {
               if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                const allSpotlight = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight);
-                const next = !allSpotlight;
-                updateWords(selectedWordIds, { spotlight: next, emphasis: false });
+                const allHighlighted = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight);
+                updateWords(selectedWordIds, { spotlight: !allHighlighted, emphasis: false });
               } else {
-                const next = !wordMenu.word.spotlight;
-                updateWord(wordMenu.word.id, { spotlight: next, emphasis: false });
+                updateWord(wordMenu.word.id, { spotlight: !wordMenu.word.spotlight, emphasis: false });
               }
               setWordMenu(null);
             }}
           >
             <div className="word-menu-item-icon">
-              <Scan size={18} />
+              <Zap size={18} fill={(selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id) ? Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight) : wordMenu.word.spotlight) ? 'currentColor' : 'none'} />
             </div>
             <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Spotlight</span>
+              <span className="word-menu-item-title">Highlight</span>
               <span className="word-menu-item-desc">
                 {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                  ? `Feature ${selectedWordIds.size} words in spotlight`
-                  : 'Feature for maximum impact'}
+                  ? `Highlight ${selectedWordIds.size} words`
+                  : 'Grow this word and give it the accent colour'}
               </span>
             </div>
           </button>
@@ -4629,32 +4583,21 @@ function App() {
             <div className="popover-style-group" role="group" aria-label="Highlight style">
               <button
                 type="button"
-                className={`popover-icon-btn btn-emphasize ${timelinePopover.emphasis && !timelinePopover.spotlight ? 'active' : ''}`}
-                title="Emphasize"
-                aria-label="Emphasize"
-                aria-pressed={timelinePopover.emphasis && !timelinePopover.spotlight}
-                onClick={() => setWordHighlight('emphasize')}
-              >
-                <Star size={14} fill={timelinePopover.emphasis && !timelinePopover.spotlight ? 'currentColor' : 'none'} />
-              </button>
-
-              <button
-                type="button"
                 className={`popover-icon-btn btn-spotlight ${timelinePopover.spotlight ? 'active' : ''}`}
-                title="Spotlight"
-                aria-label="Spotlight"
+                title={timelinePopover.spotlight ? 'Remove highlight' : 'Highlight this word'}
+                aria-label="Highlight this word"
                 aria-pressed={timelinePopover.spotlight}
-                onClick={() => setWordHighlight('spotlight')}
+                onClick={() => setWordHighlight('highlight')}
               >
                 <Sparkles size={14} />
               </button>
 
               <button
                 type="button"
-                className={`popover-icon-btn btn-clear ${!timelinePopover.emphasis && !timelinePopover.spotlight ? 'active' : ''}`}
-                title="Clear"
-                aria-label="Clear highlight"
-                aria-pressed={!timelinePopover.emphasis && !timelinePopover.spotlight}
+                className={`popover-icon-btn btn-clear ${!timelinePopover.spotlight ? 'active' : ''}`}
+                title="No highlight"
+                aria-label="No highlight"
+                aria-pressed={!timelinePopover.spotlight}
                 onClick={() => setWordHighlight('clear')}
               >
                 <Ban size={14} />
