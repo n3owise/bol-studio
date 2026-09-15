@@ -15,3 +15,7 @@ data/test-fixtures/*
 
 # Local render/verification output
 out/
+
+# Bench output from scripts/compare-models.py — a local artefact, regenerated
+# on demand and specific to whichever clips were fed in.
+model-comparison.html
