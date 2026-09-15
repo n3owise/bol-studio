@@ -175,7 +175,8 @@ def transcription_job(project_id: str) -> None:
                             glossary=project.get("glossary") or [],
                             isolateVocals=bool(project.get("isolateVocals")),
                             source_path=project_dir(project_id) / "source.bin",
-                            emoji=bool(project.get("emoji")))
+                            emoji=bool(project.get("emoji")),
+                            translate=bool(project.get("translate")))
         # The current project is reread under the lock: concurrent name/style edits survive.
         update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
                       message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
@@ -428,6 +429,7 @@ class ProjectPatch(ValidatedModel):
     glossary: list[str] | None = Field(default=None, max_length=200)
     isolateVocals: StrictBool | None = None
     emoji: StrictBool | None = None
+    translate: StrictBool | None = None
     name: str | None = Field(default=None, min_length=1, max_length=120)
     videoEnabled: StrictBool | None = None
     revision: StrictInt | None = Field(default=None, ge=0)
@@ -447,6 +449,10 @@ class TranscribeRequest(ValidatedModel):
     # Match an emoji to words. English only — the encoder is English-trained and
     # would score Hinglish confidently and wrongly. Ignored for other languages.
     emoji: StrictBool | None = None
+    # Ask the recogniser for English out of non-English audio. This is Whisper's
+    # own translate task, decoded from the audio, so it replaces the transcript
+    # rather than annotating it.
+    translate: StrictBool | None = None
 
 
 class ExportRequest(ValidatedModel):

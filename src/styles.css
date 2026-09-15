@@ -10045,3 +10045,35 @@ kbd {
 .modal-toggle span { display: flex; flex-direction: column; gap: 3px; }
 .modal-toggle strong { font-size: 13px; font-weight: 600; }
 .modal-toggle em { font-size: 11.5px; line-height: 1.45; font-style: normal; opacity: 0.65; }
+
+/* The worked sample under the translate toggle. "Translate" understates what
+   changes, so the two lines are shown one above the other rather than
+   described. */
+.translate-sample {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  background: rgba(127, 127, 127, 0.1);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.translate-sample-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.translate-sample-row.is-output { font-weight: 600; }
+
+.translate-sample-tag {
+  flex: 0 0 52px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}

@@ -233,6 +233,15 @@ function App() {
    * against the wrong description rather than scoring low and being skipped.
    */
   const [wantEmoji, setWantEmoji] = useState(false);
+  /**
+   * Ask the recogniser for English instead of the spoken words.
+   *
+   * Not offered for English audio, where it does nothing, and shown with a
+   * worked sample because "translate" understates what changes: the captions
+   * stop being what was said and become an English rendering of it, so the
+   * Hinglish spelling on screen disappears entirely.
+   */
+  const [wantTranslate, setWantTranslate] = useState(false);
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
   const [resolution, setResolution] = useState<720 | 1080 | 2160>(720);
   const [exportFps, setExportFps] = useState<24 | 25 | 30 | 50 | 60>(30);
@@ -2541,7 +2550,7 @@ function App() {
    * starts a run would send the previous values and transcribe in the wrong
    * language without ever saying so.
    */
-  async function startTranscription(overrides?: { script?: string; language?: string; emoji?: boolean }) {
+  async function startTranscription(overrides?: { script?: string; language?: string; emoji?: boolean; translate?: boolean }) {
     const currentProject = projectRef.current;
     if(!currentProject) return;
     const body = {
@@ -2550,6 +2559,7 @@ function App() {
       glossary: currentProject.glossary ?? [],
       isolateVocals: !!currentProject.isolateVocals,
       emoji: overrides?.emoji ?? !!currentProject.emoji,
+      translate: overrides?.translate ?? !!currentProject.translate,
     };
     try {
       await flushSave();
@@ -4365,6 +4375,25 @@ function App() {
           </button>
         ))}
       </div>
+      {language !== 'en' && (
+        <label className="modal-toggle">
+          <input type="checkbox" checked={wantTranslate} onChange={e=>setWantTranslate(e.target.checked)} />
+          <span>
+            <strong>Translate the captions to English</strong>
+            <em>The recogniser writes English instead of what was said. Timing is unchanged; the Hinglish spelling goes away.</em>
+            <span className="translate-sample">
+              <span className="translate-sample-row">
+                <span className="translate-sample-tag">Spoken</span>
+                <span>aap kaise ho, aaj hum editing seekhenge</span>
+              </span>
+              <span className="translate-sample-row is-output">
+                <span className="translate-sample-tag">Caption</span>
+                <span>How are you? Today we will learn editing.</span>
+              </span>
+            </span>
+          </span>
+        </label>
+      )}
       {language === 'en' && (
         <label className="modal-toggle">
           <input type="checkbox" checked={wantEmoji} onChange={e=>setWantEmoji(e.target.checked)} />
@@ -4384,7 +4413,11 @@ function App() {
           disabled={busy}
           onClick={() => {
             setLanguagePrompt(null);
-            void startTranscription({ script, language, emoji: language === 'en' && wantEmoji });
+            void startTranscription({
+              script, language,
+              emoji: language === 'en' && wantEmoji,
+              translate: language !== 'en' && wantTranslate,
+            });
           }}
         >
           <WandSparkles size={15}/> Generate captions

@@ -158,6 +158,8 @@ export type Project = {
   isolateVocals?: boolean;
   /** Whether the last run matched emoji to words; reused on a re-run. */
   emoji?: boolean;
+  /** Whether the last run asked Whisper for English instead of the spoken words. */
+  translate?: boolean;
   textElements?: CanvasTextElement[];
   activeMediaAssetId?: string;
 };

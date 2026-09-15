@@ -12,6 +12,7 @@ from scipy.io import wavfile
 
 from server import app as backend
 from server import emoji as emoji_module
+from server import transcription as transcription_module
 from server.transcription import (_sherpa_tokens_to_words, merge_code_mixed_english, model_config,
                                   normalize_words, refine_word_boundaries_with_vad, romanize_hinglish, suggest_emphasis, transcribe)
 
@@ -691,3 +692,39 @@ def test_emoji_matches_meaning_and_leaves_ordinary_words_alone():
     money = [{"text": "money"}, {"text": "cash"}]
     emoji_module.suggest_emoji(money)
     assert [w.get("emoji") for w in money] == ["💰", "💰"]
+
+
+def test_translation_moves_off_the_hinglish_specialist_and_forces_english_output():
+    """Translating has to change the model, not just set a flag.
+
+    sherpa-hinglish is a Roman-Hinglish model with no translate task. Asking it
+    to translate returns an ordinary Hinglish transcript labelled English — a
+    result that looks entirely successful and is wrong, which is worse than the
+    feature being unavailable.
+    """
+    plan = transcription_module.decode_plan
+
+    # Ordinary Hinglish: the specialist keeps the job.
+    assert plan("sherpa-hinglish", "hinglish", "roman", False) == ("sherpa-hinglish", "hinglish", "roman")
+
+    # Translating: off the specialist, and the romanisation pass is switched
+    # off with it — the words are already English.
+    backend, model, script = plan("sherpa-hinglish", "hinglish", "roman", True)
+    assert backend != "sherpa-hinglish"
+    assert model != "hinglish"
+    assert script == "native"
+
+    # Native Devanagari already had this fallback; translating must not undo it.
+    assert plan("sherpa-hinglish", "hinglish", "native", False)[0] != "sherpa-hinglish"
+
+    # A multilingual backend is left alone apart from the script decision.
+    assert plan("faster-whisper", "large-v3", "roman", True) == ("faster-whisper", "large-v3", "native")
+    assert plan("faster-whisper", "large-v3", "roman", False) == ("faster-whisper", "large-v3", "roman")
+
+
+@pytest.mark.parametrize("translate", [True, False])
+def test_transcribe_accepts_the_translate_flag(client, project, translate):
+    response = client.post(f"/api/projects/{project['id']}/transcribe",
+                           json={"language": "hi", "script": "native", "translate": translate})
+    assert response.status_code == 200, response.text
+    assert response.json()["translate"] is translate

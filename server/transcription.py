@@ -682,17 +682,36 @@ def _english_companion_decode(audio_path: Path, backend: str, model: str, progre
     return [{"words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]} for segment in stream]
 
 
+def decode_plan(backend: str, model: str, script: str, translate: bool) -> tuple[str, str, str]:
+    """Settle which model runs and what it is asked to produce.
+
+    Pulled out of `transcribe` because it is the part that can be wrong without
+    failing: every combination below still returns words, and two of them would
+    return the wrong ones while looking entirely successful.
+
+    The specialist is intentionally a Roman-Hinglish model. Native Devanagari
+    falls back to the multilingual model rather than pretending Roman output can
+    be turned into native Hindi. Translation falls back for a sharper reason:
+    the specialist has no translate task at all, so asking it for one returns an
+    ordinary Hinglish transcript labelled English — silently wrong, which is
+    worse than unavailable.
+
+    Translating also forces native script, because the romanisation pass exists
+    to spell Hindi in Latin letters and has nothing to do once the words are
+    already English.
+    """
+    if translate:
+        script = "native"
+    if backend == "sherpa-hinglish" and (script != "roman" or translate):
+        backend, model = "mlx", DEFAULT_MLX_MODEL
+    return backend, model, script
+
+
 def transcribe(audio_path: Path, duration: float, script: str, language: str,
                progress: Callable[[int, str], None], glossary: list[str] | None = None,
                isolateVocals: bool = False, source_path: Path | None = None,
-               emoji: bool = False) -> dict:
-    backend, model = model_config()
-    # The specialist is intentionally a Roman-Hinglish model. Keep the native
-    # Devanagari option available by falling back to the multilingual model for
-    # that one output mode instead of silently pretending it can produce native
-    # Hindi from Roman output.
-    if backend == "sherpa-hinglish" and script != "roman":
-        backend, model = "mlx", DEFAULT_MLX_MODEL
+               emoji: bool = False, translate: bool = False) -> dict:
+    backend, model, script = decode_plan(*model_config(), script, translate)
     audio, rate = read_audio(audio_path)
     waveform = waveform_samples(audio)
     if not len(audio) or float(np.sqrt(np.mean(audio*audio))) < .0003:
@@ -707,9 +726,17 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
         if separated is not None:
             audio = separated
     progress(28, "Loading the local speech model. First use downloads the model weights.")
-    options = {"language": None if language == "auto" else language, "task": "transcribe",
+    # Whisper translates to English natively, from the audio, as a different
+    # decoding task — not as a second pass over the transcript. So it costs no
+    # extra model and no network, and the words it emits carry their own
+    # timestamps. The trade is that it cannot see the transcript: corrections
+    # already made by hand, and glossary spellings, do not reach it.
+    options = {"language": None if language == "auto" else language,
+               "task": "translate" if translate else "transcribe",
                "word_timestamps": True, "temperature": 0, "condition_on_previous_text": False,
-               "initial_prompt": "Transcribe exactly as spoken. This is code-mixed Hindi-English. Keep English words in Latin letters and Hindi words in Devanagari. Example: Come on, lets start aaj ki video.", "no_speech_threshold": .6}
+               "initial_prompt": None if translate
+                   else "Transcribe exactly as spoken. This is code-mixed Hindi-English. Keep English words in Latin letters and Hindi words in Devanagari. Example: Come on, lets start aaj ki video.",
+               "no_speech_threshold": .6}
     if backend == "sherpa-hinglish":
         segments, detected_language = _sherpa_decode(audio, rate, duration, model, progress)
     elif backend == "mlx":
