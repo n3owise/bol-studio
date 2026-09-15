@@ -932,8 +932,20 @@ test('every font role can render Devanagari', () => {
   }
 });
 
+/**
+ * The editor's own source, as one string.
+ *
+ * These checks are about whether a control exists anywhere the creator can
+ * reach, not about which file holds it — so they read the whole editor rather
+ * than main.tsx alone. Pinning them to one file made them fail the moment the
+ * Style panel was lifted out, reporting a missing control that had simply moved.
+ */
+const editorSource = () => ['../src/main.tsx', '../src/components/StylePanel.tsx']
+  .map(file => readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
+
 test('every colour role the renderer reads has a control in the editor', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = editorSource();
   for (const [field, label] of [['textColor', 'TEXT COLOR'], ['accent', 'ACCENT'], ['accentSecondary', 'THIRD LINE']]) {
     assert.ok(new RegExp(`updateSettings\\(\\{[^}]*${field}`).test(editor),
       `${label} is settable from the app — ${field} was readable by the renderer and the API `
@@ -942,7 +954,7 @@ test('every colour role the renderer reads has a control in the editor', () => {
 });
 
 test('the third-line control is limited to layouts that have a third line', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = editorSource();
   assert.ok(/isStackedTemplate && \(/.test(editor), 'the third-line picker is gated on a stacked layout');
   assert.ok(/layout === 'stack'/.test(editor), 'and that gate reads the treatment, not a hardcoded id list');
 });
