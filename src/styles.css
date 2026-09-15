@@ -9968,112 +9968,112 @@ kbd {
 
 /* Post-upload language prompt ------------------------------------------- */
 .modal-lede {
-  margin: 0 0 18px;
+  margin: -2px 0 18px;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.5;
   color: var(--color-text-secondary, #6b7280);
 }
 
 .language-choice-grid {
   display: grid;
-  /* Three cards side by side where there is room, stacking on a narrow window
-     rather than squeezing the Devanagari sample until it is unreadable. */
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
+  /* Three abreast, because they are three answers to one question and a
+     two-plus-one grid reads as though the last one is different. Below roughly
+     a phone width they stack instead of squeezing the Devanagari sample until
+     it is unreadable. */
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}
+
+@media (max-width: 520px) {
+  .language-choice-grid { grid-template-columns: 1fr; }
 }
 
 .language-choice {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 14px 14px 15px;
+  gap: 6px;
+  padding: 13px 13px 14px;
   text-align: left;
-  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.28));
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.26));
   border-radius: 12px;
   background: var(--bg-surface, transparent);
   color: inherit;
   cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 
-.language-choice:hover {
-  border-color: rgba(34, 197, 94, 0.55);
+.language-choice:hover { border-color: rgba(34, 197, 94, 0.5); }
+.language-choice:active { transform: translateY(1px); }
+
+.language-choice:focus-visible {
+  outline: 2px solid #22c55e;
+  outline-offset: 2px;
 }
 
 .language-choice.selected {
   border-color: #22c55e;
-  background: rgba(34, 197, 94, 0.09);
-  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+  box-shadow: inset 0 0 0 1px #22c55e;
+}
+
+.language-choice-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .language-choice-label {
   font-size: 14px;
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
+/* The tick holds its space whether or not it is showing, so selecting a card
+   does not shift the label under the pointer. */
+.language-choice-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.language-choice.selected .language-choice-tick { opacity: 1; transform: scale(1); }
+
+/* The sample is the part people actually read to decide, so it is set apart
+   from the prose rather than quoted inside it. */
 .language-choice-sample {
   font-size: 13px;
-  opacity: 0.85;
+  line-height: 1.35;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.11);
 }
 
 .language-choice-note {
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.62;
+}
+
+.modal-footnote {
+  margin: 14px 0 0;
   font-size: 11.5px;
   line-height: 1.45;
-  opacity: 0.65;
+  opacity: 0.55;
 }
 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 20px;
-}
-
-.modal-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-top: 16px;
-  padding: 11px 12px;
-  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.28));
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.modal-toggle input { margin-top: 2px; flex-shrink: 0; }
-
-.modal-toggle span { display: flex; flex-direction: column; gap: 3px; }
-.modal-toggle strong { font-size: 13px; font-weight: 600; }
-.modal-toggle em { font-size: 11.5px; line-height: 1.45; font-style: normal; opacity: 0.65; }
-
-/* The worked sample under the translate toggle. "Translate" understates what
-   changes, so the two lines are shown one above the other rather than
-   described. */
-.translate-sample {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 8px;
-  padding: 8px 9px;
-  border-radius: 7px;
-  background: rgba(127, 127, 127, 0.1);
-  font-size: 11.5px;
-  line-height: 1.4;
-}
-
-.translate-sample-row {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-}
-
-.translate-sample-row.is-output { font-weight: 600; }
-
-.translate-sample-tag {
-  flex: 0 0 52px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  opacity: 0.55;
+  margin-top: 18px;
 }

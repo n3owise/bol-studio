@@ -98,6 +98,8 @@ interface CaptionsPanelProps {
       wordsPerLine: number;
       glossary?: string[];
       isolateVocals?: boolean;
+      emoji?: boolean;
+      translate?: boolean;
       maxLines: number;
     }
   ) => Promise<void>;
@@ -201,6 +203,11 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   // the project so they survive a re-run.
   const [brandWords, setBrandWords] = useState((project?.glossary ?? []).join(', '));
   const [isolateVocals, setIsolateVocals] = useState(!!project?.isolateVocals);
+  // Both of these are language-dependent, so each one only appears when the
+  // chosen language makes it mean anything: translating English to English does
+  // nothing, and the emoji encoder is English-trained.
+  const [wantEmoji, setWantEmoji] = useState(!!project?.emoji);
+  const [wantTranslate, setWantTranslate] = useState(!!project?.translate);
   const [captionScript, setCaptionScript] = useState<'roman' | 'native' | 'en' | 'same'>('roman');
   const [autoPunctuation, setAutoPunctuation] = useState(true);
   const [filterFiller, setFilterFiller] = useState(false);
@@ -911,6 +918,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
         maxLines,
         glossary: brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200),
         isolateVocals,
+        emoji: spokenLang === 'en' && wantEmoji,
+        translate: spokenLang !== 'en' && wantTranslate,
       });
       setPanelViewOverride(null);
     } catch (e) {
@@ -1262,6 +1271,41 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                       onChange={e => setIsolateVocals(e.target.checked)}
                     />
                   </label>
+
+                  {spokenLang !== 'en' && (
+                    <label className="toggle-row compact">
+                      <span className="toggle-title">
+                        Translate to English
+                        <span className="toggle-note">
+                          Captions become an English rendering of the audio rather than what was
+                          said, so the Hinglish spelling goes away. Timing is unchanged.
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="bol-switch"
+                        checked={wantTranslate}
+                        onChange={e => setWantTranslate(e.target.checked)}
+                      />
+                    </label>
+                  )}
+
+                  {spokenLang === 'en' && (
+                    <label className="toggle-row compact">
+                      <span className="toggle-title">
+                        Add emoji to matching words
+                        <span className="toggle-note">
+                          One a line at most, never on the big word. English only.
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="bol-switch"
+                        checked={wantEmoji}
+                        onChange={e => setWantEmoji(e.target.checked)}
+                      />
+                    </label>
+                  )}
 
                   <label className="toggle-row compact">
                     <span className="toggle-title">Automatic caption splitting</span>

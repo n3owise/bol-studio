@@ -227,21 +227,6 @@ function App() {
    * setting to nudge afterwards — it means transcribing again from scratch.
    */
   const [languagePrompt, setLanguagePrompt] = useState<'open' | null>(null);
-  /**
-   * Match emoji to words. Offered for English only: the encoder behind it is
-   * English-trained, and Hinglish written in Latin letters scores confidently
-   * against the wrong description rather than scoring low and being skipped.
-   */
-  const [wantEmoji, setWantEmoji] = useState(false);
-  /**
-   * Ask the recogniser for English instead of the spoken words.
-   *
-   * Not offered for English audio, where it does nothing, and shown with a
-   * worked sample because "translate" understates what changes: the captions
-   * stop being what was said and become an English rendering of it, so the
-   * Hinglish spelling on screen disappears entirely.
-   */
-  const [wantTranslate, setWantTranslate] = useState(false);
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
   const [resolution, setResolution] = useState<720 | 1080 | 2160>(720);
   const [exportFps, setExportFps] = useState<24 | 25 | 30 | 50 | 60>(30);
@@ -2769,7 +2754,12 @@ function App() {
                 markEdit(next, false);
                 projectRef.current = next;
               }
-              await retryTranscription();
+              // Passed rather than read back off the project: the choices were
+              // made in the panel and have not been saved yet.
+              await startTranscription({
+                script: scriptParam, language: languageParam,
+                emoji: !!opts.emoji, translate: !!opts.translate,
+              });
             }}
             onCancelTranscription={() => {
               if (projectRef.current) {
@@ -4354,55 +4344,41 @@ function App() {
       "Hinglish" means Hindi and English mixed, written in Latin letters, and
       picking that from two dropdowns requires knowing that Roman and Devanagari
       are the options at all.
+
+      Nothing else belongs here. Emoji and translation are real choices, but
+      they are not this question, and putting them below the cards turned a
+      three-second decision into a form. They live with the rest of the
+      generation options in the Captions panel.
     */}
     {languagePrompt && project && <Modal title="What's spoken in this clip?" onClose={()=>setLanguagePrompt(null)}>
-      <p className="modal-lede">This decides how the recogniser listens and how the words are spelled. Getting it wrong means transcribing again, so it is worth a moment now.</p>
-      <div className="language-choice-grid">
+      <p className="modal-lede">This sets how the recogniser listens and how words are spelled.</p>
+      <div className="language-choice-grid" role="radiogroup" aria-label="Spoken language">
         {([
-          { id: 'hinglish', label: 'Hinglish', sample: 'aap kaise ho', note: 'Hindi and English mixed, written in Latin letters. Most reels.', script: 'roman', language: 'auto' },
-          { id: 'hindi', label: 'Hindi', sample: 'आप कैसे हो', note: 'Hindi only, written in Devanagari.', script: 'native', language: 'hi' },
-          { id: 'english', label: 'English', sample: 'how are you', note: 'English only. Skips the Hinglish spelling pass.', script: 'native', language: 'en' },
-        ] as const).map(choice => (
-          <button
-            key={choice.id}
-            type="button"
-            className={`language-choice ${script === choice.script && language === choice.language ? 'selected' : ''}`}
-            onClick={() => { setScript(choice.script); setLanguage(choice.language); }}
-          >
-            <span className="language-choice-label">{choice.label}</span>
-            <span className="language-choice-sample">&ldquo;{choice.sample}&rdquo;</span>
-            <span className="language-choice-note">{choice.note}</span>
-          </button>
-        ))}
+          { id: 'hinglish', label: 'Hinglish', sample: 'aap kaise ho', note: 'Hindi and English mixed, in Latin letters', script: 'roman', language: 'auto' },
+          { id: 'hindi', label: 'Hindi', sample: 'आप कैसे हो', note: 'Hindi only, in Devanagari', script: 'native', language: 'hi' },
+          { id: 'english', label: 'English', sample: 'how are you', note: 'English only', script: 'native', language: 'en' },
+        ] as const).map(choice => {
+          const selected = script === choice.script && language === choice.language;
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              className={`language-choice ${selected ? 'selected' : ''}`}
+              onClick={() => { setScript(choice.script); setLanguage(choice.language); }}
+            >
+              <span className="language-choice-top">
+                <span className="language-choice-label">{choice.label}</span>
+                <span className="language-choice-tick" aria-hidden="true"><Check size={13}/></span>
+              </span>
+              <span className="language-choice-sample">{choice.sample}</span>
+              <span className="language-choice-note">{choice.note}</span>
+            </button>
+          );
+        })}
       </div>
-      {language !== 'en' && (
-        <label className="modal-toggle">
-          <input type="checkbox" checked={wantTranslate} onChange={e=>setWantTranslate(e.target.checked)} />
-          <span>
-            <strong>Translate the captions to English</strong>
-            <em>The recogniser writes English instead of what was said. Timing is unchanged; the Hinglish spelling goes away.</em>
-            <span className="translate-sample">
-              <span className="translate-sample-row">
-                <span className="translate-sample-tag">Spoken</span>
-                <span>aap kaise ho, aaj hum editing seekhenge</span>
-              </span>
-              <span className="translate-sample-row is-output">
-                <span className="translate-sample-tag">Caption</span>
-                <span>How are you? Today we will learn editing.</span>
-              </span>
-            </span>
-          </span>
-        </label>
-      )}
-      {language === 'en' && (
-        <label className="modal-toggle">
-          <input type="checkbox" checked={wantEmoji} onChange={e=>setWantEmoji(e.target.checked)} />
-          <span>
-            <strong>Add emoji to matching words</strong>
-            <em>One per line at most, and never on the big word &mdash; it is already carrying the line. English only.</em>
-          </span>
-        </label>
-      )}
+      <p className="modal-footnote">Emoji, translation and background-noise cleanup live in the Captions panel.</p>
       <div className="modal-actions">
         <button type="button" className="button secondary" onClick={()=>setLanguagePrompt(null)}>
           Not now
@@ -4413,11 +4389,7 @@ function App() {
           disabled={busy}
           onClick={() => {
             setLanguagePrompt(null);
-            void startTranscription({
-              script, language,
-              emoji: language === 'en' && wantEmoji,
-              translate: language !== 'en' && wantTranslate,
-            });
+            void startTranscription({ script, language });
           }}
         >
           <WandSparkles size={15}/> Generate captions
