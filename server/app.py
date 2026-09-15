@@ -268,10 +268,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bol local media API", lifespan=lifespan)
 
-# Origins default to the local dev server rather than "*". The deployed Space
-# was reflecting any Origin back, so any page a visitor had open could call this
-# API from their browser. Set BOL_ALLOWED_ORIGINS to your frontend's origin in
-# production; "*" is still available but has to be asked for.
+# Origins default to the local dev server rather than "*". Set
+# BOL_ALLOWED_ORIGINS to your frontend's origin in production; "*" is still
+# available but has to be asked for.
+#
+# Known limitation, measured rather than assumed: this cannot be enforced on a
+# Hugging Face Space. Their proxy appends
+# `access-control-allow-origin: <the request's Origin>` to every response after
+# the application has answered — a 401 this module produced and stripped the
+# header from still arrives carrying it, and unrelated huggingface.co endpoints
+# reflect the same way. Nothing in here can remove a header added downstream of
+# it.
+#
+# So on a Space the allowlist is not a protection, and the API key is the only
+# barrier in front of the API. This code is still correct for any deployment
+# that is not behind that proxy, which is why it stays.
 DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173"
 ALLOWED_ORIGINS = [
     v.strip()
