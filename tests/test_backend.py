@@ -612,3 +612,27 @@ def test_words_per_line_is_clamped_to_the_shared_ceiling_not_rejected(client, pr
 
     # Anything the slider can actually produce is stored untouched.
     assert client.patch(url, json={"settings": {"wordsPerLine": 4}}).json()["settings"]["wordsPerLine"] == 4
+
+
+def test_explicit_line_breaks_survive_a_save(client, project):
+    """The editor's line decisions ride on the word, so they have to round-trip.
+
+    They used to be expressed by appending a full stop to the word's text, which
+    needed no schema support but also put punctuation into the caption that
+    nobody spoke. Word is extra="forbid", so an undeclared lineBreak would 422
+    every save made after splitting a line by hand.
+    """
+    url = f"/api/projects/{project['id']}"
+    base = client.get(url).json()["words"][0]
+    words = [copy.deepcopy(base) | {"id": f"w{i}", "start": 0.1 + i * 0.3, "end": 0.3 + i * 0.3}
+             for i in range(3)]
+    words[0]["lineBreak"] = True
+    words[1]["lineBreak"] = False
+
+    response = client.patch(url, json={"words": words})
+    assert response.status_code == 200, response.text
+    saved = response.json()["words"]
+    assert saved[0]["lineBreak"] is True
+    assert saved[1]["lineBreak"] is False
+    # Untouched words stay undecided rather than defaulting to a break.
+    assert all(w.get("lineBreak") is None for w in saved[2:])

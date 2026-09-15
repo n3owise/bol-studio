@@ -1,5 +1,16 @@
 import captionDefaults from './caption-defaults.json';
-export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean; fromGlossary?: boolean };
+export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean; fromGlossary?: boolean;
+  /**
+   * The creator's own line decision, overriding the clause breaker.
+   *
+   * `true` always ends a page after this word, `false` never does, and
+   * undefined leaves it to `breakSegment`. The editor used to express this by
+   * appending a full stop to the word and squeezing the following timings;
+   * that put punctuation the speaker never said into the caption, corrupted
+   * the timings it touched, and could not be told apart from a full stop the
+   * recogniser produced on its own.
+   */
+  lineBreak?: boolean };
 export type Settings = {
   template: string;
   accent: string;

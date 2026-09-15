@@ -186,32 +186,32 @@ export function appendWord(
   return { words: newWords, newWordId: newId };
 }
 
+/**
+ * Line edits set an explicit decision on the word, nothing else.
+ *
+ * These used to work by writing a full stop onto the word's text and, for a
+ * merge, dragging every following word's timing backwards to close the pause.
+ * That put punctuation into the caption that the speaker never said, moved
+ * timings that were measured from the audio, and left the creator's intent
+ * indistinguishable from a full stop the recogniser happened to emit — which
+ * is why the clause breaker could not tell the two apart. `lineBreak` says it
+ * directly: true ends the page here, false keeps the pair together.
+ */
 export function splitLineAtWord(words: Word[], wordId: string): Word[] {
   const i = words.findIndex(w => w.id === wordId);
-  if (i === -1) return words;
-  return words.map((w, idx) => {
-    if (idx !== i) return w;
-    const clean = w.text.trim();
-    if (/[.!?।]$/.test(clean)) return w;
-    return { ...w, text: `${clean}.` };
-  });
+  if (i === -1 || i === words.length - 1) return words;
+  return words.map((w, idx) => (idx === i ? { ...w, lineBreak: true } : w));
 }
 
 export function mergeLines(words: Word[], firstGroupLastWordId: string): Word[] {
   const i = words.findIndex(w => w.id === firstGroupLastWordId);
   if (i === -1 || i === words.length - 1) return words;
-  const newWords = words.map(w => ({ ...w }));
-  newWords[i].text = newWords[i].text.replace(/[.!?।]+$/, '');
-  const gap = newWords[i + 1].start - newWords[i].end;
-  if (gap > 0.22) {
-    const shift = gap - 0.12;
-    for (let j = i + 1; j < newWords.length; j++) {
-      newWords[j].start = Number(Math.max(newWords[j - 1].end + 0.005, newWords[j].start - shift).toFixed(3));
-      newWords[j].end = Number(Math.max(newWords[j].start + 0.05, newWords[j].end - shift).toFixed(3));
-      if (j < newWords.length - 1 && newWords[j + 1].start - newWords[j].end > 0.4) break;
-    }
-  }
-  return newWords;
+  return words.map((w, idx) => (idx === i
+    // The trailing full stop is stripped as well: an older project expresses
+    // this same merge with punctuation, and leaving it would both re-break the
+    // line and keep showing a stop the creator just removed.
+    ? { ...w, text: w.text.replace(/[.!?।]+$/, ''), lineBreak: false }
+    : w));
 }
 
 export function moveWordToPreviousLine(words: Word[], wordId: string, maxWordsPerLine = 4): Word[] {
@@ -223,50 +223,31 @@ export function moveWordToPreviousLine(words: Word[], wordId: string, maxWordsPe
   if (groupIdx <= 0) return words;
 
   const prevGroup = groups[groupIdx - 1];
-  const lastWordOfPrevGroup = prevGroup[prevGroup.length - 1];
-  const prevEndIdx = words.findIndex(w => w.id === lastWordOfPrevGroup.id);
+  const prevEndIdx = words.findIndex(w => w.id === prevGroup[prevGroup.length - 1].id);
   if (prevEndIdx === -1) return words;
 
-  const newWords = words.map(w => ({ ...w }));
-
-  // Remove line break punctuation between previous group end and current target word
-  for (let i = prevEndIdx; i < targetIdx; i++) {
-    newWords[i].text = newWords[i].text.replace(/[.!?।]+$/, '');
-    const gap = newWords[i + 1].start - newWords[i].end;
-    if (gap > 0.22) {
-      const shift = gap - 0.12;
-      newWords[i + 1].start = Number(Math.max(newWords[i].end + 0.005, newWords[i + 1].start - shift).toFixed(3));
-      newWords[i + 1].end = Number(Math.max(newWords[i + 1].start + 0.05, newWords[i + 1].end - shift).toFixed(3));
+  return words.map((w, idx) => {
+    // Join everything from the end of the previous line up to the target...
+    if (idx >= prevEndIdx && idx < targetIdx) {
+      return { ...w, text: w.text.replace(/[.!?।]+$/, ''), lineBreak: false };
     }
-  }
-
-  // Put a sentence ending on targetIdx so words after it break to the next line
-  if (targetIdx < newWords.length - 1) {
-    const clean = newWords[targetIdx].text.trim();
-    if (!/[.!?।]$/.test(clean)) {
-      newWords[targetIdx].text = `${clean}.`;
+    // ...and end the line on the target, so what followed it stays behind.
+    if (idx === targetIdx && targetIdx < words.length - 1) {
+      return { ...w, lineBreak: true };
     }
-  }
-
-  return newWords;
+    return w;
+  });
 }
 
 export function moveWordToNextLine(words: Word[], wordId: string): Word[] {
   const targetIdx = words.findIndex(w => w.id === wordId);
   if (targetIdx <= 0) return words;
 
-  const newWords = words.map(w => ({ ...w }));
-
-  // The word before targetIdx should now end the line with punctuation
-  const prevClean = newWords[targetIdx - 1].text.trim();
-  if (!/[.!?।]$/.test(prevClean)) {
-    newWords[targetIdx - 1].text = `${prevClean}.`;
-  }
-
-  // Remove any line break punctuation on the target word itself so it flows into the next line
-  newWords[targetIdx].text = newWords[targetIdx].text.replace(/[.!?।]+$/, '');
-
-  return newWords;
+  return words.map((w, idx) => {
+    if (idx === targetIdx - 1) return { ...w, lineBreak: true };
+    if (idx === targetIdx) return { ...w, text: w.text.replace(/[.!?।]+$/, ''), lineBreak: false };
+    return w;
+  });
 }
 
 function moveSingleWordToLine(
@@ -320,10 +301,8 @@ function moveSingleWordToLine(
     const priorWordId = sourceGroupWords[sourceGroupWords.length - 2].id;
     const priorWordIdx = newWords.findIndex(w => w.id === priorWordId);
     if (priorWordIdx !== -1) {
-      const clean = newWords[priorWordIdx].text.trim();
-      if (!/[.!?।]$/.test(clean)) {
-        newWords[priorWordIdx].text = `${clean}.`;
-      }
+      // The word that now ends the source line keeps that line closed.
+      newWords[priorWordIdx] = { ...newWords[priorWordIdx], lineBreak: true };
     }
   }
 
@@ -428,24 +407,22 @@ function moveSingleWordToLine(
   // Ensure all intervals in newWords strictly satisfy start < end and non-overlapping
   ensureValidIntervals(newWords, 9999);
 
-  // Ensure that within the target group, only the final word ends with sentence punctuation,
-  // preventing groupWords from splitting the line prematurely.
+  // Hold the target line together: every word inside it is explicitly joined,
+  // so neither a stray full stop nor the clause breaker can part the line the
+  // creator just built by hand. A trailing stop on an interior word is dropped
+  // as well, since it is now mid-line punctuation nobody spoke.
   const targetGroupWordIds = new Set(targetGroup.map(w => w.id).concat(movingWord.id));
   const wordsInTarget = newWords.filter(w => targetGroupWordIds.has(w.id));
   for (let idx = 0; idx < wordsInTarget.length - 1; idx++) {
     wordsInTarget[idx].text = wordsInTarget[idx].text.replace(/[.!?।]+$/, '');
+    wordsInTarget[idx].lineBreak = false;
   }
 
   const isAtEndOfTargetLine = !nextWord || !targetGroup.some(w => w.id === nextWord.id);
   if (isAtEndOfTargetLine) {
-    if (nextWord) {
-      const clean = movingWord.text.trim();
-      if (!/[.!?।]$/.test(clean)) {
-        movingWord.text = `${clean}.`;
-      }
-    }
+    if (nextWord) movingWord.lineBreak = true;
   } else {
-    movingWord.text = movingWord.text.replace(/[.!?।]+$/, '');
+    movingWord.lineBreak = false;
   }
 
   return newWords;

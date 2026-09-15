@@ -341,6 +341,11 @@ class Word(ValidatedModel):
     behind: StrictBool = False
     # Set when the word came from the project glossary rather than the recogniser.
     fromGlossary: StrictBool = False
+    # The creator's own line decision, mirroring `lineBreak` in src/lib/types.ts:
+    # True always ends a caption page after this word, False never does, and
+    # None leaves it to the clause breaker. Word is extra="forbid", so this has
+    # to be declared here or every save carrying one would be rejected.
+    lineBreak: StrictBool | None = None
 
     @field_validator("text")
     @classmethod

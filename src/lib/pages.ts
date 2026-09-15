@@ -80,7 +80,147 @@ const clean = (text: string) => text.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase(
 const endsSentence = (text: string) => /[.!?।]$/.test(text.trim());
 
 /**
- * Split into pages: pauses, sentence ends, and the words-per-page ceiling.
+ * A gap this long is a breath the speaker actually took, and a page always ends
+ * there. Shorter gaps are only a hint — the clause breaker weighs them against
+ * the words on either side, because a caption that splits mid-phrase reads
+ * worse than one that splits a fifth of a second early.
+ */
+export const HARD_GAP = 0.45;
+
+/** Roughly how many words a line should aim for, when nothing else decides. */
+const TARGET_WORDS = 5;
+
+/**
+ * Words that lean on what comes after them, so a page must not end on one.
+ *
+ * "There is something in captions of" strands "of" with nothing to attach to;
+ * the reader holds it until the next page arrives.
+ */
+const BINDS_FORWARD = new Set([
+  'a', 'an', 'the', 'of', 'in', 'on', 'at', 'for', 'with', 'from', 'into', 'about',
+  'my', 'your', 'our', 'his', 'her', 'their', 'its',
+  'very', 'more', 'most', 'such', 'each', 'every',
+  'ek', 'bahut', 'bohot', 'sabse', 'apna', 'apne', 'apni', 'mera', 'meri', 'mere',
+  'tera', 'teri', 'tere', 'uska', 'uske', 'uski', 'iska', 'iske', 'iski',
+  'kitna', 'kitni', 'kitne', 'thoda', 'thodi', 'saare', 'saari', 'sara',
+]);
+
+/**
+ * Words that lean on what came before them, so a page must not start on one.
+ *
+ * Hindi postpositions follow their noun — "school ko" is one unit — and a
+ * copula closes the clause it belongs to. A page beginning "hain." is the
+ * tail of the previous page left behind on its own.
+ */
+const BINDS_BACKWARD = new Set([
+  'ko', 'ka', 'ki', 'ke', 'se', 'mein', 'me', 'par', 'pe', 'ne', 'tak', 'bhi', 'wala', 'wali', 'wale',
+  'hai', 'hain', 'tha', 'thi', 'thay', 'hoga', 'hogi', 'honge', 'hota', 'hote', 'hoti',
+  'raha', 'rahi', 'rahe', 'gaya', 'gayi', 'gaye', 'diya', 'liya', 'kiya', 'chahiye',
+  'sakta', 'sakte', 'sakti', 'hoon', 'hun', 'ho',
+]);
+
+/**
+ * Words that open a new clause, so a page is better started on one.
+ *
+ * "big aur" / "baaki saare words" splits the joint in the wrong place: "aur"
+ * belongs to what it introduces, not to what it followed.
+ */
+const CLAUSE_STARTERS = new Set([
+  'aur', 'ya', 'lekin', 'magar', 'kyunki', 'kyuki', 'phir', 'toh', 'agar', 'jab', 'tab',
+  'isliye', 'matlab', 'ab', 'but', 'and', 'because', 'if', 'when', 'then', 'now',
+]);
+
+/**
+ * Words that close a clause, so a page is better ended just after one.
+ *
+ * A postposition finishes its phrase, and a Hindi clause ends on its verb —
+ * "dekh lo", "hote hain". Breaking there lands on a joint rather than inside a
+ * phrase.
+ */
+const CLAUSE_ENDERS = new Set([
+  'ko', 'ka', 'ki', 'ke', 'se', 'mein', 'me', 'par', 'pe', 'ne', 'tak',
+  'hai', 'hain', 'tha', 'thi', 'hoga', 'hogi', 'honge', 'hota', 'hote', 'hoti',
+  'lo', 'do', 'diya', 'liya', 'kiya', 'karo', 'gaya', 'gayi', 'gaye', 'chahiye',
+  'sakta', 'sakte', 'sakti', 'hoon', 'hun',
+]);
+
+/**
+ * How bad it is to end a page after `prev` and start the next one on `next`.
+ *
+ * Negative is good. The numbers are a preference ordering, not a measurement:
+ * a real breath (`gap`) and a finished clause pull a break towards them, a
+ * word that binds across the boundary pushes it away, and nothing is absolute
+ * — a strong signal can outvote a weak one, which is the point. Hinglish ASR
+ * punctuation is unreliable enough that a full stop is a strong hint here
+ * rather than the hard rule it used to be.
+ */
+function breakCost(prev: Word, next: Word, gap: number): number {
+  const before = clean(prev.text);
+  const after = clean(next.text);
+  let cost = 0;
+  cost -= Math.min(gap, HARD_GAP) * 12;          // a pause is where a break belongs
+  if (endsSentence(prev.text)) cost -= 2;
+  if (BINDS_FORWARD.has(before)) cost += 7;      // never strand "of", "the", "uske"
+  if (BINDS_BACKWARD.has(after)) cost += 7;      // never open on "ko", "hain"
+  if (CLAUSE_STARTERS.has(after)) cost -= 5;     // "aur ..." starts the line
+  if (CLAUSE_ENDERS.has(before)) cost -= 3;      // "... ko" / "... hote hain" ends it
+  return cost;
+}
+
+/** How bad a line of this many words is on its own. */
+function lineCost(length: number): number {
+  // Short pages are penalised steeply rather than linearly. A clause joint can
+  // be found almost anywhere — "Ewa ko" ends a phrase perfectly well — so
+  // without this the breaker happily shaves two-word pages off the front of
+  // every sentence. A page has to earn being short.
+  if (length === 1) return 6;                    // a one-word page reads as a stutter
+  if (length === 2) return 3.2;
+  return Math.abs(length - TARGET_WORDS) * 0.7;
+}
+
+/**
+ * Choose the breaks inside one segment so the lines fall on clause joints.
+ *
+ * Greedy left-to-right filling is what produced "...is something in captions
+ * of" and a page holding only "hain." — it takes the first legal break rather
+ * than the best one, and by the time the bad break is visible it has already
+ * been committed. This weighs every legal arrangement of the segment and keeps
+ * the cheapest, so an earlier break is accepted when it pays for itself later.
+ */
+function breakSegment(words: Word[], maxWords: number): Word[][] {
+  const n = words.length;
+  if (n <= 1) return n ? [words] : [];
+
+  // best[i] = cheapest way to lay out the first i words, ending a line at i.
+  const best = new Array<number>(n + 1).fill(Infinity);
+  const from = new Array<number>(n + 1).fill(0);
+  best[0] = 0;
+
+  for (let end = 1; end <= n; end++) {
+    for (let start = Math.max(0, end - maxWords); start < end; start++) {
+      if (best[start] === Infinity) continue;
+      // The creator joined these two words; the breaker may not part them.
+      if (start > 0 && words[start - 1].lineBreak === false) continue;
+      let cost = best[start] + lineCost(end - start);
+      if (start > 0) {
+        const prev = words[start - 1];
+        const next = words[start];
+        cost += breakCost(prev, next, Math.max(0, next.start - prev.end));
+      }
+      if (cost < best[end]) { best[end] = cost; from[end] = start; }
+    }
+  }
+
+  const bounds: number[] = [];
+  for (let at = n; at > 0; at = from[at]) bounds.unshift(at);
+  const runs: Word[][] = [];
+  let start = 0;
+  for (const end of bounds) { runs.push(words.slice(start, end)); start = end; }
+  return runs;
+}
+
+/**
+ * Split into pages at breaths, then at the best clause joints between them.
  *
  * This is also the editor's line model — `splitLineAtWord`, `mergeLines` and the
  * drag-to-line operations all reason about these exact groups — so it stays a
@@ -93,18 +233,27 @@ function splitRuns(words: Word[], requested: number): Word[][] {
   // saved before this cap existed, or one whose drag-to-line edits raised its
   // own chunk size, would otherwise still draw a paragraph per page.
   const maxWords = Math.max(1, Math.min(requested, MAX_WORDS_PER_PAGE));
-  const runs: Word[][] = [];
+  if (maxWords === 1) return words.map(word => [word]);
+
+  // A real breath, or the creator's own decision, is an unconditional break.
+  // Everything finer is decided by breakSegment, which can see both sides of
+  // each candidate. `lineBreak === false` is the creator saying these two words
+  // belong together, and outranks even a pause.
+  const segments: Word[][] = [];
   let current: Word[] = [];
   for (const word of words) {
     const prev = current.at(-1);
-    if (prev && (current.length >= maxWords || word.start - prev.end > PAGE_GAP || endsSentence(prev.text))) {
-      runs.push(current);
+    const forced = prev?.lineBreak === true;
+    const joined = prev?.lineBreak === false;
+    if (prev && (forced || (!joined && word.start - prev.end > HARD_GAP))) {
+      segments.push(current);
       current = [];
     }
     current.push(word);
   }
-  if (current.length) runs.push(current);
-  return runs;
+  if (current.length) segments.push(current);
+
+  return segments.flatMap(segment => breakSegment(segment, maxWords));
 }
 
 /**

@@ -23,17 +23,27 @@ import {
 const word = (text: string, start: number, end: number, emphasis = false): Word => ({
   id: `${text}-${start}`, text, original: text, start, end, confidence: .95, emphasis, emphasisScore: emphasis ? .9 : .2,
 });
+/** A word the creator has explicitly made the last one on its line. */
+const breakAfter = (w: Word): Word => ({ ...w, lineBreak: true });
 const project = (words: Word[] = []) => validateRenderProject({
   duration: 2, width: 1280, height: 720, mediaType: 'video', settings: { ...defaults }, words,
 });
 
-test('caption groups respect word limits, pauses and sentence endings', () => {
-  const words = [word('Aaj', 0, .2), word('hum', .2, .4), word('seekhenge.', .4, .6),
-    word('Ready', .6, .8), word('ho?', .8, 1), word('Chalo', 1, 1.2), word('start', 1.7, 2)];
-  assert.deepEqual(groupWords(words, 2).map(g => g.map(w => w.text)),
-    [['Aaj', 'hum'], ['seekhenge.'], ['Ready', 'ho?'], ['Chalo'], ['start']]);
+test('caption groups respect the word ceiling, real breaths, and explicit line breaks', () => {
+  // The creator's own breaks are absolute; the ceiling is absolute; a gap wider
+  // than HARD_GAP is a breath and always ends a page. Everything between those
+  // is the clause breaker's call, so this asserts the rules, not its choices.
+  const words = [word('Aaj', 0, .2), breakAfter(word('hum', .2, .4)), word('seekhenge', .4, .6),
+    word('Ready', .6, .8), word('ho', .8, 1), word('Chalo', 1, 1.2), word('start', 1.7, 2)];
+  const groups = groupWords(words, 2);
+  assert.ok(groups.every(g => g.length <= 2), 'the ceiling holds');
+  assert.deepEqual(groups[0].map(w => w.text), ['Aaj', 'hum'], 'an explicit break ends the page');
+  // 1.2 -> 1.7 is half a second of silence: "start" cannot share a page with "Chalo".
+  assert.deepEqual(groups.at(-1)!.map(w => w.text), ['start']);
+
   assert.deepEqual(groupWords([], 4), []);
-  assert.deepEqual(groupWords([word('नमस्ते।', 0, .5), word('दोस्तों', .5, 1)], 4).map(g => g.length), [1, 1]);
+  assert.deepEqual(groupWords([word('नमस्ते।', 0, .5), word('दोस्तों', .5, 1)], 4).map(g => g.length), [2],
+    'a full stop alone is a hint, not a break — two tight words stay together');
 });
 
 test('export dimensions preserve aspect ratio and use even encoder dimensions', () => {
@@ -57,12 +67,12 @@ test('viral spotlight and viral kinetic templates are removed', () => {
   assert.ok(!templates.some(t => t.id === 'spotlight' || t.id === 'punch'));
 });
 
-test('groupWords splits groups on speech pauses >= 0.22s while keeping tight words together', () => {
+test('groupWords splits on a real breath while keeping tight words together', () => {
   const words = [
     word('Word1', 0.0, 0.3),
-    word('Word2', 0.4, 0.7), // gap = 0.10s (tight)
-    word('Word3', 0.95, 1.2), // gap = 0.25s (pause >= 0.22s -> should split)
-    word('Word4', 1.25, 1.5), // gap = 0.05s (tight)
+    word('Word2', 0.4, 0.7),  // gap 0.10s — tight
+    word('Word3', 1.2, 1.45), // gap 0.50s — wider than HARD_GAP, always splits
+    word('Word4', 1.5, 1.75), // gap 0.05s — tight
   ];
   const groups = groupWords(words, 4);
   assert.equal(groups.length, 2);
@@ -148,17 +158,19 @@ test('splitLineAtWord and mergeLines control caption group chunking', () => {
   const g1 = groupWords(words, 4);
   assert.equal(g1.length, 1);
 
-  // Split after 'world'
+  // Split after 'world'. The decision is recorded on the word, not written
+  // into the caption as a full stop the speaker never said.
   const splitWords = splitLineAtWord(words, words[1].id);
-  assert.ok(/[.!?।]$/.test(splitWords[1].text));
+  assert.equal(splitWords[1].lineBreak, true);
+  assert.equal(splitWords[1].text, 'world', 'the caption text is left alone');
   const g2 = groupWords(splitWords, 4);
   assert.equal(g2.length, 2);
-  assert.deepEqual(g2[0].map(w => w.text), ['Hello', 'world.']);
+  assert.deepEqual(g2[0].map(w => w.text), ['Hello', 'world']);
   assert.deepEqual(g2[1].map(w => w.text), ['next']);
 
   // Merge back
   const mergedWords = mergeLines(splitWords, splitWords[1].id);
-  assert.ok(!/[.!?।]$/.test(mergedWords[1].text));
+  assert.equal(mergedWords[1].lineBreak, false);
   const g3 = groupWords(mergedWords, 4);
   assert.equal(g3.length, 1);
 });
@@ -169,26 +181,26 @@ test('moveWordToNextLine shifts boundary so word starts the next line', () => {
   // Initially single line
   assert.equal(groupWords(words, 4).length, 1);
 
-  // Move "world" to next line -> "beautiful" gets trailing punctuation
+  // Move "world" to the next line: the line now ends after "beautiful".
   const nextRes = moveWordToNextLine(words, words[2].id);
   const groups = groupWords(nextRes, 4);
   assert.equal(groups.length, 2);
-  assert.deepEqual(groups[0].map(w => w.text), ['Hello', 'beautiful.']);
+  assert.deepEqual(groups[0].map(w => w.text), ['Hello', 'beautiful']);
   assert.deepEqual(groups[1].map(w => w.text), ['world']);
 });
 
 test('moveWordToPreviousLine shifts boundary so word joins previous line', () => {
-  const words = [word('Hello.', 0, 0.3), word('world', 0.35, 0.6), word('again', 0.65, 0.9)];
-  
-  // Initially two lines: ['Hello.'] and ['world', 'again']
+  const words = [breakAfter(word('Hello', 0, 0.3)), word('world', 0.35, 0.6), word('again', 0.65, 0.9)];
+
+  // Initially two lines: ['Hello'] and ['world', 'again']
   const initialGroups = groupWords(words, 4);
   assert.equal(initialGroups.length, 2);
 
-  // Move "world" to previous line -> "Hello" loses punctuation, "world" gains punctuation
+  // Move "world" up: the break moves from after "Hello" to after "world".
   const prevRes = moveWordToPreviousLine(words, words[1].id, 4);
   const groups = groupWords(prevRes, 4);
   assert.equal(groups.length, 2);
-  assert.deepEqual(groups[0].map(w => w.text), ['Hello', 'world.']);
+  assert.deepEqual(groups[0].map(w => w.text), ['Hello', 'world']);
   assert.deepEqual(groups[1].map(w => w.text), ['again']);
 });
 
@@ -199,37 +211,37 @@ test('moveWordToLine drags and drops words onto any line changing caption groups
   // Line 2: ['Let', 'me', 'show', 'you.']
   const words = [
     word('lag', 10.0, 10.3),
-    word('jaate.', 10.35, 10.6),
-    word('the.', 10.65, 10.9),
+    breakAfter(word('jaate', 10.35, 10.6)),
+    breakAfter(word('the', 10.65, 10.9)),
     word('Let', 11.0, 11.2),
     word('me', 11.25, 11.4),
     word('show', 11.45, 11.6),
-    word('you.', 11.65, 11.9),
+    word('you', 11.65, 11.9),
   ];
 
   const initialGroups = groupWords(words, 5);
   assert.equal(initialGroups.length, 3);
-  assert.deepEqual(initialGroups[0].map(w => w.text), ['lag', 'jaate.']);
-  assert.deepEqual(initialGroups[1].map(w => w.text), ['the.']);
+  assert.deepEqual(initialGroups[0].map(w => w.text), ['lag', 'jaate']);
+  assert.deepEqual(initialGroups[1].map(w => w.text), ['the']);
 
   // Drag 'the.' onto Line 0 at the end
   const res1 = moveWordToLine(words, words[2].id, 0, 'end', 5);
   const groups1 = groupWords(res1, 5);
   assert.equal(groups1.length, 2);
-  assert.deepEqual(groups1[0].map(w => w.text), ['lag', 'jaate', 'the.']);
-  assert.deepEqual(groups1[1].map(w => w.text), ['Let', 'me', 'show', 'you.']);
+  assert.deepEqual(groups1[0].map(w => w.text), ['lag', 'jaate', 'the']);
+  assert.deepEqual(groups1[1].map(w => w.text), ['Let', 'me', 'show', 'you']);
 
   // Drag 'you.' from Line 1 to Line 0 at start
   const res2 = moveWordToLine(res1, res1.find(w => w.text.startsWith('you'))!.id, 0, 'start', 5);
   const groups2 = groupWords(res2, 5);
-  assert.deepEqual(groups2[0].map(w => w.text), ['you', 'lag', 'jaate', 'the.']);
+  assert.deepEqual(groups2[0].map(w => w.text), ['you', 'lag', 'jaate', 'the']);
 
   // Drag 'show' from Line 1 to between 'lag' and 'jaate' in Line 0
   const showWord = res2.find(w => w.text.startsWith('show'))!;
   const jaateWord = res2.find(w => w.text.startsWith('jaate'))!;
   const res3 = moveWordToLine(res2, showWord.id, 0, { targetWordId: jaateWord.id, insert: 'before' }, 6);
   const groups3 = groupWords(res3, 6);
-  assert.deepEqual(groups3[0].map(w => w.text), ['you', 'lag', 'show', 'jaate', 'the.']);
+  assert.deepEqual(groups3[0].map(w => w.text), ['you', 'lag', 'show', 'jaate', 'the']);
 
   // Verify that words in later lines (e.g. Line 1 'Let', 'me') preserve their audio alignment
   const letWord = res3.find(w => w.text.startsWith('Let'))!;
@@ -272,9 +284,9 @@ test('moveWordsToLine moves multiple selected words preserving order and valid i
   const words: Word[] = [
     { id: 'w1', text: 'Ek', original: 'Ek', start: 0.1, end: 0.4, confidence: 1, emphasis: false, emphasisScore: 0.5 },
     { id: 'w2', text: 'do', original: 'do', start: 0.4, end: 0.7, confidence: 1, emphasis: false, emphasisScore: 0.5 },
-    { id: 'w3', text: 'teen.', original: 'teen.', start: 0.7, end: 1.0, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w3', text: 'teen', original: 'teen', start: 0.7, end: 1.0, confidence: 1, emphasis: false, emphasisScore: 0.5, lineBreak: true },
     { id: 'w4', text: 'Chaar', original: 'Chaar', start: 1.2, end: 1.5, confidence: 1, emphasis: false, emphasisScore: 0.5 },
-    { id: 'w5', text: 'paanch.', original: 'paanch.', start: 1.5, end: 1.8, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w5', text: 'paanch', original: 'paanch', start: 1.5, end: 1.8, confidence: 1, emphasis: false, emphasisScore: 0.5 },
   ];
 
   // Move ['w1', 'w2'] ("Ek", "do") to the end of line 2 (targetGroupIdx = 1)
@@ -283,7 +295,7 @@ test('moveWordsToLine moves multiple selected words preserving order and valid i
   // Grouping should show: line 1 has "teen.", line 2 has "Chaar paanch Ek do"
   const groups = groupWords(moved, 6);
   assert.equal(groups.length, 2);
-  assert.deepEqual(groups[0].map(w => w.text), ['teen.']);
+  assert.deepEqual(groups[0].map(w => w.text), ['teen']);
   assert.deepEqual(groups[1].map(w => w.text), ['Chaar', 'paanch', 'Ek', 'do']);
 
   // Timestamps must be strictly non-overlapping
@@ -997,4 +1009,41 @@ test('buildPages never puts more than MAX_WORDS_PER_PAGE words on a page, whatev
 
   // Below the ceiling the setting is still honoured exactly.
   assert.equal(Math.max(...buildPages(words, 3).map(p => p.words.length)), 3);
+});
+
+test('lines break on clause joints, not wherever the ceiling happens to fall', () => {
+  // A real transcript that split badly: greedy filling stranded "of" at the end
+  // of a page, cut "big | aur baaki" through a conjunction, and left a page
+  // holding nothing but "hain.". Each expected line below is a phrase that
+  // stands on its own — which is the whole point of the breaker.
+  const spoken: [number, number, string][] = [
+    [0.0, 1.2, 'There is something in captions of'],
+    [1.2, 2.4, 'all of these big pages.'],
+    [2.4, 3.2, 'Ewa ko dekh lo editing.'],
+    [3.2, 5.1, 'school ko the most important word is'],
+    [5.1, 5.6, 'big aur'],
+    [6.0, 7.6, 'baaki saare words uske around small hote'],
+    [7.7, 7.8, 'hain.'],
+  ];
+  const words: Word[] = [];
+  let n = 0;
+  for (const [from, to, text] of spoken) {
+    const parts = text.split(' ');
+    const step = (to - from) / parts.length;
+    parts.forEach((text, i) => words.push(word(text,
+      Number((from + i * step).toFixed(3)),
+      Number((from + (i + 1) * step - 0.01).toFixed(3)))));
+    n += parts.length;
+  }
+  assert.equal(words.length, n);
+
+  assert.deepEqual(buildPages(words, 7).map(p => p.words.map(w => w.text).join(' ')), [
+    'There is something in captions',      // "of" no longer stranded
+    'of all of these big pages.',
+    'Ewa ko dekh lo',
+    'editing. school ko',                  // an unreliable ASR stop does not force a break
+    'the most important word is big',
+    'aur baaki saare words',               // the conjunction opens its own line
+    'uske around small hote hain.',        // no orphan page holding only "hain."
+  ]);
 });
