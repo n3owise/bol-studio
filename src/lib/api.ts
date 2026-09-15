@@ -1,20 +1,25 @@
 import type { MediaAsset, Project } from './types';
 
 /**
- * Empty by default, so every call is a relative /api/... on whatever origin the
- * app is served from.
+ * The backend's own origin in production, not a relative path.
  *
- * Both environments already forward that: Vite proxies /api to the local server
- * in development, and vercel.json rewrites /api to the Space in production. The
- * production default used to be the Space's own URL instead, which bypassed
- * that rewrite and made every request cross-origin — which matters because
- * CORS cannot be enforced on a Space at all; their proxy reflects whatever
- * Origin it is sent. Going through the rewrite makes the browser talk only to
- * bol-studio.me, so none of that applies.
+ * Relative paths would go through the /api rewrite in vercel.json, and that
+ * proxy severs the connection at 50 MB: a 258 MB clip uploaded 50,003,686
+ * bytes and then died with no response at all, which surfaces in the editor as
+ * "The studio backend is unavailable". The same file posted straight to the
+ * Space succeeds at 270 MB. Since this app accepts uploads up to 1 GB, the
+ * proxy cannot be on the upload path.
  *
- * VITE_API_BASE still overrides it for a backend somewhere else.
+ * Routing through the rewrite was done for same-origin requests, to sidestep
+ * CORS. That was not worth anything: a Hugging Face Space reflects whatever
+ * Origin it is sent, from their proxy, after the application has replied — so
+ * the allowlist is unenforceable there either way, and the rewrite bought a
+ * 50 MB ceiling in exchange for nothing.
+ *
+ * VITE_API_BASE still overrides, for a backend hosted elsewhere.
  */
-export const API = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const defaultBase = import.meta.env.DEV ? '' : 'https://n3owise-bol-studio-backend.hf.space';
+export const API = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/, '');
 
 /**
  * Shared key for a deployed backend, set at build time with VITE_API_KEY.
