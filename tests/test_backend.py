@@ -594,3 +594,21 @@ def test_export_length_cap_is_off_locally_and_refuses_up_front_when_set(client, 
     )
     assert allowed.status_code == 202
     assert client.get("/api/limits").json()["maxExportSeconds"] == 600.0
+
+
+def test_words_per_line_is_clamped_to_the_shared_ceiling_not_rejected(client, project):
+    """A project saved when the bound was 8 still has to open.
+
+    The editor's generate slider once reached 12 and wrote straight into
+    wordsPerLine, so stored projects exist above the ceiling. Rejecting them
+    would lock the creator out of their own work; they are clamped instead, to
+    the same number src/lib/pages.ts enforces when it builds the pages.
+    """
+    url = f"/api/projects/{project['id']}"
+    for asked in (8, 12, 99):
+        response = client.patch(url, json={"settings": {"wordsPerLine": asked}})
+        assert response.status_code == 200, response.text
+        assert response.json()["settings"]["wordsPerLine"] == backend.MAX_WORDS_PER_LINE
+
+    # Anything the slider can actually produce is stored untouched.
+    assert client.patch(url, json={"settings": {"wordsPerLine": 4}}).json()["settings"]["wordsPerLine"] == 4

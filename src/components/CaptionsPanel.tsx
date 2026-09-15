@@ -23,6 +23,7 @@ import {
   Type,
 } from 'lucide-react';
 import type { MediaAsset, Project, Settings, Word } from '../lib/types';
+import { MAX_WORDS_PER_PAGE } from '../lib/pages';
 import { groupWords } from '../lib/pages';
 
 interface WordSnapshot {
@@ -202,7 +203,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const [filterFiller, setFilterFiller] = useState(false);
   const [multiSpeaker, setMultiSpeaker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [wordsPerCaption, setWordsPerCaption] = useState(settings.wordsPerLine || 5);
+  const [wordsPerCaption, setWordsPerCaption] = useState(Math.min(settings.wordsPerLine || 5, MAX_WORDS_PER_PAGE));
   const [maxLines, setMaxLines] = useState(2);
   const [autoSplit, setAutoSplit] = useState(true);
 
@@ -1195,7 +1196,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                       aria-label="Maximum words per caption"
                       type="range"
                       min={1}
-                      max={12}
+                      max={MAX_WORDS_PER_PAGE}
                       value={wordsPerCaption}
                       onChange={e => setWordsPerCaption(Number(e.target.value))}
                       className="bol-slider"

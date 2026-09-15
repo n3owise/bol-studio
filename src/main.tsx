@@ -14,7 +14,7 @@ import './styles.css';
 import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
-import { groupWords } from './lib/pages';
+import { MAX_WORDS_PER_PAGE, groupWords } from './lib/pages';
 import captionFonts from './lib/caption-fonts.json';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
@@ -1392,9 +1392,19 @@ function App() {
     const wordsBeingAdded = validMovingIds.length - movingWordsAlreadyInTarget;
     const targetLineWordCount = targetGroup.length + wordsBeingAdded;
 
+    // Dropping onto a full line used to widen the *global* chunk size to fit,
+    // up to twelve — so one drag quietly turned every other line in the project
+    // into a paragraph, and the settings it produced were above the bound the
+    // server accepts. The line grows only as far as the shared ceiling, and the
+    // drop is refused rather than reshaping the whole project past it.
+    if (!isSingleWordTemplate(settings.template) && targetLineWordCount > MAX_WORDS_PER_PAGE) {
+      notify(`A line holds at most ${MAX_WORDS_PER_PAGE} words. Split the line first, or drop onto a shorter one.`);
+      return;
+    }
+
     const neededMax = isSingleWordTemplate(settings.template)
       ? 1
-      : Math.min(12, Math.max(targetLineWordCount, settings.wordsPerLine));
+      : Math.min(MAX_WORDS_PER_PAGE, Math.max(targetLineWordCount, settings.wordsPerLine));
 
     const updatedWords = moveWordsToLine(p.words, validMovingIds, targetGroupIdx, targetPosition, neededMax);
 
@@ -2908,7 +2918,7 @@ function App() {
                       id="words-per-line"
                       type="range"
                       min="1"
-                      max="8"
+                      max={MAX_WORDS_PER_PAGE}
                       value={settings.wordsPerLine}
                       onChange={e => updateSettings({ wordsPerLine: Number(e.target.value) })}
                     />

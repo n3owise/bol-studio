@@ -54,6 +54,10 @@ DEFAULT_SETTINGS = json.loads(
     (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
 )
 
+# The most words one caption page may show. Mirrors MAX_WORDS_PER_PAGE in
+# src/lib/pages.ts, which enforces the same ceiling when pages are built.
+MAX_WORDS_PER_LINE = 7
+
 
 def project_dir(project_id: str) -> Path:
     try:
@@ -375,7 +379,19 @@ class Settings(BaseModel):
 
     fontSize: float = Field(default=DEFAULT_SETTINGS["fontSize"], ge=20, le=100)
     position: float = Field(default=DEFAULT_SETTINGS["position"], ge=10, le=90)
-    wordsPerLine: StrictInt = Field(default=DEFAULT_SETTINGS["wordsPerLine"], ge=1, le=8)
+    # Kept in step with MAX_WORDS_PER_PAGE in src/lib/pages.ts. The bound used to
+    # be 8 while the editor's generate slider went to 12, so a caption could be
+    # half a paragraph wide. Projects saved under the old bound are clamped on
+    # the way in rather than rejected, so they still open.
+    wordsPerLine: StrictInt = Field(default=DEFAULT_SETTINGS["wordsPerLine"], ge=1, le=MAX_WORDS_PER_LINE)
+
+    @field_validator("wordsPerLine", mode="before")
+    @classmethod
+    def _clamp_words_per_line(cls, value):
+        if isinstance(value, int) and not isinstance(value, bool) and value > MAX_WORDS_PER_LINE:
+            return MAX_WORDS_PER_LINE
+        return value
+
     uppercase: StrictBool = DEFAULT_SETTINGS["uppercase"]
     motion: float = Field(default=DEFAULT_SETTINGS["motion"], ge=0, le=2)
     aspect: Literal["original", "9:16", "1:1", "16:9"] = DEFAULT_SETTINGS["aspect"]

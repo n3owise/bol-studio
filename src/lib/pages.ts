@@ -11,6 +11,17 @@ import type { Word } from './types';
  * landed on a different page than the one drawn. Everything now calls here.
  */
 
+/**
+ * The most words any caption page may show, whatever the settings say.
+ *
+ * Past about seven words a page stops being a caption and becomes a paragraph:
+ * the viewer reads instead of glancing, and the hero word has nothing left to
+ * stand out from. The slider, the server's bound and the page splitter all
+ * agree on this number, and `splitRuns` enforces it even when a stored project
+ * asks for more, so an old project cannot render a wall of text.
+ */
+export const MAX_WORDS_PER_PAGE = 7;
+
 /** A pause at least this long always ends a page. */
 export const PAGE_GAP = 0.22;
 /** Pages shorter than this flash on screen; they are merged into a neighbour. */
@@ -77,7 +88,11 @@ const endsSentence = (text: string) => /[.!?।]$/.test(text.trim());
  * screen longer in `buildPages`, never by silently undoing the user's own line
  * structure.
  */
-function splitRuns(words: Word[], maxWords: number): Word[][] {
+function splitRuns(words: Word[], requested: number): Word[][] {
+  // The ceiling is enforced here rather than trusted from settings: a project
+  // saved before this cap existed, or one whose drag-to-line edits raised its
+  // own chunk size, would otherwise still draw a paragraph per page.
+  const maxWords = Math.max(1, Math.min(requested, MAX_WORDS_PER_PAGE));
   const runs: Word[][] = [];
   let current: Word[] = [];
   for (const word of words) {
@@ -189,7 +204,7 @@ function rebalanceCountSplits(runs: Word[][], maxWords: number): Word[][] {
 
 export function buildPages(words: Word[], wordsPerPage: number, options: PageOptions = {}): CaptionPage[] {
   if (!words.length) return [];
-  const maxWords = Math.max(1, Math.round(wordsPerPage));
+  const maxWords = Math.max(1, Math.min(Math.round(wordsPerPage), MAX_WORDS_PER_PAGE));
   const runs = maxWords === 1 ? splitRuns(words, 1) : rebalanceCountSplits(splitRuns(words, maxWords), maxWords);
 
   return runs.map((run, i) => {

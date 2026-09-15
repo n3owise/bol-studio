@@ -7,7 +7,7 @@ import {
   groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
   replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
-import { buildPages, heroRun } from '../src/lib/pages.ts';
+import { MAX_WORDS_PER_PAGE, buildPages, heroRun } from '../src/lib/pages.ts';
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
 import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
@@ -977,4 +977,24 @@ test('an unlisted font family never reaches the CSS font stack', () => {
   const page = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
   assert.ok(/OFFERED_FONTS\.has\(custom\)/.test(page),
     'the family is interpolated into a CSS font-family, so it is checked against the offered list first');
+});
+
+test('buildPages never puts more than MAX_WORDS_PER_PAGE words on a page, whatever the settings ask for', () => {
+  // A continuous run with no pause and no sentence end: the only thing that can
+  // split it is the ceiling. The generate panel's slider used to reach 12 and
+  // wrote straight into wordsPerLine, so a caption could be half a paragraph.
+  const words = Array.from({ length: 24 }, (_, i) => ({
+    id: `w${i}`, text: `word${i}`, original: `word${i}`,
+    start: i * 0.2, end: i * 0.2 + 0.18, confidence: 1, emphasis: false, emphasisScore: 0.4,
+  }));
+
+  for (const requested of [7, 8, 12, 99]) {
+    const pages = buildPages(words, requested);
+    const longest = Math.max(...pages.map(p => p.words.length));
+    assert.ok(longest <= MAX_WORDS_PER_PAGE,
+      `asked for ${requested} words per page, got a page of ${longest}`);
+  }
+
+  // Below the ceiling the setting is still honoured exactly.
+  assert.equal(Math.max(...buildPages(words, 3).map(p => p.words.length)), 3);
 });
