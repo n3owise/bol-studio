@@ -83,7 +83,7 @@ interface CaptionsPanelProps {
   onAddCaptionAtTime: (time: number) => void;
   onEditCaptionGroup: (groupIdx: number, newText: string, newStart: number, newEnd: number) => void;
   onClearAllCaptions: () => void;
-  onRegenerateCaptions: (sourceAssetId?: string, script?: string, language?: string, glossary?: string[]) => Promise<void>;
+  onRegenerateCaptions: (sourceAssetId?: string, script?: string, language?: string, glossary?: string[], isolateVocals?: boolean) => Promise<void>;
   onStartTranscription: (
     sourceAssetId: string | null,
     script: string,
@@ -94,6 +94,7 @@ interface CaptionsPanelProps {
       multiSpeaker: boolean;
       wordsPerLine: number;
       glossary?: string[];
+      isolateVocals?: boolean;
       maxLines: number;
     }
   ) => Promise<void>;
@@ -195,6 +196,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   // Brand names, handles and domains the recogniser cannot know. Seeded from
   // the project so they survive a re-run.
   const [brandWords, setBrandWords] = useState((project?.glossary ?? []).join(', '));
+  const [isolateVocals, setIsolateVocals] = useState(!!project?.isolateVocals);
   const [captionScript, setCaptionScript] = useState<'roman' | 'native' | 'en' | 'same'>('roman');
   const [autoPunctuation, setAutoPunctuation] = useState(true);
   const [filterFiller, setFilterFiller] = useState(false);
@@ -937,6 +939,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
         wordsPerLine: wordsPerCaption,
         maxLines,
         glossary: brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200),
+        isolateVocals,
       });
       setPanelViewOverride(null);
     } catch (e) {
@@ -1275,6 +1278,19 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                       nothing else in your transcript is second-guessed.
                     </p>
                   </div>
+
+                  <label className="toggle-row compact">
+                    <span className="toggle-title">
+                      Clean up background noise
+                      <span className="toggle-note">Slower. Helps when music or a room sits under the voice.</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="bol-switch"
+                      checked={isolateVocals}
+                      onChange={e => setIsolateVocals(e.target.checked)}
+                    />
+                  </label>
 
                   <label className="toggle-row compact">
                     <span className="toggle-title">Automatic caption splitting</span>
@@ -2074,6 +2090,18 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                   Names, handles and domains, comma separated. Only these are replaced.
                 </span>
               </label>
+              <label className="toggle-row compact">
+                <span className="toggle-title">
+                  Clean up background noise
+                  <span className="toggle-note">Slower. Helps when music sits under the voice.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  className="bol-switch"
+                  checked={isolateVocals}
+                  onChange={e => setIsolateVocals(e.target.checked)}
+                />
+              </label>
             </div>
             <div className="modal-footer">
               <button
@@ -2093,7 +2121,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                       selectedSourceId === 'primary' ? undefined : selectedSourceId,
                       captionScript,
                       spokenLang,
-                      brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200)
+                      brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200),
+                      isolateVocals
                     );
                   } catch (e) {
                     notify((e as Error).message);

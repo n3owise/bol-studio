@@ -16,6 +16,7 @@ from typing import Callable
 
 import numpy as np
 
+from server.denoise import available as denoise_available, isolate_vocals
 from server.glossary import apply_glossary
 from scipy.io import wavfile
 
@@ -681,7 +682,8 @@ def _english_companion_decode(audio_path: Path, backend: str, model: str, progre
 
 
 def transcribe(audio_path: Path, duration: float, script: str, language: str,
-               progress: Callable[[int, str], None], glossary: list[str] | None = None) -> dict:
+               progress: Callable[[int, str], None], glossary: list[str] | None = None,
+               isolateVocals: bool = False) -> dict:
     backend, model = model_config()
     # The specialist is intentionally a Roman-Hinglish model. Keep the native
     # Devanagari option available by falling back to the multilingual model for
@@ -693,6 +695,13 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
     waveform = waveform_samples(audio)
     if not len(audio) or float(np.sqrt(np.mean(audio*audio))) < .0003:
         return {"words": [], "waveform": waveform, "model": model, "detectedLanguage": None, "emphasisMethod": EMPHASIS_METHOD}
+    # Opt-in: strip music and room noise from the copy the recogniser hears. The
+    # original audio is untouched, so the exported video keeps its full mix. On
+    # a clean voiceover there is nothing to remove, which is why this is a choice
+    # rather than always-on.
+    if isolateVocals and denoise_available():
+        progress(22, "Separating the voice from background music.")
+        audio = isolate_vocals(audio, rate)
     progress(28, "Loading the local speech model. First use downloads the model weights.")
     options = {"language": None if language == "auto" else language, "task": "transcribe",
                "word_timestamps": True, "temperature": 0, "condition_on_previous_text": False,

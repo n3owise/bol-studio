@@ -130,6 +130,8 @@ export type Project = {
   canvasElements?: CanvasVisualElement[];
   /** Brand names, handles and domains the recogniser cannot know. */
   glossary?: string[];
+  /** Strip background music before recognition. Off by default. */
+  isolateVocals?: boolean;
   textElements?: CanvasTextElement[];
   activeMediaAssetId?: string;
 };

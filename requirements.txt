@@ -9,3 +9,6 @@ faster-whisper>=1.2,<2
 httpx>=0.28,<1
 huggingface-hub>=0.23
 gradio>=4.0.0
+# Optional: Hybrid Demucs for the opt-in vocal isolation toggle. The feature
+# degrades to a no-op if this is absent.
+torchaudio>=2.1

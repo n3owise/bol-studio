@@ -527,3 +527,43 @@ def test_a_word_may_carry_the_glossary_flag():
         id="w1", text="kalakar.io", original="kalaakaar dot I O", start=0.0, end=1.0,
         confidence=1.0, emphasis=False, emphasisScore=0.5, fromGlossary=True,
     ).fromGlossary is True
+
+
+def test_vocal_isolation_is_opt_in_and_round_trips(client):
+    """Off by default: on a clean voiceover there is nothing to remove and it
+    only costs time."""
+    project = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")}).json()
+    assert not project.get("isolateVocals")
+
+    turned_on = client.patch(f"/api/projects/{project['id']}", json={"isolateVocals": True})
+    assert turned_on.status_code == 200
+    assert turned_on.json()["isolateVocals"] is True
+
+
+def test_vocal_isolation_returns_the_original_audio_when_it_cannot_run(monkeypatch):
+    """A transcription with background music beats no transcription at all, so
+    every failure path hands back the input untouched."""
+    import numpy as np
+    from server import denoise
+
+    audio = np.random.default_rng(0).normal(0, 0.05, 16000).astype(np.float32)
+
+    monkeypatch.setattr(denoise, "available", lambda: False)
+    assert denoise.isolate_vocals(audio, 16000) is audio
+
+    monkeypatch.setattr(denoise, "available", lambda: True)
+    monkeypatch.setattr(denoise, "_load", lambda: (_ for _ in ()).throw(RuntimeError("no weights")))
+    np.testing.assert_array_equal(denoise.isolate_vocals(audio, 16000), audio)
+
+
+def test_vocal_isolation_preserves_length_so_timestamps_still_index_it():
+    """The caller slices this array by word timestamp; two resamples can drift
+    it by a sample or two."""
+    import numpy as np
+    from server import denoise
+
+    if not denoise.available():
+        import pytest as _pytest
+        _pytest.skip("torchaudio not installed")
+    audio = np.random.default_rng(1).normal(0, 0.05, 16000 * 2).astype(np.float32)
+    assert len(denoise.isolate_vocals(audio, 16000)) == len(audio)
