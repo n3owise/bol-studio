@@ -9949,3 +9949,66 @@ kbd {
   line-height: 1.5;
   color: var(--color-text-secondary);
 }
+
+/* Post-upload language prompt ------------------------------------------- */
+.modal-lede {
+  margin: 0 0 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.language-choice-grid {
+  display: grid;
+  /* Three cards side by side where there is room, stacking on a narrow window
+     rather than squeezing the Devanagari sample until it is unreadable. */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.language-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px 14px 15px;
+  text-align: left;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.28));
+  border-radius: 12px;
+  background: var(--bg-surface, transparent);
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.language-choice:hover {
+  border-color: rgba(34, 197, 94, 0.55);
+}
+
+.language-choice.selected {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.45);
+}
+
+.language-choice-label {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.language-choice-sample {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.language-choice-note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  opacity: 0.65;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}

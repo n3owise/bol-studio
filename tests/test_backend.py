@@ -636,3 +636,26 @@ def test_explicit_line_breaks_survive_a_save(client, project):
     assert saved[1]["lineBreak"] is False
     # Untouched words stay undecided rather than defaulting to a break.
     assert all(w.get("lineBreak") is None for w in saved[2:])
+
+
+@pytest.mark.parametrize("label,script,language", [
+    ("Hinglish", "roman", "auto"),
+    ("Hindi", "native", "hi"),
+    ("English", "native", "en"),
+])
+def test_post_upload_language_choices_are_all_accepted(client, project, label, script, language):
+    """The three choices the post-upload prompt offers must each be valid.
+
+    The prompt collapses two axes — spoken language, and the script it is
+    written in — into the three combinations people actually mean. Nothing else
+    checks that those pairings survive TranscribeRequest, and a rejected pair
+    would surface as a failed transcription right after upload.
+    """
+    response = client.post(
+        f"/api/projects/{project['id']}/transcribe",
+        json={"script": script, "language": language},
+    )
+    assert response.status_code == 200, f"{label}: {response.text}"
+    saved = response.json()
+    assert saved["script"] == script
+    assert saved["language"] == language

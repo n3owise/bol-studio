@@ -216,6 +216,16 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | null>(null);
+  /**
+   * Asked once, right after an upload, before any time is spent editing.
+   *
+   * Spoken language and the script it is written in were only reachable as two
+   * separate dropdowns inside the Captions panel, several clicks past the
+   * upload, and the recogniser had already run with whatever was left over from
+   * the last clip by the time anyone found them. Getting it wrong is not a
+   * setting to nudge afterwards — it means transcribing again from scratch.
+   */
+  const [languagePrompt, setLanguagePrompt] = useState<'open' | null>(null);
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
   const [resolution, setResolution] = useState<720 | 1080 | 2160>(720);
   const [exportFps, setExportFps] = useState<24 | 25 | 30 | 50 | 60>(30);
@@ -2411,6 +2421,7 @@ function App() {
       setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
       setTextElements(result.textElements || []); setSelectedTextId(null); setIsEditingCanvasTextId(null);
       setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
+      setLanguagePrompt('open');
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
   }
@@ -2509,12 +2520,31 @@ function App() {
     const text=format==='json'?JSON.stringify({name:project.name,words:project.words,settings},null,2):subtitleText(project.words,settings.wordsPerLine,format);
     const blob=new Blob([text],{type:format==='json'?'application/json':'text/plain;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${project.name.replace(/[^\p{L}\p{N}_-]/gu,'_')}.${format}`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
-  async function retryTranscription() {
-    if(!project) return;
-    const currentProject = project;
-    try { await flushSave(); const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({script:currentProject.script,language:currentProject.language,glossary:currentProject.glossary ?? [],isolateVocals:!!currentProject.isolateVocals})}); if (projectRef.current?.id === currentProject.id) { setProject(result); projectRef.current=result; setScript(result.script); setLanguage(result.language); } }
+  /**
+   * Start recognition, optionally overriding what the project currently says.
+   *
+   * The overrides are passed rather than set through `setScript`/`setLanguage`
+   * first: those are React state, so a caller that sets them and immediately
+   * starts a run would send the previous values and transcribe in the wrong
+   * language without ever saying so.
+   */
+  async function startTranscription(overrides?: { script?: string; language?: string }) {
+    const currentProject = projectRef.current;
+    if(!currentProject) return;
+    const body = {
+      script: overrides?.script ?? currentProject.script,
+      language: overrides?.language ?? currentProject.language,
+      glossary: currentProject.glossary ?? [],
+      isolateVocals: !!currentProject.isolateVocals,
+    };
+    try {
+      await flushSave();
+      const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if (projectRef.current?.id === currentProject.id) { setProject(result); projectRef.current=result; setScript(result.script); setLanguage(result.language); }
+    }
     catch(e){notify((e as Error).message);}
   }
+  const retryTranscription = () => startTranscription();
 
   return <div className="app-shell">
     <input ref={input} type="file" accept="video/*,audio/*,.mkv,.m4a,.wav,.mp3,.webm" hidden onChange={e=>void importFile(e.target.files?.[0])}/>
@@ -4252,6 +4282,48 @@ function App() {
         </div>
       </Modal>
     )}
+    {/*
+      One question, three answers, asked while the upload is still the thing on
+      screen. The two axes underneath — what language is spoken, and which
+      script to write it in — are not a choice anyone wants to make separately:
+      "Hinglish" means Hindi and English mixed, written in Latin letters, and
+      picking that from two dropdowns requires knowing that Roman and Devanagari
+      are the options at all.
+    */}
+    {languagePrompt && project && <Modal title="What's spoken in this clip?" onClose={()=>setLanguagePrompt(null)}>
+      <p className="modal-lede">This decides how the recogniser listens and how the words are spelled. Getting it wrong means transcribing again, so it is worth a moment now.</p>
+      <div className="language-choice-grid">
+        {([
+          { id: 'hinglish', label: 'Hinglish', sample: 'aap kaise ho', note: 'Hindi and English mixed, written in Latin letters. Most reels.', script: 'roman', language: 'auto' },
+          { id: 'hindi', label: 'Hindi', sample: 'आप कैसे हो', note: 'Hindi only, written in Devanagari.', script: 'native', language: 'hi' },
+          { id: 'english', label: 'English', sample: 'how are you', note: 'English only. Skips the Hinglish spelling pass.', script: 'native', language: 'en' },
+        ] as const).map(choice => (
+          <button
+            key={choice.id}
+            type="button"
+            className={`language-choice ${script === choice.script && language === choice.language ? 'selected' : ''}`}
+            onClick={() => { setScript(choice.script); setLanguage(choice.language); }}
+          >
+            <span className="language-choice-label">{choice.label}</span>
+            <span className="language-choice-sample">&ldquo;{choice.sample}&rdquo;</span>
+            <span className="language-choice-note">{choice.note}</span>
+          </button>
+        ))}
+      </div>
+      <div className="modal-actions">
+        <button type="button" className="button secondary" onClick={()=>setLanguagePrompt(null)}>
+          Not now
+        </button>
+        <button
+          type="button"
+          className="button primary"
+          disabled={busy}
+          onClick={() => { setLanguagePrompt(null); void startTranscription({ script, language }); }}
+        >
+          <WandSparkles size={15}/> Generate captions
+        </button>
+      </div>
+    </Modal>}
     {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word against the audio. Review names, slang, and spellings &mdash; the recognizer does not report how sure it is, so give proper nouns a second look.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest a word to highlight in each line, shown with a dashed outline. They are only suggestions: click any word and toggle its highlight to decide for yourself.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
 
     {modal === 'search-replace' && (
