@@ -223,6 +223,10 @@ function App() {
   const [lastDownloadedExportId, setLastDownloadedExportId] = useState<string | null>(null);
   const downloadedExportIdsRef = useRef<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  // What this deployment will render. Null means no limit, which is the local
+  // default; a hosted instance caps it so a long clip fails now rather than an
+  // hour into a render that its shared CPU was never going to finish.
+  const [maxExportSeconds, setMaxExportSeconds] = useState<number | null>(null);
   const [saveStatus, setSaveStatus] = useState(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
   const [dirty, setDirty] = useState(0);
   const [history, setHistory] = useState<EditState[]>([]);
@@ -294,6 +298,7 @@ function App() {
   // Only stacked lockups have a third line to colour.
   const isStackedTemplate = treatmentFor(settings.template).layout === 'stack';
   const size = dimensions(settings, project?.width || 720, project?.height || 1280);
+  const overExportLimit = !!maxExportSeconds && duration > maxExportSeconds;
   const busy = !!project && ['queued','processing','transcribing','extracting'].includes(project.status);
   const hasVideoLayer = project?.mediaType === 'video';
   const videoEnabled = hasVideoLayer && project?.videoEnabled !== false;
@@ -538,6 +543,11 @@ function App() {
   const notify = useCallback((message: string) => setNotice(message), []);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { projectRef.current = project; }, [project]);
+  useEffect(() => {
+    void request<{ maxExportSeconds: number | null }>('/limits')
+      .then(l => setMaxExportSeconds(l.maxExportSeconds ?? null))
+      .catch(() => setMaxExportSeconds(null));
+  }, []);
   useEffect(() => {
     let closed = false;
     async function check() {
@@ -4182,10 +4192,18 @@ function App() {
           </div>
         ) : (
           <div className="export-action-block">
+            {overExportLimit && (
+              <p className="export-limit-note">
+                This clip is {Math.floor(duration / 60)}m {Math.round(duration % 60)}s, and rendering
+                here is capped at {Math.round((maxExportSeconds ?? 0) / 60)} minutes so exports stay
+                quick for everyone. Download the SRT and burn it in your editor, or run Bol locally
+                for the full length.
+              </p>
+            )}
             <button
               className="button primary full export-submit-btn"
               onClick={() => void startExport()}
-              disabled={exporting || !project?.words.length}
+              disabled={exporting || !project?.words.length || overExportLimit}
             >
               {exporting ? (
                 <>

@@ -284,6 +284,19 @@ app.add_middleware(CORSMiddleware,
 # bundle, so anyone who opens the app can read it. It stops drive-by traffic
 # against a public deployment; it does not stop someone who wants in. Real
 # per-user auth is a separate piece of work.
+# Longest clip this deployment will render, in seconds. Unset means no limit,
+# which is the local default: your own machine, your own time.
+#
+# It exists for shared hosting. Rendering is CPU work — headless Chromium plus
+# libx264, no GPU — and a 20-minute export measured 26 minutes on an M2. On a
+# Space's shared vCPUs that is plausibly an hour or more, past the watchdog in
+# export_job, and a container restart loses the output because Space storage is
+# ephemeral. Refusing up front beats failing an hour in.
+try:
+    MAX_EXPORT_SECONDS = float(os.getenv("BOL_MAX_EXPORT_SECONDS", "") or 0)
+except ValueError:
+    MAX_EXPORT_SECONDS = 0.0
+
 API_KEY = os.getenv("BOL_API_KEY", "").strip()
 # The Gradio landing page and the health check stay reachable so the Space shows
 # as up without a key.
@@ -424,6 +437,14 @@ def validate_word_intervals(words: list[dict], duration: float) -> None:
         previous_end = word["end"]
 
 
+@app.get("/api/limits")
+def limits():
+    """What this deployment will accept, so the editor can say so up front."""
+    return {"maxExportSeconds": MAX_EXPORT_SECONDS or None,
+            "maxUploadBytes": MAX_BYTES,
+            "maxDurationSeconds": MAX_DURATION}
+
+
 @app.get("/api/health")
 def health():
     speech = model_status()
@@ -551,6 +572,14 @@ def create_export(project_id: str, request: ExportRequest):
             raise HTTPException(409, "Wait for a completed transcript before exporting.")
         if not project["words"]:
             raise HTTPException(422, "There are no caption words to export.")
+        if MAX_EXPORT_SECONDS and project["duration"] > MAX_EXPORT_SECONDS:
+            limit = int(MAX_EXPORT_SECONDS // 60) or 1
+            raise HTTPException(
+                422,
+                f"This clip is {int(project['duration'] // 60)}m {int(project['duration'] % 60)}s. "
+                f"Rendering here is capped at {limit} minutes so everyone's exports stay quick. "
+                "Download the SRT and burn it in your editor, or run Bol locally for the full length.",
+            )
         if request.mode == "green" and project["settings"]["accent"].lower() == "#00ff00":
             raise HTTPException(422, "Choose an accent other than pure green so your captions remain visible after chroma keying.")
         if any(job["status"] in {"queued", "processing"} for job in project["exports"]):

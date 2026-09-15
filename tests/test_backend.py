@@ -565,3 +565,32 @@ def test_vocal_isolation_separates_at_the_source_rate_not_the_16k_copy():
         "the 16 kHz round-trip made clean audio worse and must not come back"
     )
     assert denoise.MODEL_RATE == 44100
+
+
+def test_export_length_cap_is_off_locally_and_refuses_up_front_when_set(client, project, monkeypatch):
+    """Rendering is CPU work — headless Chromium plus libx264, no GPU — and a
+    20-minute export measured 26 minutes on an M2. On shared hosting that can
+    outrun the watchdog, and a container restart loses the output. Refusing at
+    the start beats failing an hour in."""
+    # Unset: no limit, which is the local default.
+    assert backend.MAX_EXPORT_SECONDS == 0
+    assert client.get("/api/limits").json()["maxExportSeconds"] is None
+
+    # Set below this clip's duration: refused, with a message that says what to do.
+    monkeypatch.setattr(backend, "MAX_EXPORT_SECONDS", 1.0)
+    refused = client.post(
+        f"/api/projects/{project['id']}/exports",
+        json={"mode": "burned", "resolution": 720},
+    )
+    assert refused.status_code == 422
+    detail = refused.json()["detail"]
+    assert "SRT" in detail and "locally" in detail, detail
+
+    # Set above it: allowed through.
+    monkeypatch.setattr(backend, "MAX_EXPORT_SECONDS", 600.0)
+    allowed = client.post(
+        f"/api/projects/{project['id']}/exports",
+        json={"mode": "burned", "resolution": 720},
+    )
+    assert allowed.status_code == 202
+    assert client.get("/api/limits").json()["maxExportSeconds"] == 600.0
