@@ -15,6 +15,7 @@ import { API, fetchMediaAssets, request, upload } from './lib/api';
 import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { groupWords } from './lib/pages';
+import captionFonts from './lib/caption-fonts.json';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
 import { treatmentFor } from './remotion/treatments';
@@ -32,6 +33,9 @@ type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> &
   textElements?: CanvasTextElement[];
   canvasElements?: CanvasVisualElement[];
 };
+
+/** Shown when a save fails; the status dot keys off this exact value. */
+const UNSAVED = 'Unsaved changes';
 
 function TemplatePreview({ id, thirdLine }: { id: string; thirdLine?: string }) {
   if (id === 'kinetic') return <strong>BAWAAL.</strong>;
@@ -614,7 +618,7 @@ function App() {
           setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
           setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous);
         }
-      } catch (e) { setSaveStatus('Unsaved changes'); notify((e as Error).message); throw e; }
+      } catch (e) { setSaveStatus(UNSAVED); notify((e as Error).message); throw e; }
     });
     saveChain.current = action; return action;
   }, [notify]);
@@ -2513,9 +2517,12 @@ function App() {
                 onChange={e => markEdit({ ...project, name: e.target.value })}
                 maxLength={120}
               />
+              {/* The dot used to track backend health only, so a failed save
+                  showed "Unsaved changes" next to a reassuring green dot. It is
+                  the most glanceable part of the badge, so it reflects both. */}
               <span className="navbar-save-badge">
-                <span className={`status-dot ${health ? '' : 'offline'}`} />
-                {saveStatus}
+                <span className={`status-dot ${!health ? 'offline' : saveStatus === UNSAVED ? 'unsaved' : ''}`} />
+                <span className="save-text">{saveStatus}</span>
               </span>
             </div>
           </>
@@ -2788,6 +2795,30 @@ function App() {
                   <WandSparkles size={23} />
                 </div>
                 <div className="setting-field">
+                  <label htmlFor="caption-font">
+                    Font
+                    <span>{settings.fontFamily || 'Template default'}</span>
+                  </label>
+                  <select
+                    id="caption-font"
+                    className="font-select"
+                    disabled={busy}
+                    value={settings.fontFamily ?? ''}
+                    style={{ fontFamily: settings.fontFamily ? `"${settings.fontFamily}", sans-serif` : undefined }}
+                    onChange={e => updateSettings({ fontFamily: e.target.value || undefined })}
+                  >
+                    <option value="">Template default</option>
+                    {captionFonts.map(f => (
+                      <option key={f.family} value={f.family}>
+                        {f.label}{f.devanagari ? ' · हिन्दी' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {settings.fontFamily && !captionFonts.find(f => f.family === settings.fontFamily)?.devanagari && (
+                    <p className="field-hint">
+                      No Devanagari in this face — Hindi words fall back to Noto. Pick one marked हिन्दी to keep one font throughout.
+                    </p>
+                  )}
                   <label htmlFor="caption-size">Font size <span>{settings.fontSize}px</span></label>
                   <div className="slider-row">
                     <button
@@ -3034,6 +3065,7 @@ function App() {
                       accent: tmpl?.accent ?? defaults.accent,
                       textColor: undefined,
                       accentSecondary: undefined,
+                      fontFamily: undefined,
                     });
                     notify('Reset to template defaults.');
                   }}

@@ -961,3 +961,20 @@ test('the always-promote rule is keyed off the layout, not a template list', () 
   assert.ok(/alwaysPromote = layout !== 'rows'/.test(track),
     'stacked and single lockups promote; row layouts earn it');
 });
+
+test('every offerable caption font is bundled for the headless renderer', () => {
+  const fonts = JSON.parse(readFileSync(new URL('../src/lib/caption-fonts.json', import.meta.url), 'utf8'));
+  const track = readFileSync(new URL('../src/remotion/CaptionTrack.tsx', import.meta.url), 'utf8');
+  for (const f of fonts as { family: string }[]) {
+    const pkg = f.family.toLowerCase().replace(/\s+/g, '-');
+    assert.ok(track.includes(`@fontsource/${pkg}/`),
+      `${f.family} is imported into the Remotion bundle — the headless renderer cannot reach `
+      + 'the browser’s fonts, so anything missing falls back and the export stops matching the preview');
+  }
+});
+
+test('an unlisted font family never reaches the CSS font stack', () => {
+  const page = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
+  assert.ok(/OFFERED_FONTS\.has\(custom\)/.test(page),
+    'the family is interpolated into a CSS font-family, so it is checked against the offered list first');
+});

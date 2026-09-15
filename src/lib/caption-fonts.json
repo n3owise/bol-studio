@@ -1,0 +1,13 @@
+[
+  { "family": "Montserrat",        "label": "Montserrat",        "devanagari": false, "note": "Premiere preset face" },
+  { "family": "Poppins",           "label": "Poppins",           "devanagari": true,  "note": "Geometric, full Devanagari" },
+  { "family": "Mukta",             "label": "Mukta",             "devanagari": true,  "note": "Built for Devanagari" },
+  { "family": "Anek Devanagari",   "label": "Anek Devanagari",   "devanagari": true,  "note": "Modern Indic display" },
+  { "family": "Oswald",            "label": "Oswald",            "devanagari": false, "note": "Condensed caps" },
+  { "family": "Anton",             "label": "Anton",             "devanagari": false, "note": "Heavy display" },
+  { "family": "Bebas Neue",        "label": "Bebas Neue",        "devanagari": false, "note": "Tall condensed caps" },
+  { "family": "DM Sans",           "label": "DM Sans",           "devanagari": false, "note": "Clean default" },
+  { "family": "Space Grotesk",     "label": "Space Grotesk",     "devanagari": false, "note": "Technical grotesque" },
+  { "family": "STIX Two Text",     "label": "STIX Two Text",     "devanagari": false, "note": "Serif" },
+  { "family": "Noto Sans Devanagari", "label": "Noto Devanagari", "devanagari": true, "note": "Neutral Devanagari" }
+]

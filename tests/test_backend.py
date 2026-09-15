@@ -432,3 +432,11 @@ def test_exports_default_to_60fps():
     """A 0.42s preset entrance is 25 frames at 60 and 12 at 30."""
     assert backend.ExportRequest(mode="burned", resolution=720).fps == 60
     assert backend.ExportRequest(mode="burned", resolution=720, fps=30).fps == 30
+
+
+def test_caption_font_must_be_one_we_offer():
+    """fontFamily is interpolated into a CSS font-family in the renderer."""
+    assert backend.Settings(fontFamily="Poppins").fontFamily == "Poppins"
+    assert backend.Settings().fontFamily is None
+    with pytest.raises(Exception):
+        backend.Settings(fontFamily='"; content: url(x)')

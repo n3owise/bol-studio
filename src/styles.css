@@ -4581,7 +4581,9 @@ progress::-moz-progress-bar {
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1.5px solid rgba(0, 0, 0, 0.08);
+  /* A colour disc needs a ring that survives both themes: an 8%-black hairline
+     made white and near-white swatches invisible against the light panel. */
+  border: 1.5px solid var(--color-border-medium, rgba(0, 0, 0, 0.18));
   cursor: pointer;
   transition: transform 0.12s;
 }
@@ -9819,3 +9821,78 @@ kbd {
 }
 .swatches .swatch-reset:hover:not(:disabled) { opacity: 1; }
 .swatches .swatch-reset:disabled { opacity: 0.3; cursor: default; }
+
+/* Caption font picker. The base `select` rule already themes correctly, so this
+   only sets width and weight — an earlier version hardcoded its own background
+   and border tokens, which do not exist here, and fell back to dark values that
+   were unreadable in the light theme. */
+.font-select {
+  width: 100%;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.field-hint {
+  margin: 7px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Narrow navbar.
+
+   The editor grid already reflows at 1100px and 860px, but the navbar had no
+   breakpoint of its own: below roughly 640px the brand wordmark overlapped the
+   Projects button, the "Saved locally" badge slid under Export, and Export ran
+   off the right edge. Drop the optional furniture in priority order and let the
+   project name take whatever is left.
+   --------------------------------------------------------------------------- */
+@media (max-width: 760px) {
+  .navbar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+  /* The timecode pill is a nicety; the controls beside it are not. */
+  .navbar-center {
+    display: none;
+  }
+  .navbar-left {
+    flex: 1 1 auto;
+    gap: 10px;
+    overflow: hidden;
+  }
+  .navbar-right {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+  .navbar-project {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .navbar-project-input {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  /* Keep the mark, drop the wordmark: it is the widest fixed element left. */
+  .navbar-brand-text,
+  .navbar-brand-logo + span,
+  /* Hide the wording, keep the dot: it is the only save signal left here. */
+  .navbar-save-badge .save-text {
+    display: none;
+  }
+  .navbar-save-badge {
+    padding: 0;
+  }
+  .nav-btn-group {
+    gap: 2px;
+  }
+}
+
+/* A save that failed is worth seeing at a glance, not just reading. */
+.status-dot.unsaved {
+  background: var(--color-warning, #f59e0b);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-warning, #f59e0b) 22%, transparent);
+}

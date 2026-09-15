@@ -42,6 +42,13 @@ TEMPLATE_IDS = {
     )
 }
 
+CAPTION_FONTS = {
+    f["family"]
+    for f in json.loads(
+        (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-fonts.json").read_text()
+    )
+}
+
 DEFAULT_SETTINGS = json.loads(
     (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
 )
@@ -284,7 +291,9 @@ class Word(ValidatedModel):
 
 
 class Settings(BaseModel):
-    model_config = ConfigDict(extra="allow", allow_inf_nan=False)
+    # Every caption setting is declared below, so an unknown key means the
+    # client and server have drifted; surface that instead of storing it.
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     template: str = Field(default=DEFAULT_SETTINGS["template"])
 
@@ -297,12 +306,36 @@ class Settings(BaseModel):
     accent: str = Field(default=DEFAULT_SETTINGS["accent"], pattern=r"^#[0-9a-fA-F]{6}$")
     # Third line colour for stacked lockups; see Settings.accentSecondary.
     accentSecondary: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    # Declared rather than left to extra="allow": this value is interpolated
+    # into a CSS font-family, so an arbitrary string is an injection surface.
+    fontFamily: str | None = None
+
+    @field_validator("fontFamily")
+    @classmethod
+    def _known_font(cls, value: str | None) -> str | None:
+        if value is not None and value not in CAPTION_FONTS:
+            raise ValueError(f"Unknown caption font: {value}")
+        return value
+
     fontSize: float = Field(default=DEFAULT_SETTINGS["fontSize"], ge=20, le=100)
     position: float = Field(default=DEFAULT_SETTINGS["position"], ge=10, le=90)
     wordsPerLine: StrictInt = Field(default=DEFAULT_SETTINGS["wordsPerLine"], ge=1, le=8)
     uppercase: StrictBool = DEFAULT_SETTINGS["uppercase"]
     motion: float = Field(default=DEFAULT_SETTINGS["motion"], ge=0, le=2)
     aspect: Literal["original", "9:16", "1:1", "16:9"] = DEFAULT_SETTINGS["aspect"]
+
+    # Everything the editor can set is declared here. These previously rode
+    # through on extra="allow", so colours, offsets and widths reached the
+    # renderer unchecked — the same gap that let an arbitrary fontFamily be
+    # interpolated into a CSS font-family.
+    positionX: float | None = Field(default=None, ge=0, le=100)
+    textColor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    backgroundColor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    backgroundOpacity: float | None = Field(default=None, ge=0, le=100)
+    strokeColor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    strokeWidth: float | None = Field(default=None, ge=0, le=40)
+    align: Literal["left", "center", "right"] | None = None
+    showSafeArea: StrictBool | None = None
 
 
 class ProjectPatch(ValidatedModel):

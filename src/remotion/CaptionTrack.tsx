@@ -15,6 +15,18 @@ import '@fontsource/montserrat/900.css';
 import '@fontsource/montserrat/600-italic.css';
 import '@fontsource/montserrat/800-italic.css';
 import '@fontsource/stix-two-text/600.css';
+// Every family offered in the caption font picker has to be in this bundle:
+// the headless renderer has no access to the browser's fonts, so anything
+// missing here silently falls back and the export stops matching the preview.
+import '@fontsource/poppins/700.css';
+import '@fontsource/poppins/800.css';
+import '@fontsource/poppins/devanagari-700.css';
+import '@fontsource/mukta/700.css';
+import '@fontsource/mukta/800.css';
+import '@fontsource/anek-devanagari/700.css';
+import '@fontsource/anek-devanagari/800.css';
+import '@fontsource/anton/400.css';
+import '@fontsource/bebas-neue/400.css';
 
 export type CaptionTrackProps = {
   words: Word[];

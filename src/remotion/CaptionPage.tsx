@@ -5,6 +5,7 @@ import { treatmentFor, type FontRole } from './treatments';
 import { CaptionWord } from './CaptionWord';
 import { heroRun, type CaptionPage as Page } from '../lib/pages';
 import type { Settings, Word } from '../lib/types';
+import captionFonts from '../lib/caption-fonts.json';
 
 type Props = {
   page: Page;
@@ -59,8 +60,10 @@ const FONT_STACKS: Record<FontRole, string> = {
   stix: theme.type.stix,
 };
 
+const OFFERED_FONTS = new Set(captionFonts.map(f => f.family));
+
 const fontStack = (role: FontRole, custom?: string) =>
-  (custom ? `"${custom}", ${FONT_STACKS[role]}` : FONT_STACKS[role]);
+  (custom && OFFERED_FONTS.has(custom) ? `"${custom}", ${FONT_STACKS[role]}` : FONT_STACKS[role]);
 
 export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pageFrames }) => {
   const frame = useCurrentFrame();
