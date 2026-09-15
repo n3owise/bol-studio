@@ -2,6 +2,34 @@
 
 Notable changes to Bol Studio.
 
+## 0.2.1 — 2026-09-15
+
+### Fixed
+
+- **Caption frames were being composited on top of each other.** Exports came
+  back with roughly one frame in twenty blank or missing its caption, scattered
+  irregularly — 15 of 300 frames in a ten-second clip. Some showed a word
+  sliced in half, and some showed less than the frame before them, so the
+  animation appeared to run backwards.
+
+  The frame dispatcher held out-of-order frames and drained them from inside
+  each concurrent delivery. Frames were dispatched in the right order, which is
+  what made it look correct, but the drain awaited the consumer inside its
+  loop — so the moment one call awaited, the next delivery entered the same
+  loop and started another. Eight ran at once. Since the consumer composites
+  every frame onto a single shared canvas and awaits an image decode partway
+  through, a second call reaching `clearRect` wiped a half-drawn frame.
+
+  Anyone on 0.2.0 should upgrade before exporting.
+
+### Removed
+
+- Five controls in the generate panel that collected a value and had it
+  dropped: Auto punctuation, Filter filler words, Detect multiple speakers,
+  Maximum lines, and Automatic caption splitting. None of them reached the
+  server. A control that looks like it works and does not is worse than not
+  offering it.
+
 ## 0.2.0 — 2026-09-15
 
 The first release since captions moved to Remotion. The theme running through
