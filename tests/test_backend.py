@@ -879,3 +879,45 @@ def test_the_key_guards_our_api_and_nothing_else(monkeypatch):
         assert not backend._is_guarded(path), f"{path} must not need our key"
     # Health stays reachable so uptime checks work without a key.
     assert not backend._is_guarded("/api/health")
+
+
+def test_an_unlisted_origin_loses_its_cors_header_even_if_something_else_set_it(monkeypatch):
+    """Gradio installs its own CORS middleware and reflected any origin back.
+
+    On the deployment a request from https://evil.example came back with
+    access-control-allow-origin set to exactly that, so any page a visitor had
+    open could call this API from their browser. Our own CORSMiddleware cannot
+    prevent it — it sits further out, and it does not overwrite a header an
+    inner layer already set — so the header is checked on the way out instead.
+    """
+    monkeypatch.setattr(backend, "ALLOWED_ORIGINS", ["https://www.bol-studio.me"])
+
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    inner = FastAPI()
+
+    @inner.get("/x")
+    def _x():
+        return {"ok": True}
+
+    # Stand in for Gradio's middleware: reflect whatever origin it is given.
+    async def reflect(request, call_next):
+        response = await call_next(request)
+        if origin := request.headers.get("origin"):
+            response.headers["access-control-allow-origin"] = origin
+        return response
+
+    inner.add_middleware(BaseHTTPMiddleware, dispatch=reflect)
+    inner.add_middleware(BaseHTTPMiddleware, dispatch=backend.strip_foreign_cors)
+
+    with TestClient(inner) as client:
+        evil = client.get("/x", headers={"Origin": "https://evil.example"})
+        assert "access-control-allow-origin" not in evil.headers, (
+            "an unlisted origin must not be told it is allowed, whoever set the header"
+        )
+        ours = client.get("/x", headers={"Origin": "https://www.bol-studio.me"})
+        assert ours.headers.get("access-control-allow-origin") == "https://www.bol-studio.me"
+        # No Origin at all is a same-origin or server-side call; nothing to strip.
+        assert client.get("/x").status_code == 200

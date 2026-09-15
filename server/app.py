@@ -545,6 +545,31 @@ def validate_word_intervals(words: list[dict], duration: float) -> None:
         previous_end = word["end"]
 
 
+async def strip_foreign_cors(request: Request, call_next):
+    """Remove an allow-origin header we did not authorise.
+
+    Gradio installs its own CORS middleware, and on the deployment it answered
+    a request from https://evil.example by reflecting that origin straight
+    back — so any page a visitor had open could call this API from their
+    browser. Ours cannot simply outrank it: it sits further out, and CORSMiddleware
+    does not overwrite a header an inner layer has already set.
+
+    So the header is checked on the way out instead. An origin on the allowlist
+    keeps its header; anything else loses it, and the browser refuses the
+    response as it should.
+    """
+    response = await call_next(request)
+    origin = request.headers.get("origin")
+    if not origin or "*" in ALLOWED_ORIGINS:
+        return response
+    if origin not in ALLOWED_ORIGINS:
+        # MutableHeaders has no pop; deleting a header that is absent raises.
+        for header in ("access-control-allow-origin", "access-control-allow-credentials"):
+            if header in response.headers:
+                del response.headers[header]
+    return response
+
+
 def install_middleware(target: FastAPI) -> FastAPI:
     """Put the gate, the workspace check and the CORS allowlist on `target`.
 
@@ -561,6 +586,7 @@ def install_middleware(target: FastAPI) -> FastAPI:
     if getattr(target.state, "bol_middleware_installed", False):
         return target
     target.add_middleware(BaseHTTPMiddleware, dispatch=scope_to_owner)
+    target.add_middleware(BaseHTTPMiddleware, dispatch=strip_foreign_cors)
     target.add_middleware(BaseHTTPMiddleware, dispatch=require_api_key)
     target.add_middleware(CORSMiddleware,
                           allow_origins=ALLOWED_ORIGINS,
