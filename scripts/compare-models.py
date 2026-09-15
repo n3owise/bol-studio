@@ -55,14 +55,29 @@ class Model:
     target: str
 
 
+# The repo these come from is named for IndicConformer and mostly contains
+# AI4Bharat Indic models, but the two Hinglish variants are Whisper fine-tunes —
+# their tokens files carry Whisper's 50,257-entry vocabulary, and the app loads
+# them through sherpa's `from_whisper`. Worth stating plainly, because the repo
+# name suggests otherwise and it changes how these results should be read: A and
+# C are the same architecture, differing in what they were fine-tuned to do.
 MODELS = [
-    Model("A", "hinglish-apex", "What Bol uses today. IndicConformer via sherpa-onnx, writes Roman Hinglish directly.",
+    Model("A", "hinglish-apex",
+          "What Bol uses today, run through the app's whole pipeline including the second "
+          "multilingual pass that repairs English words. Whisper Large-V3 fine-tuned for Roman "
+          "Hinglish, 807M params, int8 ONNX.",
           "sherpa", "data/models/hinglish-apex/hi-hinglish-apex"),
-    Model("B", "hinglish-swift", "Same family, six times smaller. Worth knowing how much accuracy that costs.",
+    Model("B", "hinglish-swift",
+          "Same family, built on Whisper-base instead: 72.6M params, ~150MB, roughly six times smaller. "
+          "The question is how much accuracy that saving costs.",
           "sherpa", "data/models/hinglish-swift/hi-hinglish-swift"),
-    Model("C", "whisper-large-v3-turbo", "A general multilingual model, not a Hinglish specialist. Writes Devanagari.",
+    Model("C", "whisper-large-v3-turbo",
+          "Stock Whisper, no Hinglish fine-tuning. The same base as A, so it isolates what the "
+          "fine-tuning changed — including whether it translates Hinglish instead of transcribing it.",
           "mlx", "mlx-community/whisper-large-v3-turbo"),
-    Model("D", "Trelis/whisper-hinglish-preview", "A Whisper fine-tuned on Hinglish. Downloads ~1.5GB the first time.",
+    Model("D", "Trelis/whisper-hinglish-preview",
+          "A different Hinglish fine-tune of Whisper, by a different author. The only real outside "
+          "comparison here.",
           "transformers", "Trelis/whisper-hinglish-preview"),
 ]
 
@@ -121,6 +136,53 @@ def score(reference: str, hypothesis: str) -> tuple[float, float]:
     return (strict, lenient)
 
 
+def disputes(texts: dict[str, str]) -> list[dict]:
+    """Every point where the models do not say the same thing.
+
+    Ground truth is the honest way to score this, and writing it out by hand for
+    a whole clip is a lot to ask. This is the substitute: the first model is the
+    spine, each other model is diffed against it, and the differences are
+    collected. What survives is a short list of moments to listen to instead of
+    the entire clip.
+
+    A true multi-way alignment is not attempted, because the padding required to
+    force four transcripts of different lengths into one grid invents positions
+    that no model actually produced. Diffing each against one spine says only
+    what can be said plainly: here is where they parted company.
+
+    Agreement is not proof either. All four can be wrong together, and on
+    Hinglish they frequently are wrong in the same places. This narrows the
+    listening; it does not decide who is right.
+    """
+    from difflib import SequenceMatcher
+
+    keys = list(texts)
+    if len(keys) < 2:
+        return []
+    spine_key = keys[0]
+    spine = normalise(texts[spine_key]).split()
+
+    found: dict[tuple[int, int], dict] = {}
+    for key in keys[1:]:
+        other = normalise(texts[key]).split()
+        for tag, i1, i2, j1, j2 in SequenceMatcher(None, spine, other).get_opcodes():
+            if tag == "equal":
+                continue
+            slot = found.setdefault((i1, i2), {
+                "at": i1,
+                "context": " ".join(spine[max(0, i1 - 4):i1]),
+                spine_key: " ".join(spine[i1:i2]) or "—",
+            })
+            slot[key] = " ".join(other[j1:j2]) or "—"
+
+    out = []
+    for slot in sorted(found.values(), key=lambda s: s["at"]):
+        for key in keys:
+            slot.setdefault(key, slot.get(spine_key, ""))
+        out.append(slot)
+    return out
+
+
 def word_diff(reference: str, hypothesis: str) -> list[tuple[str, str, str]]:
     """Aligned differences, as (kind, expected, heard)."""
     from difflib import SequenceMatcher
@@ -147,33 +209,48 @@ def to_wav(source: Path) -> Path:
 
 
 def run_sherpa(model: Model, wav: Path) -> str:
-    """Load it exactly the way server/transcription.py does.
+    """Run the app's whole pipeline, not just the model.
 
-    These are Whisper-architecture ONNX exports, so `from_whisper` — not the
-    NeMo or transducer constructors. Guessing the wrong one here would still
-    produce text and would be comparing something the app never runs.
+    This matters more than it sounds. Bol does not ship a bare sherpa decode:
+    after the Hinglish model produces its transcript, `_english_companion_decode`
+    runs a second multilingual pass and `merge_code_mixed_english` folds its
+    English words back in. That repair layer is why the live site writes
+    "captions" where the raw model writes "capsions".
+
+    An earlier version of this bench called `_sherpa_decode` directly and so
+    scored the model without the repair — under-representing the very thing it
+    was supposed to be the baseline for, and making every alternative look
+    better than it is. The user spotted it by noticing the website got a word
+    right that the bench reported wrong.
+
+    So this calls `transcribe`, which is exactly what the site calls. The
+    env var pins the model, since model_config otherwise always picks apex.
     """
-    import numpy as np
-    import sherpa_onnx
-    from scipy.io import wavfile
+    import os
 
-    directory = PROJECT_ROOT / model.target
-    recognizer = sherpa_onnx.OfflineRecognizer.from_whisper(
-        encoder=str(directory / "encoder.int8.onnx"),
-        decoder=str(directory / "decoder.int8.onnx"),
-        tokens=str(directory / "tokens.txt"),
-        language="hi",
-        task="transcribe",
-        num_threads=4,
-        decoding_method="greedy_search",
-        provider="cpu",
-    )
+    from server import transcription as engine
+
+    previous = os.environ.get("BOL_MODEL")
+    os.environ["BOL_ENGINE"] = "sherpa-hinglish"
+    os.environ["BOL_MODEL"] = str(PROJECT_ROOT / model.target)
+    try:
+        result = engine.transcribe(
+            wav, duration_of(wav), script="roman", language="hi",
+            progress=lambda *_: None,
+        )
+        return " ".join(str(w.get("text", "")).strip() for w in result.get("words", [])).strip()
+    finally:
+        os.environ.pop("BOL_ENGINE", None)
+        if previous is None:
+            os.environ.pop("BOL_MODEL", None)
+        else:
+            os.environ["BOL_MODEL"] = previous
+
+
+def duration_of(wav: Path) -> float:
+    from scipy.io import wavfile
     rate, data = wavfile.read(str(wav))
-    samples = data.astype(np.float32) / 32768.0
-    stream = recognizer.create_stream()
-    stream.accept_waveform(rate, samples)
-    recognizer.decode_stream(stream)
-    return stream.result.text.strip()
+    return len(data) / rate
 
 
 def run_mlx(model: Model, wav: Path) -> str:
@@ -265,7 +342,27 @@ Lower is better: <b>0.00</b> is perfect, <b>0.25</b> means one word in four is w
                      "<code>jaate</code> and <code>jate</code> count as the same word. A model that "
                      "only loses on the strict number is spelling differently, not mishearing.</p>")
 
-    parts.append("<h2>Clip by clip</h2>")
+    # Where the models disagree — the only places worth listening to.
+    parts.append("<h2>Where they disagree</h2>"
+                 "<p class='note'>Passages every model transcribed the same way are left out. "
+                 "These are the moments to check by ear. Agreement is not proof — all of them "
+                 "can be wrong together, and on Hinglish they often are.</p>")
+    for clip, _ in clips:
+        texts = {m.key: by[(m.key, clip)].text for m in models
+                 if (m.key, clip) in by and not by[(m.key, clip)].error}
+        rows_d = disputes(texts)
+        parts.append(f"<h3>{esc(clip)} <span class='note'>· {len(rows_d)} disagreements</span></h3>")
+        if not rows_d:
+            parts.append("<p class='note'>Every model agreed throughout.</p>")
+            continue
+        parts.append("<table><tr><th>After…</th>" +
+                     "".join(f"<th>{m.key}</th>" for m in models if m.key in texts) + "</tr>")
+        for row in rows_d:
+            cells = "".join(f"<td>{esc(row.get(m.key, ''))}</td>" for m in models if m.key in texts)
+            parts.append(f"<tr><td class='note'>…{esc(row['context'])}</td>{cells}</tr>")
+        parts.append("</table>")
+
+    parts.append("<h2>Full transcripts</h2>")
     for clip, truth in clips:
         parts.append(f"<div class='clip'><h3>{esc(clip)}</h3>")
         if truth:
