@@ -51,6 +51,8 @@ interface CaptionsPanelProps {
   time: number;
   playing: boolean;
   groups: Word[][];
+  /** Words the renderer will draw at hero size, from buildPages — not a guess. */
+  heroWordIds: Set<string>;
   settings: Settings;
   selectedWord: string | null;
   selectedWordIds: Set<string>;
@@ -143,6 +145,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   time,
   playing,
   groups,
+  heroWordIds,
   settings,
   selectedWord,
   selectedWordIds,
@@ -1803,7 +1806,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                             isWordSelected ? 'is-selected' : ''
                                           } ${isWordActive ? 'is-active' : ''} ${
                                             isWordSelected && isWordActive ? 'is-selected-and-active' : ''
-                                          } ${w.spotlight ? 'is-spotlight' : (w.emphasis ? 'is-emphasized' : '')} ${
+                                          } ${w.spotlight ? 'is-spotlight' : (heroWordIds.has(w.id) ? 'is-emphasized' : '')} ${
                                             isWordDragging ? 'is-dragging' : ''
                                           }`}
                                           onClick={e => handleWordClick(e, w)}
@@ -1817,10 +1820,14 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                           title={`${w.text} (${formatTimecode(w.start)} – ${formatTimecode(w.end)}) · Drag to move · Click to inspect · Double-click to edit`}
                                         >
                                           <span className="caption-word-text">{w.text}</span>
+                                          {/* The badge reports what the preview does, not what a flag
+                                              says. A stacked template promotes a word on every line
+                                              whether or not anyone highlighted one, and that word used
+                                              to grow on screen with nothing marking it here. */}
                                           {w.spotlight ? (
-                                            <span className="caption-word-spotlight-badge" title="Highlighted">⚡</span>
-                                          ) : w.emphasis ? (
-                                            <span className="caption-word-star-badge" title="Suggested — click to highlight">⚡</span>
+                                            <span className="caption-word-spotlight-badge" title="Highlighted — you chose this word">⚡</span>
+                                          ) : heroWordIds.has(w.id) ? (
+                                            <span className="caption-word-star-badge" title="This template needs a big word on every line and picked this one. Click any word to choose a different one.">⚡</span>
                                           ) : null}
                                         </div>
                                       </div>

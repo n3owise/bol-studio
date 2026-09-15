@@ -1047,3 +1047,31 @@ test('lines break on clause joints, not wherever the ceiling happens to fall', (
     'uske around small hote hain.',        // no orphan page holding only "hain."
   ]);
 });
+
+test('a stacked template promotes a word on every page, and says which one', () => {
+  // The editor badges whatever buildPages returns in heroIndices, so this is
+  // the contract the panel depends on: on a lockup layout every page has a
+  // hero even when no word was highlighted and none scores well, and that hero
+  // is always identifiable. A word growing on the preview with nothing marking
+  // it in the panel is what sent the creator looking for a highlight they
+  // never set.
+  const flat = [word('do', 1.3, 1.5), word('these', 1.55, 1.75), word('look', 1.8, 1.95),
+    word('like', 2.0, 2.15), word('they', 2.2, 2.4)];
+  assert.ok(flat.every(w => !w.spotlight && !w.emphasis), 'nothing is marked by hand');
+
+  for (const page of buildPages(flat, 5, { alwaysPromote: true })) {
+    assert.equal(page.heroIndices.length, 1, 'a lockup always has exactly one hero row');
+    assert.ok(page.words[page.heroIndices[0]], 'the hero resolves to a real word');
+  }
+
+  // A row layout stays quiet on the same flat line: nothing earned promotion.
+  for (const page of buildPages(flat, 5, { alwaysPromote: false })) {
+    assert.equal(page.heroIndices.length, 0);
+  }
+
+  // A highlight the creator did set always wins over the automatic pick.
+  const chosen = flat.map(w => (w.text === 'they' ? { ...w, spotlight: true } : w));
+  for (const page of buildPages(chosen, 5, { alwaysPromote: true })) {
+    assert.deepEqual(page.heroIndices.map(i => page.words[i].text), ['they']);
+  }
+});

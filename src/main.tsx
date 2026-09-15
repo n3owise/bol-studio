@@ -14,7 +14,7 @@ import './styles.css';
 import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
-import { MAX_WORDS_PER_PAGE, groupWords } from './lib/pages';
+import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
 import captionFonts from './lib/caption-fonts.json';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
@@ -275,7 +275,22 @@ function App() {
   const duration = project?.duration || 0;
   const words = project?.words ?? [];
   const isSingleWordTemplate = useCallback((tpl: string) => treatmentFor(tpl).layout === 'single', []);
-  const groups = useMemo(() => groupWords(words, isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine), [words, settings.wordsPerLine, settings.template, isSingleWordTemplate]);
+  const perPage = isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine;
+  // Exactly what the renderer draws — same call, same options — so the editor
+  // can show which word will be enlarged instead of guessing at it. A stacked
+  // lockup is built around a hero row, so it promotes a word even when nobody
+  // highlighted one; without this the creator sees a word grow on the preview
+  // with nothing in the panel explaining why.
+  const pages = useMemo(
+    () => buildPages(words, perPage, { alwaysPromote: treatmentFor(settings.template).layout !== 'rows' }),
+    [words, perPage, settings.template],
+  );
+  const groups = useMemo(() => pages.map(page => page.words), [pages]);
+  /** Words the renderer will enlarge, whether chosen by the creator or by score. */
+  const heroWordIds = useMemo(
+    () => new Set(pages.flatMap(page => page.heroIndices.map(i => page.words[i].id))),
+    [pages],
+  );
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groups;
     const q = searchQuery.toLowerCase();
@@ -2632,6 +2647,7 @@ function App() {
             time={time}
             playing={playing}
             groups={groups}
+            heroWordIds={heroWordIds}
             settings={settings}
             selectedWord={selectedWord}
             selectedWordIds={selectedWordIds}
@@ -3880,7 +3896,7 @@ function App() {
                                 <div
                                   role="button"
                                   tabIndex={0}
-                                  className={`timeline-word-cell white-cell ${isWordSelected ? 'is-selected' : ''} ${isCurrentWord ? 'is-active' : ''} ${w.spotlight ? 'is-spotlight' : (w.emphasis ? 'is-emphasized' : '')}`}
+                                  className={`timeline-word-cell white-cell ${isWordSelected ? 'is-selected' : ''} ${isCurrentWord ? 'is-active' : ''} ${w.spotlight ? 'is-spotlight' : (heroWordIds.has(w.id) ? 'is-emphasized' : '')}`}
                                   style={{
                                     left: `${wLeftPct}%`,
                                     width: `calc(${wWidthPct}% - 1px)`,
@@ -3898,9 +3914,9 @@ function App() {
 
                                   <span className="timeline-word-cell-text">{w.text}</span>
                                   {w.spotlight ? (
-                                    <span className="timeline-word-spotlight-badge" title="Highlighted">⚡</span>
-                                  ) : w.emphasis ? (
-                                    <span className="timeline-word-star" title="Suggested — click the word to highlight it">⚡</span>
+                                    <span className="timeline-word-spotlight-badge" title="Highlighted — you chose this word">⚡</span>
+                                  ) : heroWordIds.has(w.id) ? (
+                                    <span className="timeline-word-star" title="Picked automatically for this line. Click any word to choose a different one.">⚡</span>
                                   ) : null}
 
                                   {/* Right trim handle */}
