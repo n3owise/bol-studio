@@ -475,8 +475,8 @@ def test_api_key_gate_closes_when_a_key_is_configured(client, monkeypatch):
 def test_cors_does_not_default_to_every_origin():
     """The deployed Space reflected any Origin back, so any page a visitor had
     open could call this API from their browser."""
-    assert "*" not in backend._cors_origins
-    assert any("localhost:5173" in origin for origin in backend._cors_origins)
+    assert "*" not in backend.ALLOWED_ORIGINS
+    assert any("localhost:5173" in origin for origin in backend.ALLOWED_ORIGINS)
 
 
 def test_glossary_replaces_only_terms_the_creator_supplied():
@@ -824,3 +824,34 @@ def test_projects_without_an_owner_stay_visible_so_nothing_needs_migrating(clien
     for owner in ({}, {"X-Bol-Owner": "alice"}, {"X-Bol-Owner": "bob"}):
         assert client.get(f"/api/projects/{legacy}", headers=owner).status_code == 200
         assert legacy in {p["id"] for p in client.get("/api/projects", headers=owner).json()}
+
+
+def test_the_space_entrypoint_serves_the_real_app_with_its_middleware():
+    """The deployment must not quietly drop every protection it has.
+
+    The Spaces entrypoint used to do `demo.app.include_router(app.router)`,
+    which copies the routes off the FastAPI app and none of its middleware.
+    Every protection in this module is middleware — the API key gate, the
+    per-workspace ownership check, the CORS allowlist — so all three were absent
+    on the deployment while each endpoint still answered perfectly. An open,
+    unscoped backend that looks correct from the outside is the worst possible
+    outcome, and nothing about the endpoints would have revealed it.
+
+    Importing the entrypoint here is deliberate: it is the only way to check
+    what the deployment actually serves rather than what this file defines.
+    """
+    pytest.importorskip("gradio", reason="the Spaces entrypoint needs gradio")
+    pytest.importorskip("spaces", reason="the Spaces entrypoint needs the ZeroGPU shim")
+    import app as entrypoint
+
+    assert entrypoint.application is backend.app, (
+        "the Space must serve the FastAPI app itself. Mounting Gradio onto it keeps the "
+        "middleware; copying routes onto a Gradio app throws the middleware away."
+    )
+    names = {getattr(m.cls, "__name__", str(m.cls)) for m in entrypoint.application.user_middleware}
+    assert "CORSMiddleware" in names
+    # The API key gate and the workspace check are both BaseHTTPMiddleware.
+    assert sum(1 for m in entrypoint.application.user_middleware
+               if getattr(m.cls, "__name__", "") == "BaseHTTPMiddleware") >= 2, (
+        "both the API key gate and the ownership check have to be in the stack"
+    )

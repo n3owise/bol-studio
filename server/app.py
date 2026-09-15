@@ -272,13 +272,13 @@ app = FastAPI(title="Bol local media API", lifespan=lifespan)
 # API from their browser. Set BOL_ALLOWED_ORIGINS to your frontend's origin in
 # production; "*" is still available but has to be asked for.
 DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173"
-_cors_origins = [
+ALLOWED_ORIGINS = [
     v.strip()
     for v in os.getenv("BOL_ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", DEFAULT_ORIGINS)).split(",")
     if v.strip()
 ]
 app.add_middleware(CORSMiddleware,
-                   allow_origins=_cors_origins,
+                   allow_origins=ALLOWED_ORIGINS,
                    allow_methods=["*"],
                    allow_headers=["*"],
                    allow_credentials=False)
