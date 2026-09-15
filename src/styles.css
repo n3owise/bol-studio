@@ -8099,61 +8099,77 @@ kbd {
 /* SAFE AREA GUIDES */
 .safe-area-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   pointer-events: none;
   z-index: 15;
+}
+
+/* Each reserved strip is shaded rather than outlined: the point is to show how
+   much of the frame the app takes, which an outline understates. */
+.safe-area-zone {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px dashed rgba(46, 227, 104, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
-.safe-area-guide-box {
-  width: 86%;
-  height: 86%;
-  border: 1.5px dashed rgba(46, 227, 104, 0.7);
-  position: relative;
-  border-radius: 6px;
+.safe-area-zone.edge-top { top: 0; left: 0; right: 0; }
+.safe-area-zone.edge-bottom { bottom: 0; left: 0; right: 0; }
+.safe-area-zone.edge-right { top: 0; right: 0; bottom: 0; }
+
+.safe-area-zone-label {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: center;
+  padding: 0 6px;
 }
 
-.safe-area-guide-header {
+/* The action rail is a narrow column, so its label reads down the strip. */
+.safe-area-zone.edge-right .safe-area-zone-label {
+  writing-mode: vertical-rl;
+  padding: 6px 0;
+}
+
+.safe-area-name {
   position: absolute;
   top: 6px;
   left: 8px;
   font-size: 9px;
   font-weight: 700;
   color: #2ee368;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.8);
   padding: 2px 6px;
   border-radius: 3px;
-  letter-spacing: 0.5px;
 }
 
-.safe-area-label {
-  position: absolute;
-  font-size: 9px;
-  font-weight: 600;
-  color: #ffffff;
-  background: rgba(0, 0, 0, 0.65);
-  padding: 2px 5px;
-  border-radius: 3px;
+.setting-note {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  opacity: 0.65;
 }
 
-.safe-area-label.top {
-  top: 26px;
-  left: 8px;
+.setting-warning {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  border-radius: 7px;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
-.safe-area-label.right {
-  right: 8px;
-  top: 40%;
-}
-
-.safe-area-label.bottom {
-  bottom: 8px;
-  left: 8px;
+[data-theme="dark"] .setting-warning,
+.theme-dark .setting-warning {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.16);
 }
 
 /* MENUS & MODALS */

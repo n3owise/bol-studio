@@ -34,6 +34,16 @@ export type Settings = {
   strokeWidth?: number;
   align?: 'left' | 'center' | 'right';
   showSafeArea?: boolean;
+  /**
+   * Which app's interface to outline over the preview, so captions do not end
+   * up behind it. 'none' is off.
+   *
+   * This replaces `showSafeArea`, which drew one generic 86% box and had no
+   * control anywhere in the interface, so it could never be switched on. The
+   * covered regions are not square and differ per app: Reels reserves more of
+   * the bottom for its caption block than Shorts does for its title.
+   */
+  safeArea?: 'none' | 'reels' | 'shorts';
 };
 export type ExportJob = { id: string; mode: string; resolution?: number; fps?: number; status: string; progress: number; message: string; filename?: string };
 export type GreenScreenSettings = {

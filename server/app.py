@@ -413,6 +413,7 @@ class Settings(BaseModel):
     strokeWidth: float | None = Field(default=None, ge=0, le=40)
     align: Literal["left", "center", "right"] | None = None
     showSafeArea: StrictBool | None = None
+    safeArea: Literal["none", "reels", "shorts"] | None = None
 
 
 class ProjectPatch(ValidatedModel):

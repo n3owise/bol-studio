@@ -8,6 +8,7 @@ import {
   replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
 import { MAX_WORDS_PER_PAGE, buildPages, heroRun } from '../src/lib/pages.ts';
+import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.ts';
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
 import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
@@ -1074,4 +1075,27 @@ test('a stacked template promotes a word on every page, and says which one', () 
   for (const page of buildPages(chosen, 5, { alwaysPromote: true })) {
     assert.deepEqual(page.heroIndices.map(i => page.words[i].text), ['they']);
   }
+});
+
+test('safe-area zones describe each app and flag a caption hidden behind them', () => {
+  for (const spec of [SAFE_AREAS.reels, SAFE_AREAS.shorts]) {
+    const bottom = spec.zones.find(z => z.edge === 'bottom')!;
+    const top = spec.zones.find(z => z.edge === 'top')!;
+    assert.ok(spec.zones.every(z => z.size > 0 && z.size < 0.5), `${spec.name}: a strip cannot be half the frame`);
+    assert.ok(bottom.size > top.size, `${spec.name}: the bottom block is the big one`);
+
+    // The Vertical Position slider runs 15–88, so both ends must be reachable
+    // without the warning firing on a position the slider cannot even produce.
+    assert.equal(positionCollides(spec, 50), null, 'the middle is always clear');
+    assert.ok(positionCollides(spec, 88), 'the slider maximum lands in the bottom block');
+  }
+
+  // Reels reserves more of the bottom than Shorts — that difference is the
+  // whole reason the overlay is per-app rather than one generic box.
+  assert.ok(SAFE_AREAS.reels.zones.find(z => z.edge === 'bottom')!.size
+    > SAFE_AREAS.shorts.zones.find(z => z.edge === 'bottom')!.size);
+
+  assert.equal(safeAreaFor('none'), null);
+  assert.equal(safeAreaFor(undefined), null);
+  assert.equal(safeAreaFor('reels')?.name, 'Instagram Reels');
 });

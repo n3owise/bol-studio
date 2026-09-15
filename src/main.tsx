@@ -15,6 +15,7 @@ import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
+import { SAFE_AREAS, positionCollides, safeAreaFor } from './lib/safe-area';
 import captionFonts from './lib/caption-fonts.json';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
@@ -297,6 +298,12 @@ function App() {
   );
   const groups = useMemo(() => pages.map(page => page.words), [pages]);
   /** Words the renderer will enlarge, whether chosen by the creator or by score. */
+  const safeArea = useMemo(() => safeAreaFor(settings.safeArea), [settings.safeArea]);
+  /** The strip a caption at the current vertical position would land behind. */
+  const safeAreaClash = useMemo(
+    () => positionCollides(safeArea, settings.position),
+    [safeArea, settings.position],
+  );
   const heroWordIds = useMemo(
     () => new Set(pages.flatMap(page => page.heroIndices.map(i => page.words[i].id))),
     [pages],
@@ -2926,6 +2933,37 @@ function App() {
                   />
                 </div>
                 <div className="setting-field">
+                  {/* This overlay existed and drew itself, but nothing anywhere
+                      could switch it on — so the one thing that catches a
+                      caption hidden behind the app's interface was unreachable. */}
+                  <label htmlFor="safe-area">Show app interface</label>
+                  <div className="segmented-control">
+                    {([
+                      { id: 'none', label: 'Off' },
+                      { id: 'reels', label: 'Reels' },
+                      { id: 'shorts', label: 'Shorts' },
+                    ] as const).map(option => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        disabled={busy}
+                        className={(settings.safeArea ?? 'none') === option.id ? 'active' : ''}
+                        aria-pressed={(settings.safeArea ?? 'none') === option.id}
+                        onClick={() => updateSettings({ safeArea: option.id })}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {safeArea && <p className="setting-note">{safeArea.note}</p>}
+                  {safeAreaClash && (
+                    <p className="setting-warning">
+                      At {settings.position}% your captions sit behind &ldquo;{safeAreaClash.label}&rdquo;
+                      on {safeArea?.name}. Move them out of that strip.
+                    </p>
+                  )}
+                </div>
+                <div className="setting-field">
                   <label htmlFor="caption-position-x">Horizontal Position <span>{settings.positionX ?? 50}%</span></label>
                   <input
                     disabled={busy}
@@ -3335,14 +3373,24 @@ function App() {
                     }
                   }}
                 />
-                {settings.showSafeArea && (
+                {/* The app's own interface, drawn over the preview so a caption
+                    cannot quietly end up behind it. Shaded strips, not one
+                    dashed box: the covered regions are different sizes and the
+                    bottom one is what actually catches people out. */}
+                {safeArea && (
                   <div className="safe-area-overlay" aria-hidden="true">
-                    <div className="safe-area-guide-box">
-                      <div className="safe-area-guide-header">Safe Area · Short Form</div>
-                      <div className="safe-area-label top">Header / Profile</div>
-                      <div className="safe-area-label right">Action Icons</div>
-                      <div className="safe-area-label bottom">Caption & Title</div>
-                    </div>
+                    {safeArea.zones.map(zone => (
+                      <div
+                        key={`${zone.edge}-${zone.label}`}
+                        className={`safe-area-zone edge-${zone.edge}`}
+                        style={zone.edge === 'right'
+                          ? { width: `${zone.size * 100}%` }
+                          : { height: `${zone.size * 100}%` }}
+                      >
+                        <span className="safe-area-zone-label">{zone.label}</span>
+                      </div>
+                    ))}
+                    <div className="safe-area-name">{safeArea.name}</div>
                   </div>
                 )}
                 {selectedCanvasElementId && (
