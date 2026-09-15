@@ -1463,17 +1463,6 @@ function App() {
   ) {
     handleDropWords([sourceWordId], targetGroupIdx, targetPosition);
   }
-  function handleAutoStar() {
-    const p = projectRef.current; if (!p) return;
-    const updated = autoDetectHighlights(p.words, settings.wordsPerLine);
-    markEdit({ ...p, words: updated });
-    notify('Suggested highlights applied.');
-  }
-  function handleClearAllEmphasis() {
-    const p = projectRef.current; if (!p) return;
-    markEdit({ ...p, words: p.words.map(w => ({ ...w, emphasis: false, spotlight: false })) });
-    notify('All highlights cleared.');
-  }
   function commitInlineEdit() {
     if (!editingWordId) return;
     const p = projectRef.current;

@@ -92,15 +92,11 @@ interface CaptionsPanelProps {
     script: string,
     language: string,
     options: {
-      autoPunctuation: boolean;
-      filterFiller: boolean;
-      multiSpeaker: boolean;
       wordsPerLine: number;
       glossary?: string[];
       isolateVocals?: boolean;
       emoji?: boolean;
       translate?: boolean;
-      maxLines: number;
     }
   ) => Promise<void>;
   onCancelTranscription?: () => void;
@@ -209,13 +205,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const [wantEmoji, setWantEmoji] = useState(!!project?.emoji);
   const [wantTranslate, setWantTranslate] = useState(!!project?.translate);
   const [captionScript, setCaptionScript] = useState<'roman' | 'native' | 'en' | 'same'>('roman');
-  const [autoPunctuation, setAutoPunctuation] = useState(true);
-  const [filterFiller, setFilterFiller] = useState(false);
-  const [multiSpeaker, setMultiSpeaker] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [wordsPerCaption, setWordsPerCaption] = useState(Math.min(settings.wordsPerLine || 5, MAX_WORDS_PER_PAGE));
-  const [maxLines, setMaxLines] = useState(2);
-  const [autoSplit, setAutoSplit] = useState(true);
 
   // Inline group editing state
   const [editingGroupIdx, setEditingGroupIdx] = useState<number | null>(null);
@@ -911,11 +902,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     const targetSource = selectedSourceId === 'primary' ? null : selectedSourceId;
     try {
       await onStartTranscription(targetSource, captionScript, spokenLang, {
-        autoPunctuation,
-        filterFiller,
-        multiSpeaker,
         wordsPerLine: wordsPerCaption,
-        maxLines,
         glossary: brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200),
         isolateVocals,
         emoji: spokenLang === 'en' && wantEmoji,
@@ -1142,50 +1129,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
             </div>
 
             {/* TRANSCRIPTION OPTIONS */}
-            <div className="generate-field-group">
-              <label className="generate-label">Transcription Options</label>
-              <div className="toggle-list">
-                <label className="toggle-row">
-                  <div className="toggle-text">
-                    <span className="toggle-title">Auto punctuation</span>
-                    <span className="toggle-desc">Automatically add periods, commas & question marks</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="bol-switch"
-                    checked={autoPunctuation}
-                    onChange={e => setAutoPunctuation(e.target.checked)}
-                  />
-                </label>
-
-                <label className="toggle-row">
-                  <div className="toggle-text">
-                    <span className="toggle-title">Filter filler words</span>
-                    <span className="toggle-desc">Exclude &ldquo;um&rdquo;, &ldquo;uh&rdquo;, &ldquo;ah&rdquo;</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="bol-switch"
-                    checked={filterFiller}
-                    onChange={e => setFilterFiller(e.target.checked)}
-                  />
-                </label>
-
-                <label className="toggle-row">
-                  <div className="toggle-text">
-                    <span className="toggle-title">Detect multiple speakers</span>
-                    <span className="toggle-desc">Tag speech by speaker when detected</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    className="bol-switch"
-                    checked={multiSpeaker}
-                    onChange={e => setMultiSpeaker(e.target.checked)}
-                  />
-                </label>
-              </div>
-            </div>
-
             {/* ADVANCED OPTIONS */}
             <div className="advanced-options-section">
               <button
@@ -1213,29 +1156,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                       onChange={e => setWordsPerCaption(Number(e.target.value))}
                       className="bol-slider"
                     />
-                  </div>
-
-                  <div className="advanced-field">
-                    <div className="slider-label-row">
-                      <span>Maximum lines</span>
-                      <span className="slider-badge">{maxLines} lines</span>
-                    </div>
-                    <div className="pill-choice-row">
-                      <button
-                        type="button"
-                        className={`choice-pill ${maxLines === 1 ? 'active' : ''}`}
-                        onClick={() => setMaxLines(1)}
-                      >
-                        1 Line
-                      </button>
-                      <button
-                        type="button"
-                        className={`choice-pill ${maxLines === 2 ? 'active' : ''}`}
-                        onClick={() => setMaxLines(2)}
-                      >
-                        2 Lines
-                      </button>
-                    </div>
                   </div>
 
                   <div className="advanced-field">
@@ -1307,15 +1227,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                     </label>
                   )}
 
-                  <label className="toggle-row compact">
-                    <span className="toggle-title">Automatic caption splitting</span>
-                    <input
-                      type="checkbox"
-                      className="bol-switch"
-                      checked={autoSplit}
-                      onChange={e => setAutoSplit(e.target.checked)}
-                    />
-                  </label>
                 </div>
               )}
             </div>
