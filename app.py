@@ -100,6 +100,9 @@ with gr.Blocks(title="Bol Studio API Engine") as demo:
 application = gr.mount_gradio_app(app, demo, path="/")
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(application, host="0.0.0.0", port=int(os.getenv("PORT", 7860)))
+    # Handing the mounted app to Gradio rather than starting uvicorn ourselves.
+    # A Gradio-SDK Space already owns port 7860, so a second server there fails
+    # with EADDRINUSE and the Space never comes up — which is exactly what
+    # calling uvicorn.run here did.
+    demo.launch(_app=application, server_name="0.0.0.0",
+                server_port=int(os.getenv("PORT", 7860)), ssr_mode=False)
