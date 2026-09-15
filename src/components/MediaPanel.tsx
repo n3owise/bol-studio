@@ -28,7 +28,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { API, deleteMediaAsset, duplicateMediaAsset, fetchMediaAssets, updateMediaAsset, uploadMediaAsset } from '../lib/api';
+import { API, deleteMediaAsset, duplicateMediaAsset, fetchMediaAssets, updateMediaAsset, uploadMediaAsset, mediaUrl } from '../lib/api';
 import { applyChromaKey, drawKeyedMedia, hexToRgb, samplePixelColor } from '../lib/chromakey';
 import { defaultGreenScreen, type CanvasVisualElement, type GreenScreenSettings, type MediaAsset, type Project } from '../lib/types';
 
@@ -148,8 +148,8 @@ export function MediaPanel({
           width: project.width,
           height: project.height,
           createdAt: project.created,
-          url: `${API}/api/projects/${project.id}/media`,
-          thumbnailUrl: `${API}/api/projects/${project.id}/media-thumbnail`,
+          url: `/api/projects/${project.id}/media`,
+          thumbnailUrl: `/api/projects/${project.id}/media-thumbnail`,
           greenScreen: (project as any).greenScreen,
         };
         setAssets([primary]);
@@ -331,7 +331,7 @@ export function MediaPanel({
 
   const handleDownload = (asset: MediaAsset) => {
     if (!project) return;
-    const downloadUrl = `${API}/api/projects/${project.id}/assets/${asset.id}/download`;
+    const downloadUrl = mediaUrl(`/api/projects/${project.id}/assets/${asset.id}/download`);
     const a = document.createElement('a');
     a.href = downloadUrl;
     a.download = asset.filename;
@@ -619,7 +619,7 @@ export function MediaPanel({
                     <div className="media-card-thumb-wrap">
                       {asset.thumbnailUrl ? (
                         <img
-                          src={`${API}${asset.thumbnailUrl}`}
+                          src={mediaUrl(asset.thumbnailUrl || '')}
                           alt={asset.name}
                           className="media-card-img"
                           loading="lazy"
@@ -629,7 +629,7 @@ export function MediaPanel({
                         />
                       ) : isImage && asset.url ? (
                         <img
-                          src={`${API}${asset.url}`}
+                          src={mediaUrl(asset.url || '')}
                           alt={asset.name}
                           className="media-card-img"
                           loading="lazy"
@@ -945,7 +945,7 @@ function MediaPreviewModal({
     if (media) media.currentTime = val;
   };
 
-  const mediaSourceUrl = asset.url?.startsWith('http') ? asset.url : `${API}${asset.url || ''}`;
+  const mediaSourceUrl = mediaUrl(asset.url || '');
 
   return (
     <div className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
@@ -1256,7 +1256,7 @@ export function GreenScreenModal({
   const [videoDuration, setVideoDuration] = useState(asset.duration || 0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const mediaSourceUrl = asset.url?.startsWith('http') ? asset.url : `${API}${asset.url || ''}`;
+  const mediaSourceUrl = mediaUrl(asset.url || '');
 
   // Live Canvas render loop
   const renderFrame = useCallback(() => {

@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import secrets
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -18,9 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 from server.transcription import model_status, transcribe
@@ -256,12 +257,49 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Bol local media API", lifespan=lifespan)
-_cors_origins = [v.strip() for v in os.getenv("BOL_ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", "*")).split(",") if v.strip()]
+
+# Origins default to the local dev server rather than "*". The deployed Space
+# was reflecting any Origin back, so any page a visitor had open could call this
+# API from their browser. Set BOL_ALLOWED_ORIGINS to your frontend's origin in
+# production; "*" is still available but has to be asked for.
+DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://[::1]:5173"
+_cors_origins = [
+    v.strip()
+    for v in os.getenv("BOL_ALLOWED_ORIGINS", os.getenv("CORS_ORIGINS", DEFAULT_ORIGINS)).split(",")
+    if v.strip()
+]
 app.add_middleware(CORSMiddleware,
-                   allow_origins=_cors_origins or ["*"],
+                   allow_origins=_cors_origins,
                    allow_methods=["*"],
                    allow_headers=["*"],
                    allow_credentials=False)
+
+# A shared key, enabled by setting BOL_API_KEY. Unset — the local default — the
+# gate is open so `npm run dev` needs no configuration.
+#
+# This is a deterrent, not authentication: the key ships inside the frontend
+# bundle, so anyone who opens the app can read it. It stops drive-by traffic
+# against a public deployment; it does not stop someone who wants in. Real
+# per-user auth is a separate piece of work.
+API_KEY = os.getenv("BOL_API_KEY", "").strip()
+# The Gradio landing page and the health check stay reachable so the Space shows
+# as up without a key.
+_OPEN_PATHS = {"/", "/api/health", "/docs", "/openapi.json", "/favicon.ico"}
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if not API_KEY or request.method == "OPTIONS" or request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+    # Media, thumbnails and downloads are loaded by <video src> and <img src>,
+    # which cannot set headers, so the key is accepted as a query parameter too.
+    supplied = request.headers.get("x-api-key") or request.query_params.get("key") or ""
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        supplied = supplied or authorization[7:].strip()
+    if not secrets.compare_digest(supplied, API_KEY):
+        return JSONResponse({"detail": "A valid API key is required."}, status_code=401)
+    return await call_next(request)
 
 
 class ValidatedModel(BaseModel):

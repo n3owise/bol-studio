@@ -11,7 +11,7 @@ import '@fontsource/noto-sans-devanagari/700.css';
 import '@fontsource/montserrat/800.css';
 import '@fontsource/montserrat/900.css';
 import './styles.css';
-import { API, fetchMediaAssets, request, upload } from './lib/api';
+import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { groupWords } from './lib/pages';
@@ -581,7 +581,7 @@ function App() {
       downloadedExportIdsRef.current.add(job.id);
       setActiveExportId(null);
       setLastDownloadedExportId(job.id);
-      const downloadUrl = `${API}/api/projects/${project.id}/exports/${job.id}/download`;
+      const downloadUrl = mediaUrl(`/api/projects/${project.id}/exports/${job.id}/download`);
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.download = job.filename || `${project.name || 'export'}-${job.mode}.mp4`;
@@ -934,7 +934,7 @@ function App() {
 
   const handleAddMediaToCanvas = useCallback((asset: MediaAsset) => {
     const url = asset.url || `/api/projects/${projectRef.current?.id}/assets/${asset.id}/file`;
-    const fullUrl = url.startsWith('http') ? url : `${API}${url}`;
+    const fullUrl = mediaUrl(url);
     const totalDuration = projectRef.current?.duration || duration || 5;
 
     if (asset.mediaType === 'image') {
@@ -3221,7 +3221,7 @@ function App() {
                   ref={media}
                   className={`${project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''} ${activeMediaAsset?.greenScreen?.enabled ? 'video-keyed' : ''}`}
                   key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}-${activeMediaAsset?.id || 'primary'}`}
-                  src={busy ? undefined : (activeMediaAsset ? (activeMediaAsset.url?.startsWith('http') ? activeMediaAsset.url : `${API}${activeMediaAsset.url}`) : `${API}/api/projects/${project.id}/media`)}
+                  src={busy ? undefined : mediaUrl(activeMediaAsset ? (activeMediaAsset.url || '') : `/api/projects/${project.id}/media`)}
                   playsInline
                   preload="metadata"
                   muted={muted}

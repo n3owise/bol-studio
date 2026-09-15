@@ -440,3 +440,36 @@ def test_caption_font_must_be_one_we_offer():
     assert backend.Settings().fontFamily is None
     with pytest.raises(Exception):
         backend.Settings(fontFamily='"; content: url(x)')
+
+
+def test_api_key_gate_is_open_when_no_key_is_configured(client):
+    """Local development must need no configuration."""
+    assert backend.API_KEY == ""
+    assert client.get("/api/projects").status_code == 200
+
+
+def test_api_key_gate_closes_when_a_key_is_configured(client, monkeypatch):
+    """A deployed backend was reachable by anyone who knew the URL.
+
+    The key is a deterrent, not authentication — it ships in the frontend
+    bundle — but it stops drive-by traffic against a public deployment.
+    """
+    monkeypatch.setattr(backend, "API_KEY", "secret-123")
+
+    assert client.get("/api/projects").status_code == 401
+    assert client.get("/api/projects", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.get("/api/projects", headers={"X-API-Key": "secret-123"}).status_code == 200
+    assert client.get(
+        "/api/projects", headers={"Authorization": "Bearer secret-123"}
+    ).status_code == 200
+    # <video src> and <img src> cannot set headers, so a query parameter works too.
+    assert client.get("/api/projects?key=secret-123").status_code == 200
+    # The landing page and health check stay open so the Space reads as up.
+    assert client.get("/api/health").status_code == 200
+
+
+def test_cors_does_not_default_to_every_origin():
+    """The deployed Space reflected any Origin back, so any page a visitor had
+    open could call this API from their browser."""
+    assert "*" not in backend._cors_origins
+    assert any("localhost:5173" in origin for origin in backend._cors_origins)
