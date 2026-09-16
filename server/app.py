@@ -575,6 +575,15 @@ class Settings(BaseModel):
     align: Literal["left", "center", "right"] | None = None
     showSafeArea: StrictBool | None = None
     autoHighlight: StrictBool | None = None
+    # Typography adjustments layered over the template's own, so 1 and 0 mean
+    # "leave it alone" — see src/lib/types.ts.
+    lineHeight: float | None = Field(default=None, ge=0.6, le=2.0)
+    letterSpacing: float | None = Field(default=None, ge=-0.1, le=0.5)
+    bold: StrictBool | None = None
+    italic: StrictBool | None = None
+    underline: StrictBool | None = None
+    strikethrough: StrictBool | None = None
+    textCase: Literal["none", "upper", "lower", "sentence", "title"] | None = None
     safeArea: Literal["none", "reels", "shorts"] | None = None
 
 

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, ChevronDown, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Star, Type, WandSparkles } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Bold, Check, Italic, Strikethrough, Underline, ChevronDown, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Star, Type, WandSparkles } from 'lucide-react';
 import captionFonts from '../lib/caption-fonts.json';
 import { templates } from '../lib/captions';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';
@@ -260,6 +260,179 @@ export function StylePanel({ settings, updateSettings, busy, notify, isStackedTe
                       ))}
                     </div>
                   </div>
+                  {/* Alignment, outline and backdrop were all read by the
+                      renderer and settable nowhere — the same gap the safe-area
+                      overlay had. Nothing here is new behaviour; it is the
+                      behaviour finally becoming reachable. */}
+                  <div className="setting-field">
+                    <label>Style</label>
+                    <div className="segmented-control">
+                      {([
+                        { key: 'bold', icon: <Bold size={14}/>, label: 'Bold', on: !!settings.bold },
+                        { key: 'italic', icon: <Italic size={14}/>, label: 'Italic', on: !!settings.italic },
+                        { key: 'underline', icon: <Underline size={14}/>, label: 'Underline', on: !!settings.underline },
+                        { key: 'strikethrough', icon: <Strikethrough size={14}/>, label: 'Strikethrough', on: !!settings.strikethrough },
+                      ] as const).map(option => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          disabled={busy}
+                          aria-label={option.label}
+                          aria-pressed={option.on}
+                          title={option.label}
+                          className={option.on ? 'active' : ''}
+                          onClick={() => updateSettings({ [option.key]: !option.on })}
+                        >
+                          {option.icon}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="setting-field">
+                    <label>Capitalisation</label>
+                    <div className="segmented-control">
+                      {([
+                        { id: 'none', label: 'As spoken' },
+                        { id: 'upper', label: 'AA' },
+                        { id: 'lower', label: 'aa' },
+                        { id: 'title', label: 'Aa' },
+                      ] as const).map(option => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          disabled={busy}
+                          title={option.id === 'title' ? 'Capitalise each word' : option.label}
+                          className={(settings.textCase ?? (settings.uppercase ? 'upper' : 'none')) === option.id ? 'active' : ''}
+                          onClick={() => updateSettings({ textCase: option.id, uppercase: option.id === 'upper' })}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="setting-field">
+                    <label htmlFor="line-height">
+                      Line height <span>{((settings.lineHeight ?? 1) * 100).toFixed(0)}%</span>
+                    </label>
+                    <div className="slider-row">
+                      <input
+                        disabled={busy}
+                        id="line-height"
+                        type="range"
+                        min="0.7"
+                        max="1.6"
+                        step="0.05"
+                        value={settings.lineHeight ?? 1}
+                        onChange={e => updateSettings({ lineHeight: Number(e.target.value) })}
+                      />
+                      <span className="slider-number-badge">{(settings.lineHeight ?? 1).toFixed(2)}x</span>
+                    </div>
+                    <p className="setting-note">
+                      Relative to the template, so Devanagari keeps the extra room its matras need.
+                    </p>
+                  </div>
+
+                  <div className="setting-field">
+                    <label htmlFor="letter-spacing">
+                      Letter spacing <span>{(settings.letterSpacing ?? 0) > 0 ? '+' : ''}{(settings.letterSpacing ?? 0).toFixed(3)}em</span>
+                    </label>
+                    <div className="slider-row">
+                      <input
+                        disabled={busy}
+                        id="letter-spacing"
+                        type="range"
+                        min="-0.05"
+                        max="0.3"
+                        step="0.005"
+                        value={settings.letterSpacing ?? 0}
+                        onChange={e => updateSettings({ letterSpacing: Number(e.target.value) })}
+                      />
+                      <span className="slider-number-badge">{(settings.letterSpacing ?? 0).toFixed(3)}</span>
+                    </div>
+                  </div>
+
+                  <div className="setting-field">
+                    <label htmlFor="caption-align">Alignment</label>
+                    <div className="segmented-control">
+                      {([
+                        { id: 'left', icon: <AlignLeft size={15}/>, label: 'Left' },
+                        { id: 'center', icon: <AlignCenter size={15}/>, label: 'Centre' },
+                        { id: 'right', icon: <AlignRight size={15}/>, label: 'Right' },
+                      ] as const).map(option => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          disabled={busy}
+                          aria-label={option.label}
+                          title={option.label}
+                          className={(settings.align ?? 'center') === option.id ? 'active' : ''}
+                          onClick={() => updateSettings({ align: option.id })}
+                        >
+                          {option.icon}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="setting-field">
+                    <label htmlFor="stroke-width">
+                      Outline <span>{settings.strokeWidth ? `${settings.strokeWidth}px` : 'none'}</span>
+                    </label>
+                    <div className="slider-row">
+                      <input
+                        disabled={busy}
+                        id="stroke-width"
+                        type="range"
+                        min="0"
+                        max="12"
+                        step="1"
+                        value={settings.strokeWidth ?? 0}
+                        onChange={e => updateSettings({ strokeWidth: Number(e.target.value) })}
+                      />
+                      <label className="custom-color" title="Outline colour">
+                        <input
+                          disabled={busy}
+                          aria-label="Outline colour"
+                          type="color"
+                          value={settings.strokeColor || '#000000'}
+                          onChange={e => updateSettings({ strokeColor: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                    <p className="setting-note">
+                      An outline is what keeps captions readable over a bright or busy shot.
+                    </p>
+                  </div>
+
+                  <div className="setting-field">
+                    <label htmlFor="bg-opacity">
+                      Background <span>{settings.backgroundOpacity ? `${Math.round(settings.backgroundOpacity * 100)}%` : 'off'}</span>
+                    </label>
+                    <div className="slider-row">
+                      <input
+                        disabled={busy}
+                        id="bg-opacity"
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.05"
+                        value={settings.backgroundOpacity ?? 0}
+                        onChange={e => updateSettings({ backgroundOpacity: Number(e.target.value) })}
+                      />
+                      <label className="custom-color" title="Background colour">
+                        <input
+                          disabled={busy}
+                          aria-label="Background colour"
+                          type="color"
+                          value={settings.backgroundColor || '#000000'}
+                          onChange={e => updateSettings({ backgroundColor: e.target.value })}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="setting-field">
                     <label htmlFor="words-per-line">Words Per Line (Chunking) <span>{settings.wordsPerLine}</span></label>
                     <div className="slider-row">

@@ -45,6 +45,30 @@ export type Settings = {
    * what a lecture does not want, so it is a choice rather than a fixed style.
    */
   autoHighlight?: boolean;
+
+  /**
+   * Typography adjustments, applied on top of whatever the template specifies
+   * rather than replacing it.
+   *
+   * Each template carries deliberate typography — weights per row, tracking,
+   * and a separate line height for Devanagari, whose matras collide at Latin
+   * spacing. A raw line-height value here would throw all of that away, so
+   * these are a multiplier and an offset: 1 and 0 mean "exactly what the
+   * template says", and the Devanagari handling survives either way.
+   */
+  lineHeight?: number;
+  /** Extra tracking in em, added to the template's own. */
+  letterSpacing?: number;
+  /** Forced on when true; when undefined the template decides. */
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  /**
+   * How every caption word is cased. `uppercase` predates this and still works;
+   * this wins when both are set.
+   */
+  textCase?: 'none' | 'upper' | 'lower' | 'sentence' | 'title';
   /**
    * Which app's interface to outline over the preview, so captions do not end
    * up behind it. 'none' is off.

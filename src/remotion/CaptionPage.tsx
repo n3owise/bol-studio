@@ -104,6 +104,27 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   // At most one emoji a page, never on the hero — see pickEmoji.
   const emojiPick = pickEmoji(page);
 
+  /**
+   * Apply the creator's casing.
+   *
+   * `textCase` wins over the older `uppercase` flag and the template's own
+   * uppercaseHero, because it is the more specific instruction — someone who
+   * asked for sentence case did not mean "except on templates that shout".
+   * Sentence and title case are applied per word, which is all the renderer
+   * sees; a true sentence case would need the line, and a caption line is
+   * rarely a sentence.
+   */
+  const applyCase = (text: string, upper: boolean) => {
+    switch (settings.textCase) {
+      case 'upper': return text.toLocaleUpperCase();
+      case 'lower': return text.toLocaleLowerCase();
+      case 'title': return text.replace(/^\p{L}/u, c => c.toLocaleUpperCase());
+      case 'sentence': return text.toLocaleLowerCase();
+      case 'none': return text;
+      default: return upper ? text.toLocaleUpperCase() : text;
+    }
+  };
+
   const renderWord = (
     word: Word,
     role: 'hero' | 'sub',
@@ -127,7 +148,7 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     const rowWeight = row === 'prefix' ? treatment.prefixWeight
       : row === 'suffix' ? treatment.suffixWeight
         : undefined;
-    const shown = upper ? word.text.toLocaleUpperCase() : word.text;
+    const shown = applyCase(word.text, !!upper);
     // Appended to the word rather than placed as its own element: it then
     // inherits the word's entrance, exit and fit-to-width scaling for free, and
     // cannot drift out of sync with the text it belongs to.
@@ -148,9 +169,13 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         strokeColor={settings.strokeColor}
         strokeWidth={settings.strokeWidth}
         fontFamily={fontStack(role === 'hero' ? treatment.heroFont : treatment.subFont, settings.fontFamily)}
-        weight={rowWeight}
+        weight={settings.bold ? 900 : rowWeight}
         exitProgress={exitProgress}
-        italic={role === 'hero' ? treatment.heroItalic : treatment.subItalic}
+        italic={settings.italic ?? (role === 'hero' ? treatment.heroItalic : treatment.subItalic)}
+        lineHeightScale={settings.lineHeight ?? 1}
+        trackingAdd={settings.letterSpacing ?? 0}
+        underline={settings.underline}
+        strikethrough={settings.strikethrough}
         pill={pill}
         pillColor={accent}
         devanagari={devanagari}

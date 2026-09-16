@@ -1217,3 +1217,36 @@ test('turning off automatic highlighting leaves every word the same, but never o
   // Default is on: an absent option must not silently disable the feature.
   assert.equal(buildPages(words, 5, { alwaysPromote: true })[0].heroIndices.length, 1);
 });
+
+test('every caption setting the renderer reads has a control in the editor', () => {
+  // Five settings were read by the renderer and settable nowhere — alignment,
+  // the outline colour and width, and the backdrop colour and opacity. That is
+  // the same failure as the safe-area overlay and the Emphasize button: a
+  // capability that exists, works, and cannot be reached.
+  //
+  // The check is that the panel *reads* each one, since it only reads a setting
+  // in order to show its current state on a control. Looking for the write
+  // instead would miss the style buttons, which set their field by key.
+  const panel = readFileSync(new URL('../src/components/StylePanel.tsx', import.meta.url), 'utf8');
+  const settable = [
+    'align', 'strokeColor', 'strokeWidth', 'backgroundColor', 'backgroundOpacity',
+    'lineHeight', 'letterSpacing', 'bold', 'italic', 'underline', 'strikethrough', 'textCase',
+  ];
+  for (const field of settable) {
+    assert.ok(panel.includes(`settings.${field}`),
+      `${field} is reachable from the editor — the renderer honours it, so without a control `
+      + 'it can only be set by hand-editing the project file');
+  }
+});
+
+test('typography adjustments layer over the template rather than replacing it', () => {
+  // A raw line height would discard the separate Devanagari value, whose matras
+  // collide at Latin spacing — so these are a multiplier and an offset, and
+  // their neutral values have to mean "leave the template alone".
+  const source = readFileSync(new URL('../src/remotion/CaptionWord.tsx', import.meta.url), 'utf8');
+  assert.match(source, /lineHeightScale = 1/, 'the neutral line-height scale is 1');
+  assert.match(source, /trackingAdd = 0/, 'the neutral tracking offset is 0');
+  assert.match(source, /heroLineHeightIndic|subLineHeightIndic/,
+    'the Devanagari line height still applies underneath the multiplier');
+  assert.match(source, /\* lineHeightScale/, 'the scale multiplies the template value');
+});

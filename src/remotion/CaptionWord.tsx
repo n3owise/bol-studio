@@ -30,6 +30,17 @@ type Props = {
   weight?: number;
   /** Per-row italic override. */
   italic?: boolean;
+  /**
+   * The creator's typography adjustments, layered over the template's.
+   *
+   * `lineHeightScale` multiplies and `trackingAdd` is added, so 1 and 0 leave
+   * the template exactly as designed — including its separate Devanagari line
+   * height, which a raw override would have discarded.
+   */
+  lineHeightScale?: number;
+  trackingAdd?: number;
+  underline?: boolean;
+  strikethrough?: boolean;
   /** 0 while the page is on screen, ramping to 1 across its closing frames. */
   exitProgress?: number;
 };
@@ -46,6 +57,7 @@ type Props = {
 export const CaptionWord: React.FC<Props> = ({
   text, enterFrame, role, size, color, treatment, frameWidth, motion,
   strokeColor, strokeWidth, fontFamily, pill, pillColor, devanagari, weight, italic,
+  lineHeightScale = 1, trackingAdd = 0, underline, strikethrough,
   exitProgress = 0,
 }) => {
   const frame = useCurrentFrame();
@@ -275,12 +287,18 @@ export const CaptionWord: React.FC<Props> = ({
         fontSize: size,
         fontWeight: weight ?? (isHero ? treatment.heroWeight : treatment.subWeight),
         fontStyle: (italic ?? (isHero ? treatment.heroItalic : treatment.subItalic)) ? 'italic' : 'normal',
-        lineHeight: devanagari
+        lineHeight: (devanagari
           ? (isHero ? theme.type.heroLineHeightIndic : theme.type.subLineHeightIndic)
-          : (isHero ? theme.type.heroLineHeight : theme.type.subLineHeight),
+          : (isHero ? theme.type.heroLineHeight : theme.type.subLineHeight)) * lineHeightScale,
+        // The entrance animates tracking, so the creator's offset is added to
+        // whichever value is in play rather than replacing it — otherwise the
+        // adjustment would cancel the animation for its first few frames.
         letterSpacing: enterTracking > 0.0005
-          ? `${enterTracking.toFixed(4)}em`
-          : (isHero ? theme.type.heroTracking : theme.type.subTracking),
+          ? `${(enterTracking + trackingAdd).toFixed(4)}em`
+          : `calc(${isHero ? theme.type.heroTracking : theme.type.subTracking} + ${trackingAdd}em)`,
+        textDecorationLine: [underline && 'underline', strikethrough && 'line-through']
+          .filter(Boolean).join(' ') || undefined,
+        textDecorationThickness: (underline || strikethrough) ? `${Math.max(1, size * 0.045)}px` : undefined,
         color: isGradient ? undefined : (pill ? getContrastColor(pillColor ?? '#ffffff') : color),
         ...(isGradient
           ? {
