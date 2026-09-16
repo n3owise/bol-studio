@@ -15,7 +15,7 @@ import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
-import { SAMPLE_ITEMS, UNSAVED, type NavPanelId } from './lib/shell';
+import { UNSAVED, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
 import { StylePanel } from './components/StylePanel';
 import { TextPanel } from './components/TextPanel';
@@ -1059,16 +1059,6 @@ function App() {
     const updated = moveWordToNextLine(p.words, wordId);
     markEdit({ ...p, words: updated });
     notify('Moved word to next line.');
-  }
-
-  function loadSample(idx: number) {
-    if (projects.length > idx) {
-      void openProject(projects[idx]);
-    } else if (projects.length > 0) {
-      void openProject(projects[0]);
-    } else {
-      notify('Sample media ready.');
-    }
   }
 
   function handleSplitAtCurrent() {
@@ -2662,29 +2652,6 @@ function App() {
                       </button>
 
 
-                      <div className="upload-divider">
-                        <span className="upload-divider-line" />
-                        <span className="upload-divider-text">Or try a sample</span>
-                        <span className="upload-divider-line" />
-                      </div>
-
-                      <div className="upload-samples-grid">
-                        {SAMPLE_ITEMS.map((sample, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            className="upload-sample-card"
-                            title={`Load sample: ${sample.title}`}
-                            onClick={e => {
-                              e.stopPropagation();
-                              loadSample(idx);
-                            }}
-                          >
-                            <img src={sample.thumbnail} alt={sample.title} className="upload-sample-img" />
-                            <span className="upload-sample-duration">{sample.duration}</span>
-                          </button>
-                        ))}
-                      </div>
                     </>
                   )}
                 </div>
