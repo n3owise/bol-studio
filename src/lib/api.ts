@@ -97,10 +97,19 @@ export async function request<T>(path: string, options?: RequestInit): Promise<T
   }
   return response.json();
 }
+/**
+ * Upload without starting recognition.
+ *
+ * The editor asks what language was spoken once the file has landed, so
+ * transcription has to wait for that answer. Starting it on upload ran the
+ * recogniser with whatever settings the previous clip left behind, and left the
+ * project busy — which disabled the button meant to start it properly.
+ */
 export function upload(file: File, script: string, language: string, onProgress: (progress: number) => void): Promise<Project> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest(); const body = new FormData();
     body.append('file', file); body.append('script', script); body.append('language', language);
+    body.append('autostart', 'false');
     xhr.open('POST', `${API}/api/projects`);
     xhr.setRequestHeader('X-Bol-Owner', WORKSPACE_ID);
     if (API_KEY) xhr.setRequestHeader('X-API-Key', API_KEY);

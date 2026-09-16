@@ -729,7 +729,8 @@ def projects(request: Request):
 
 @app.post("/api/projects", status_code=201)
 async def upload_project(request: Request, file: Annotated[UploadFile, File()], script: Annotated[Literal["roman", "native"], Form()] = "roman",
-                         language: Annotated[Literal["hi", "en", "auto"], Form()] = "hi"):
+                         language: Annotated[Literal["hi", "en", "auto"], Form()] = "hi",
+                         autostart: Annotated[bool, Form()] = True):
     project_id = str(uuid.uuid4())
     directory = project_dir(project_id)
     directory.mkdir(parents=True)
@@ -746,12 +747,20 @@ async def upload_project(request: Request, file: Annotated[UploadFile, File()], 
         metadata = await asyncio.to_thread(inspect_media, directory / "source.bin")
         filename = Path((file.filename or "Untitled clip").replace("\\", "/")).name[:240]
         project = {"id": project_id, "name": Path(filename).stem[:120] or "Untitled clip", "filename": filename,
-                   **metadata, "videoEnabled": metadata["mediaType"] == "video", "created": datetime.now(timezone.utc).isoformat(), "status": "queued", "progress": 0,
-                   "message": "Queued for local transcription.", "words": [], "settings": copy.deepcopy(DEFAULT_SETTINGS),
+                   **metadata, "videoEnabled": metadata["mediaType"] == "video", "created": datetime.now(timezone.utc).isoformat(),
+                   "status": "queued" if autostart else "ready", "progress": 0,
+                   "message": "Queued for local transcription." if autostart else "Ready when you are.",
+                   "words": [], "settings": copy.deepcopy(DEFAULT_SETTINGS),
                    "waveform": [], "exports": [], "script": script, "language": language, "revision": 1,
                    "owner": owner_of(request)}
         write_project(project)
-        EXECUTOR.submit(transcription_job, project_id)
+        # The editor asks what language was spoken before starting, so it opts
+        # out and calls /transcribe itself once the creator has answered.
+        # Starting here regardless would transcribe with whatever settings were
+        # left over from the previous clip, and leave the project busy — which
+        # disabled the very button meant to start it.
+        if autostart:
+            EXECUTOR.submit(transcription_job, project_id)
         return project
     except HTTPException:
         shutil.rmtree(directory, ignore_errors=True)

@@ -963,3 +963,33 @@ def test_an_upload_costs_about_its_own_size_on_disk(client, monkeypatch):
         f"stored {after} bytes for a {len(audio)}-byte upload; the derived copies "
         "are supposed to be small or absent, not a multiple of the original"
     )
+
+
+def test_upload_only_starts_recognition_when_asked(client):
+    """The editor asks which language was spoken *after* the file lands.
+
+    Starting recognition on upload defeated that twice over: it ran with
+    whatever settings the previous clip left behind, and it left the project in
+    a busy state — which disabled the "Generate captions" button in the very
+    dialog asking the question. The upload appeared to work and the answer was
+    unusable.
+
+    Other callers keep the old behaviour, so autostart defaults to on.
+    """
+    media = {"file": ("clip.wav", audio_bytes(), "audio/wav")}
+
+    waiting = client.post("/api/projects", files=media, data={"autostart": "false"})
+    assert waiting.status_code == 201
+    assert waiting.json()["status"] == "ready", "not busy, so the dialog's button stays usable"
+    assert not backend.EXECUTOR.jobs, "nothing queued until the creator answers"
+
+    started = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")})
+    assert started.json()["status"] == "queued"
+    assert len(backend.EXECUTOR.jobs) == 1, "the default is unchanged for anything else"
+
+    # And the deferred one still transcribes when asked, with the chosen language.
+    response = client.post(f"/api/projects/{waiting.json()['id']}/transcribe",
+                           json={"language": "en", "script": "native"})
+    assert response.status_code == 200
+    assert response.json()["language"] == "en"
+    assert len(backend.EXECUTOR.jobs) == 2
