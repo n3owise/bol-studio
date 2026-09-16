@@ -2715,15 +2715,33 @@ function App() {
                         e.preventDefault();
                         const frame = preview.current;
                         if (!frame) return;
-                        setDraggingCaption(true);
                         const rect = frame.getBoundingClientRect();
+                        const startX = e.clientX;
+                        const startY = e.clientY;
+                        // Where inside the handle the pointer came down. Without
+                        // this the caption jumped so its anchor sat exactly under
+                        // the cursor, which moved it by up to half a handle the
+                        // moment it was touched — the caption appeared to reposition
+                        // itself on what felt like a hover.
+                        const grabX = ((e.clientX - rect.left) / rect.width) * 100
+                          - (activePage?.words[0]?.posX ?? settings.positionX ?? 50);
+                        const grabY = ((e.clientY - rect.top) / rect.height) * 100
+                          - (activePage?.words[0]?.posY ?? settings.position ?? 70);
+                        // Nothing moves until the pointer has travelled far enough
+                        // to mean it: a click on the handle is a click, not a drag.
+                        let dragging = false;
                         // Magnetic snapping to the nine anchors: the caption
                         // tracks the mouse freely and is taken by an anchor only
                         // near one. Alt turns even that off.
                         const move = (ev: MouseEvent) => {
+                          if (!dragging) {
+                            if (Math.abs(ev.clientX - startX) < 3 && Math.abs(ev.clientY - startY) < 3) return;
+                            dragging = true;
+                            setDraggingCaption(true);
+                          }
                           const clamp = (v: number) => Math.max(0, Math.min(100, v));
-                          const rawX = clamp(((ev.clientX - rect.left) / rect.width) * 100);
-                          const rawY = clamp(((ev.clientY - rect.top) / rect.height) * 100);
+                          const rawX = clamp(((ev.clientX - rect.left) / rect.width) * 100 - grabX);
+                          const rawY = clamp(((ev.clientY - rect.top) / rect.height) * 100 - grabY);
                           if (ev.altKey) {
                             setCaptionSnap({ x: null, y: null });
                             setCaptionPosition(rawX, rawY);
@@ -2758,17 +2776,24 @@ function App() {
 
                     <div className="caption-move-bar" onMouseDown={e => e.stopPropagation()}>
                       <div className="caption-move-row">
+                        {/* Text alignment, which is how the lines sit against each
+                            other — not where the block sits in the frame. These
+                            used to set the horizontal position instead, so the
+                            align icons did something the align icons do not mean.
+                            Position is the arrows, and the drag. */}
                         {([
-                          { x: CAPTION_ANCHORS_X[0], icon: <AlignLeft size={14}/>, label: 'Left' },
-                          { x: CAPTION_ANCHORS_X[1], icon: <AlignCenter size={14}/>, label: 'Centre' },
-                          { x: CAPTION_ANCHORS_X[2], icon: <AlignRight size={14}/>, label: 'Right' },
+                          { align: 'left', icon: <AlignLeft size={14}/>, label: 'Align left' },
+                          { align: 'center', icon: <AlignCenter size={14}/>, label: 'Align centre' },
+                          { align: 'right', icon: <AlignRight size={14}/>, label: 'Align right' },
                         ] as const).map(option => (
                           <button
                             key={option.label}
                             type="button"
                             title={option.label}
-                            aria-label={`Move ${option.label.toLowerCase()}`}
-                            onClick={() => setCaptionPosition(option.x, activePage?.words[0]?.posY ?? settings.position ?? 70)}
+                            aria-label={option.label}
+                            aria-pressed={(settings.align ?? 'center') === option.align}
+                            className={(settings.align ?? 'center') === option.align ? 'is-active' : ''}
+                            onClick={() => updateSettings({ align: option.align })}
                           >
                             {option.icon}
                           </button>

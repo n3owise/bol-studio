@@ -881,6 +881,25 @@ test('the always-promote rule is keyed off the layout, not a template list', () 
     'stacked and single lockups promote; row layouts earn it');
 });
 
+test('the preview overlay aligns text with the align icons and moves with the arrows', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const bar = editor.slice(editor.indexOf('caption-move-row'), editor.indexOf('caption-move-scope'));
+  assert.ok(/updateSettings\(\{ align: option\.align \}\)/.test(bar),
+    'the three align icons set text alignment — they used to set the horizontal position, '
+    + 'so they did something the icons do not mean');
+  assert.ok(/{ y: CAPTION_ANCHORS_Y\[0\]/.test(bar),
+    'the arrows are what move the caption vertically');
+});
+
+test('grabbing the caption handle does not move it', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(/const grabX = /.test(editor) && /- grabX\)/.test(editor),
+    'the drag keeps the pointer’s offset inside the handle; without it the caption jumped so '
+    + 'its anchor sat under the cursor the moment the handle was touched');
+  assert.ok(/Math\.abs\(ev\.clientX - startX\) < 3/.test(editor),
+    'a click on the handle is a click, not a drag');
+});
+
 test('a dragged caption lands on the nine anchors, not a fine grid', () => {
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
   assert.ok(!/Math\.round\(v \/ 5\) \* 5/.test(editor),
@@ -890,8 +909,8 @@ test('a dragged caption lands on the nine anchors, not a fine grid', () => {
     && /const CAPTION_ANCHORS_Y = \[15, 50, 82\]/.test(editor),
     'three horizontal and three vertical anchors, shared with the alignment buttons so '
     + 'dragging somewhere and clicking to it agree');
-  assert.ok(/{ x: CAPTION_ANCHORS_X\[0\]/.test(editor) && /{ y: CAPTION_ANCHORS_Y\[0\]/.test(editor),
-    'the buttons read the same constants rather than repeating the numbers');
+  assert.ok(/{ y: CAPTION_ANCHORS_Y\[0\]/.test(editor),
+    'the position buttons read the same constants rather than repeating the numbers');
   assert.ok(/if \(anchor\.posX === nx && anchor\.posY === ny\) return;/.test(editor),
     'a drag that asks for the position the caption already has does no work — it used to '
     + 'push an undo entry per mousemove, flushing the history in a single drag');

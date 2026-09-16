@@ -10189,6 +10189,10 @@ kbd {
 
 .caption-move-row button:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
 
+/* Alignment is a setting with a current value, unlike the position arrows,
+   so the button holding it reads as pressed. */
+.caption-move-row button.is-active { background: rgba(34, 197, 94, 0.22); color: #4ade80; }
+
 .caption-move-divider {
   width: 1px;
   height: 17px;
