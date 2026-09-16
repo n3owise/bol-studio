@@ -25,6 +25,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
+from server.auth import AUTH_ENABLED, AuthError, user_id_from
 from server.transcription import model_status, transcribe
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -419,13 +420,22 @@ _PROJECT_PATH = re.compile(r"^/api/projects/([0-9a-fA-F-]{36})(?:/|$)")
 
 
 def owner_of(request: Request) -> str:
-    """The caller's workspace, from the header — or the query string.
+    """Who this request belongs to.
+
+    A verified Supabase user id wins outright. It is set by require_user, which
+    has already checked the signature, so a client that also sends the old
+    workspace header cannot use it to pick an identity — the header is read only
+    when there is no account system configured at all.
 
     Media, thumbnails and downloads are fetched by <video src> and <img src>,
-    which cannot set headers, so those requests carry it as ?owner= exactly the
-    way they already carry the API key. Without that fallback a browser asks for
-    its own project's video as a stranger and is correctly refused.
+    which cannot set headers, so those requests carry the workspace as ?owner=
+    exactly the way they already carry the API key. Without that fallback a
+    browser asks for its own project's video as a stranger and is correctly
+    refused. Signed in, those URLs carry a signed media token instead.
     """
+    verified = getattr(request.state, "bol_owner", "")
+    if verified:
+        return str(verified)[:200]
     supplied = request.headers.get(OWNER_HEADER) or request.query_params.get("owner") or ""
     return supplied.strip()[:200]
 
@@ -433,12 +443,25 @@ def owner_of(request: Request) -> str:
 def owns(project: dict, owner: str) -> bool:
     """Whether `owner` may see this project.
 
-    A project with no owner is visible to everyone. That covers every project
-    created before this existed, and a local checkout where nobody sends the
-    header — which is what keeps `npm run dev` working with no configuration,
-    and means deploying this needs no migration.
+    With no accounts configured, a project with no owner is visible to everyone.
+    That covered every project created before workspaces existed, and a local
+    checkout where nobody sends the header — which is what keeps `npm run dev`
+    working with no configuration.
+
+    With accounts on, that same rule is a hole: every project already on disk has
+    no owner, so it would be readable by whoever signs up. The promise that
+    nothing needed migrating was true of a workspace id a browser made up, and
+    stops being true the moment the owner means a person. So it fails closed —
+    an unowned project belongs to nobody rather than to everybody.
+
+    Nothing adopts those projects automatically. There is no way to tell whose
+    they were, and a rule like "the first account to sign in gets them" would
+    hand one person everyone else's work. scripts/backfill-owner.py exists for
+    claiming a data directory on purpose.
     """
     stored = (project.get("owner") or "").strip()
+    if AUTH_ENABLED:
+        return bool(stored) and bool(owner) and stored == owner
     return not stored or stored == owner
 
 
@@ -464,15 +487,46 @@ async def scope_to_owner(request: Request, call_next):
     return await call_next(request)
 
 
+async def require_user(request: Request, call_next):
+    """Resolve the signed-in user before anything asks who is calling.
+
+    Unconfigured — no BOL_SUPABASE_URL — this does nothing at all, and the owner
+    falls back to the browser-supplied workspace header exactly as before. That
+    is what keeps a local checkout working with no setup, the same bargain the
+    API key gate already makes.
+
+    Configured, every guarded request must carry a token. `_is_guarded` is the
+    same predicate the key gate uses, and for the same reason: Gradio calls its
+    own endpoints during boot from inside the container, and answering those
+    with 401 stops the Space from starting.
+    """
+    if not AUTH_ENABLED or request.method == "OPTIONS" or not _is_guarded(request.url.path):
+        return await call_next(request)
+    authorization = request.headers.get("authorization", "")
+    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
+    if not token:
+        return JSONResponse(
+            {"detail": "Please sign in to continue.", "code": "unauthenticated"},
+            status_code=401,
+        )
+    try:
+        request.state.bol_owner = await user_id_from(token)
+    except AuthError as error:
+        return JSONResponse({"detail": error.detail, "code": error.code}, status_code=401)
+    return await call_next(request)
+
+
 async def require_api_key(request: Request, call_next):
     if not API_KEY or request.method == "OPTIONS" or not _is_guarded(request.url.path):
         return await call_next(request)
     # Media, thumbnails and downloads are loaded by <video src> and <img src>,
     # which cannot set headers, so the key is accepted as a query parameter too.
+    # Authorization: Bearer used to be accepted here too. It carries the signed-in
+    # user's token now, and one header cannot mean two credentials: a shared key
+    # sent that way would satisfy this gate and fail the identity one, producing
+    # two different 401s for the same request. The shared key keeps the header and
+    # the query parameter it always had, and the frontend only ever used those.
     supplied = request.headers.get("x-api-key") or request.query_params.get("key") or ""
-    authorization = request.headers.get("authorization", "")
-    if authorization.lower().startswith("bearer "):
-        supplied = supplied or authorization[7:].strip()
     if not secrets.compare_digest(supplied, API_KEY):
         return JSONResponse({"detail": "A valid API key is required."}, status_code=401)
     return await call_next(request)
@@ -685,6 +739,10 @@ def install_middleware(target: FastAPI) -> FastAPI:
         return target
     target.add_middleware(BaseHTTPMiddleware, dispatch=scope_to_owner)
     target.add_middleware(BaseHTTPMiddleware, dispatch=strip_foreign_cors)
+    # Inside the key gate and outside scope_to_owner: identity has to be resolved
+    # before the ownership check reads it, and a 401 still has to pass back out
+    # through strip_foreign_cors to lose a CORS header it was never owed.
+    target.add_middleware(BaseHTTPMiddleware, dispatch=require_user)
     target.add_middleware(BaseHTTPMiddleware, dispatch=require_api_key)
     target.add_middleware(CORSMiddleware,
                           allow_origins=ALLOWED_ORIGINS,

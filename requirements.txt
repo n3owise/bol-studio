@@ -7,6 +7,9 @@ uroman>=1.3,<2
 sherpa-onnx>=1.13,<2
 faster-whisper>=1.2,<2
 httpx>=0.28,<1
+# Verifying Supabase access tokens. The [crypto] extra brings the ES256 support
+# the signatures need; without it every token is rejected for a missing backend.
+pyjwt[crypto]>=2.10,<3
 huggingface-hub>=0.23
 gradio>=4.0.0
 # Optional: Hybrid Demucs for the opt-in vocal isolation toggle. The feature

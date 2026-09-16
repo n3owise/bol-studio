@@ -465,9 +465,13 @@ def test_api_key_gate_closes_when_a_key_is_configured(client, monkeypatch):
     assert client.get("/api/projects").status_code == 401
     assert client.get("/api/projects", headers={"X-API-Key": "wrong"}).status_code == 401
     assert client.get("/api/projects", headers={"X-API-Key": "secret-123"}).status_code == 200
+    # Authorization: Bearer used to satisfy this gate as well. It carries the
+    # signed-in user's token now, and one header cannot mean two credentials —
+    # a shared key sent that way would pass here and fail the identity check,
+    # answering the same request with two different 401s.
     assert client.get(
         "/api/projects", headers={"Authorization": "Bearer secret-123"}
-    ).status_code == 200
+    ).status_code == 401
     # <video src> and <img src> cannot set headers, so a query parameter works too.
     assert client.get("/api/projects?key=secret-123").status_code == 200
     # The landing page and health check stay open so the Space reads as up.
@@ -811,6 +815,185 @@ def test_a_workspace_cannot_see_or_touch_another_ones_projects(client):
     assert client.get(f"/api/projects/{theirs}/media?owner=alice").status_code == 404
 
 
+# --- Accounts -----------------------------------------------------------------
+#
+# Supabase signs the tokens in production. These mint their own with a throwaway
+# ES256 key and hand the public half to the JWKS cache directly, so the suite
+# never touches the network and never needs a Supabase project to run.
+
+
+def _auth_key():
+    from cryptography.hazmat.primitives.asymmetric import ec
+    return ec.generate_private_key(ec.SECP256R1())
+
+
+def _token(private_key, *, sub="user-1", expires_in=3600, issuer=None, audience="authenticated",
+           algorithm="ES256", key=None, headers=None):
+    import time
+    import jwt
+    claims = {
+        "sub": sub,
+        "aud": audience,
+        "iss": issuer if issuer is not None else f"{SUPABASE_URL}/auth/v1",
+        "exp": int(time.time()) + expires_in,
+        "iat": int(time.time()),
+    }
+    return jwt.encode(claims, key if key is not None else private_key,
+                      algorithm=algorithm, headers=headers or {"kid": "test-key"})
+
+
+SUPABASE_URL = "https://example.supabase.co"
+
+
+@pytest.fixture
+def accounts(client, monkeypatch):
+    """A client with accounts switched on and a local signing key.
+
+    Yields (client, sign) where sign(**kwargs) mints a token the backend will
+    accept. AUTH_ENABLED is read at import in both modules, so both copies are
+    patched — server.app imported the value, it does not look it up.
+    """
+    import jwt as pyjwt
+    from server import auth as auth_module
+
+    private_key = _auth_key()
+    public_jwk = pyjwt.PyJWK.from_json(
+        pyjwt.algorithms.ECAlgorithm.to_jwk(private_key.public_key())
+    )
+
+    class OneKey:
+        async def get(self, kid):
+            if kid != "test-key":
+                raise auth_module.AuthError(auth_module.UNAUTHENTICATED, "Please sign in to continue.")
+            return public_jwk
+
+    monkeypatch.setattr(auth_module, "SUPABASE_URL", SUPABASE_URL)
+    monkeypatch.setattr(auth_module, "AUTH_ENABLED", True)
+    monkeypatch.setattr(auth_module, "_cache", OneKey())
+    monkeypatch.setattr(backend, "AUTH_ENABLED", True)
+
+    def sign(**kwargs):
+        return _token(private_key, **kwargs)
+
+    return client, sign, private_key
+
+
+def test_the_signed_in_user_owns_what_they_upload(accounts):
+    """The account is the owner, and the client does not get a say in which.
+
+    Ownership used to come from a header the browser made up, which was honest
+    about being separation rather than authentication. Now that it identifies a
+    person, a client that keeps sending the old header must not be able to use
+    it to claim someone else's workspace — so the verified id wins outright
+    rather than being one of two sources.
+    """
+    client, sign, _ = accounts
+    token = sign(sub="real-user")
+
+    created = client.post(
+        "/api/projects",
+        files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+        headers={"Authorization": f"Bearer {token}", "X-Bol-Owner": "someone-else"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["owner"] == "real-user", "the token decides, not the header"
+
+    listed = client.get("/api/projects", headers={"Authorization": f"Bearer {token}"})
+    assert created.json()["id"] in {p["id"] for p in listed.json()}
+
+    # Another account cannot see it, and the old header is no longer a way in.
+    other = client.get("/api/projects", headers={"Authorization": f"Bearer {sign(sub='intruder')}"})
+    assert other.json() == []
+    assert client.get("/api/projects", headers={"X-Bol-Owner": "real-user"}).status_code == 401
+
+
+def test_an_expired_token_says_so_and_an_invalid_one_says_nothing(accounts):
+    """The frontend has to tell these apart; an attacker must not.
+
+    An expired token means refresh and retry — the session is real and the user
+    is still there. Anything else means sign out. So the code differs, while the
+    message says nothing about which check failed: whether a token was forged,
+    malformed, or signed by the wrong issuer is not information to hand back.
+    """
+    client, sign, _ = accounts
+
+    expired = client.get("/api/projects", headers={"Authorization": f"Bearer {sign(expires_in=-7200)}"})
+    assert expired.status_code == 401
+    assert expired.json()["code"] == "token_expired"
+
+    for bad in ("not-a-token", sign(issuer="https://evil.example/auth/v1"), sign(audience="anon")):
+        response = client.get("/api/projects", headers={"Authorization": f"Bearer {bad}"})
+        assert response.status_code == 401
+        assert response.json()["code"] == "unauthenticated"
+        assert "expired" not in response.json()["detail"].lower()
+
+    missing = client.get("/api/projects")
+    assert missing.status_code == 401 and missing.json()["code"] == "unauthenticated"
+
+
+def test_a_token_signed_with_the_public_key_as_a_secret_is_refused(accounts):
+    """Algorithm confusion: the attack that would otherwise ship working.
+
+    The verifying key is public. A verifier that also accepts HS256 will take
+    that public key as an HMAC secret, so anyone can mint a token for any user
+    and every legitimate token keeps working — there is nothing to notice. The
+    only defence is refusing the algorithm outright, which is why ALGORITHMS
+    lists ES256 and RS256 and must never grow HS256.
+    """
+    import base64
+    import hashlib
+    import hmac
+    import json as json_module
+    from cryptography.hazmat.primitives import serialization
+
+    client, _, private_key = accounts
+    public_pem = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    # Assembled by hand: PyJWT refuses to *encode* with a public key as an HMAC
+    # secret, and an attacker has no reason to use PyJWT. The whole attack is
+    # that the verifier accepts what the encoder would not produce.
+    b64 = lambda raw: base64.urlsafe_b64encode(raw).rstrip(b"=")
+    part = lambda value: b64(json_module.dumps(value, separators=(",", ":")).encode())
+    signing_input = part({"alg": "HS256", "typ": "JWT", "kid": "test-key"}) + b"." + part(
+        {"sub": "victim", "aud": "authenticated", "iss": f"{SUPABASE_URL}/auth/v1",
+         "exp": 99999999999}
+    )
+    forged = signing_input + b"." + b64(hmac.new(public_pem, signing_input, hashlib.sha256).digest())
+
+    response = client.get("/api/projects", headers={"Authorization": f"Bearer {forged.decode()}"})
+    assert response.status_code == 401, "a public key is not a signing secret"
+
+
+def test_gradio_still_boots_without_a_token(accounts):
+    """A gate answering the wrong request looks exactly like a broken deployment.
+
+    Gradio calls its own endpoints from inside the container while starting, with
+    no token and no key. The API key gate once 401ed those and the Space never
+    came up; this guard uses the same predicate so it cannot repeat that.
+    """
+    client, _, _ = accounts
+    assert client.get("/api/health").status_code == 200
+    for path in ("/", "/gradio_api/startup-events", "/theme.css"):
+        assert client.get(path).status_code != 401, f"{path} is not ours to guard"
+
+
+def test_the_local_checkout_still_needs_no_account(client):
+    """Unconfigured, nothing about this exists.
+
+    `npm run dev` needs no Supabase project, no key and no CORS setup, and that
+    is deliberate — auth switches on by being configured, the same bargain the
+    API key already makes. Requiring an account before the app would run is a
+    regression for anyone cloning the repo.
+    """
+    assert backend.AUTH_ENABLED is False
+    created = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")})
+    assert created.status_code == 201
+    assert client.get("/api/projects").status_code == 200
+
+
 def test_projects_without_an_owner_stay_visible_so_nothing_needs_migrating(client):
     """Every project created before this existed has no owner field.
 
@@ -843,32 +1026,67 @@ def test_the_space_entrypoint_actually_enforces_the_gate(monkeypatch, tmp_path):
     Both times the middleware looked right when inspected. So this drives the
     entrypoint's app with real requests instead of reading its attributes,
     because reading them is what gave the wrong answer twice.
+
+    The sign-in check is asserted here for the same reason. It is the newest
+    layer and the one with the most to lose, and nothing else would notice if it
+    were registered on the wrong object: every local test would still pass.
     """
     pytest.importorskip("gradio", reason="the Spaces entrypoint needs gradio")
     pytest.importorskip("spaces", reason="the Spaces entrypoint needs the ZeroGPU shim")
 
     monkeypatch.setenv("BOL_API_KEY", "gate-open-sesame")
+    monkeypatch.setenv("BOL_SUPABASE_URL", SUPABASE_URL)
     import importlib
+    import server.auth as auth_module
+    importlib.reload(auth_module)
     import server.app as server_module
     importlib.reload(server_module)
     entrypoint = importlib.reload(importlib.import_module("app"))
     monkeypatch.setattr(server_module, "DATA_DIR", tmp_path)
 
+    private_key = _auth_key()
+    import jwt as pyjwt
+    public_jwk = pyjwt.PyJWK.from_json(
+        pyjwt.algorithms.ECAlgorithm.to_jwk(private_key.public_key())
+    )
+
+    class OneKey:
+        async def get(self, kid):
+            return public_jwk
+
+    monkeypatch.setattr(auth_module, "_cache", OneKey())
+    key = {"X-API-Key": "gate-open-sesame"}
+
     with TestClient(entrypoint.application) as client:
         assert client.get("/api/projects").status_code == 401, "no key must be refused"
         assert client.get("/api/projects", headers={"X-API-Key": "wrong"}).status_code == 401
-        ok = client.get("/api/projects", headers={"X-API-Key": "gate-open-sesame"})
-        assert ok.status_code == 200, "the right key must get through"
+
+        # The assertion that matters. The right shared key alone is no longer
+        # enough, so this fails loudly if the sign-in check is ever dropped from
+        # install_middleware or attached to an app that is thrown away. It cannot
+        # pass by accident: only a verified token can turn it into a 200.
+        assert client.get("/api/projects", headers=key).status_code == 401, \
+            "the shared key is not an account"
+
+        signed_in = {**key, "Authorization": f"Bearer {_token(private_key)}"}
+        ok = client.get("/api/projects", headers=signed_in)
+        assert ok.status_code == 200, "a valid token and the right key must get through"
+        assert client.get(
+            "/api/projects", headers={**key, "Authorization": f"Bearer {_token(private_key, expires_in=-60)}"}
+        ).status_code == 401
         # And our routes are actually mounted, not just Gradio's.
-        assert client.get("/api/limits", headers={"X-API-Key": "gate-open-sesame"}).status_code == 200
+        assert client.get("/api/limits", headers=signed_in).status_code == 200
 
     # Clear the variable before reloading, not after. API_KEY is read at module
     # level, so a reload while it is still set leaves the gate armed for every
     # test that follows — monkeypatch undoes the environment after this function
     # returns, which is too late to help.
     monkeypatch.delenv("BOL_API_KEY", raising=False)
+    monkeypatch.delenv("BOL_SUPABASE_URL", raising=False)
+    importlib.reload(auth_module)
     importlib.reload(server_module)
     assert not server_module.API_KEY, "the gate must not stay armed for later tests"
+    assert not server_module.AUTH_ENABLED, "nor must sign-in stay required for them"
 
 
 def test_the_key_guards_our_api_and_nothing_else(monkeypatch):
