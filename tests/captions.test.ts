@@ -833,7 +833,7 @@ test('every font role can render Devanagari', () => {
  * than main.tsx alone. Pinning them to one file made them fail the moment the
  * Style panel was lifted out, reporting a missing control that had simply moved.
  */
-const editorSource = () => ['../src/main.tsx', '../src/components/StylePanel.tsx']
+const editorSource = () => ['../src/main.tsx', '../src/components/StylePanel.tsx', '../src/components/TextPanel.tsx']
   .map(file => readFileSync(new URL(file, import.meta.url), 'utf8'))
   .join('\n');
 
@@ -1120,7 +1120,7 @@ test('every caption setting the renderer reads has a control in the editor', () 
   // The check is that the panel *reads* each one, since it only reads a setting
   // in order to show its current state on a control. Looking for the write
   // instead would miss the style buttons, which set their field by key.
-  const panel = readFileSync(new URL('../src/components/StylePanel.tsx', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../src/components/TextPanel.tsx', import.meta.url), 'utf8');
   const settable = [
     'align', 'strokeColor', 'strokeWidth', 'backgroundColor', 'backgroundOpacity',
     'lineHeight', 'letterSpacing', 'bold', 'italic', 'underline', 'strikethrough', 'textCase',
@@ -1189,7 +1189,7 @@ test('the highlighted word can be sized apart from the rest of the caption', () 
   assert.ok(Math.max(...scales) / Math.min(...scales) > 1.5,
     'templates differ enough in hero scale that one size control cannot cover both');
 
-  const panel = readFileSync(new URL('../src/components/StylePanel.tsx', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../src/components/TextPanel.tsx', import.meta.url), 'utf8');
   assert.ok(panel.includes('settings.heroFontSize'), 'and it has a control');
   assert.ok(panel.includes('heroFontSize: undefined'),
     'with a way back to the template, since an override otherwise survives every template change');

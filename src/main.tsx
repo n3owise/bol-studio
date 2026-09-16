@@ -18,6 +18,7 @@ import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
 import { SAMPLE_ITEMS, UNSAVED, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
 import { StylePanel } from './components/StylePanel';
+import { TextPanel } from './components/TextPanel';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from './lib/safe-area';
 import captionFonts from './lib/caption-fonts.json';
 import { Player, type PlayerRef } from '@remotion/player';
@@ -39,6 +40,7 @@ type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> &
 const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
   { id: 'caption', label: 'Caption', icon: <Captions size={20} strokeWidth={1.75} /> },
   { id: 'media', label: 'Media', icon: <Camera size={20} strokeWidth={1.75} /> },
+  { id: 'text', label: 'Text', icon: <Type size={20} strokeWidth={1.75} /> },
   { id: 'style', label: 'Style', icon: <Clock size={20} strokeWidth={1.75} /> },
   { id: 'audio', label: 'Audio', icon: <Music size={20} strokeWidth={1.75} /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} strokeWidth={1.75} /> },
@@ -2394,8 +2396,8 @@ function App() {
             notify={notify}
             onStartProjectFromUpload={importFile}
           />
-        ) : activeNavPanel === 'style' ? (
-          <StylePanel
+        ) : activeNavPanel === 'text' ? (
+          <TextPanel
             settings={settings}
             updateSettings={updateSettings}
             busy={busy}
@@ -2403,6 +2405,13 @@ function App() {
             isStackedTemplate={isStackedTemplate}
             safeArea={safeArea}
             safeAreaClash={safeAreaClash}
+          />
+        ) : activeNavPanel === 'style' ? (
+          <StylePanel
+            settings={settings}
+            updateSettings={updateSettings}
+            busy={busy}
+            onOpenTextPanel={() => setActiveNavPanel('text')}
           />
       ) : (
         <section className="style-panel panel placeholder-panel">
