@@ -38,6 +38,38 @@ type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> &
 };
 
 /** Shown when a save fails; the status dot keys off this exact value. */
+/**
+ * Where a caption can be dropped: the three horizontal and three vertical
+ * anchors the alignment buttons set, and nothing in between.
+ *
+ * Dragging used to snap to a 5% grid, which is 441 landing spots — fine enough
+ * that the caption twitched to a new one on almost every pixel of mouse travel,
+ * so the drag read as glitchy without ever helping anything line up. The nine
+ * anchors are the positions worth having, and they are the same numbers the
+ * buttons use, so dragging somewhere and clicking to it agree.
+ *
+ * The bottom anchor sits at 82 rather than 85 because descenders and a second
+ * caption line need the room.
+ */
+const CAPTION_ANCHORS_X = [15, 50, 85];
+const CAPTION_ANCHORS_Y = [15, 50, 82];
+/**
+ * How close the pointer must come, in percent of the frame, before an anchor
+ * takes the caption. Outside it the caption follows the mouse exactly, so a
+ * deliberate position off-anchor is still possible without holding Alt.
+ */
+const CAPTION_SNAP_RANGE = 6;
+
+/** The nearest anchor within range, or the raw value when there is none. */
+function snapToAnchor(value: number, anchors: number[]): { value: number; anchor: number | null } {
+  let best: number | null = null;
+  for (const a of anchors) {
+    if (Math.abs(value - a) <= CAPTION_SNAP_RANGE
+      && (best === null || Math.abs(value - a) < Math.abs(value - best))) best = a;
+  }
+  return { value: best ?? value, anchor: best };
+}
+
 const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
   { id: 'caption', label: 'Caption', icon: <Captions size={20} strokeWidth={1.75} /> },
   { id: 'media', label: 'Media', icon: <Camera size={20} strokeWidth={1.75} /> },
@@ -175,6 +207,8 @@ function App() {
   const [canvasElements, setCanvasElements] = useState<CanvasVisualElement[]>([]);
   const [selectedCanvasElementId, setSelectedCanvasElementId] = useState<string | null>(null);
   const [greenScreenTargetEl, setGreenScreenTargetEl] = useState<CanvasVisualElement | null>(null);
+  /** The anchors a caption drag is currently held by, for the guide lines. */
+  const [captionSnap, setCaptionSnap] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [snapGuideX, setSnapGuideX] = useState(false);
   const [snapGuideY, setSnapGuideY] = useState(false);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -277,19 +311,28 @@ function App() {
     const p = projectRef.current;
     if (!p) return;
     const clamp = (v: number) => Math.max(4, Math.min(96, Math.round(v)));
+    const nx = clamp(x);
+    const ny = clamp(y);
     if (thisLineOnly && activePage) {
-      const anchorId = activePage.words[0]?.id;
-      if (!anchorId) return;
-      markEdit({ ...p, words: p.words.map(w => (w.id === anchorId ? { ...w, posX: clamp(x), posY: clamp(y) } : w)) });
+      const anchor = activePage.words[0];
+      if (!anchor) return;
+      // A drag fires on every pixel of mouse travel, but the caption only lands
+      // on nine anchors, so nearly every call asks for the position it already
+      // has. Each one used to push an undo entry — one drag could flush the
+      // whole 40-step history — and re-render the player for nothing.
+      if (anchor.posX === nx && anchor.posY === ny) return;
+      markEdit({ ...p, words: p.words.map(w => (w.id === anchor.id ? { ...w, posX: nx, posY: ny } : w)) });
       return;
     }
+    if (settings.positionX === nx && settings.position === ny
+      && !p.words.some(w => w.posX !== undefined || w.posY !== undefined)) return;
     // Project-wide, so any per-line override would silently win over what was
     // just asked for. Clearing them is the honest reading of "move them all".
     const cleared = p.words.some(w => w.posX !== undefined || w.posY !== undefined)
       ? p.words.map(w => (w.posX === undefined && w.posY === undefined ? w : { ...w, posX: undefined, posY: undefined }))
       : p.words;
-    markEdit({ ...p, words: cleared, settings: { ...settings, positionX: clamp(x), position: clamp(y) } });
-    setSettings({ ...settings, positionX: clamp(x), position: clamp(y) });
+    markEdit({ ...p, words: cleared, settings: { ...settings, positionX: nx, position: ny } });
+    setSettings({ ...settings, positionX: nx, position: ny });
   }, [thisLineOnly, activePage, settings]);
   const latestExport = project?.exports?.at(-1);
   const hasExportRunning = project?.exports?.some(e => ['queued','processing','rendering'].includes(e.status));
@@ -2674,18 +2717,26 @@ function App() {
                         if (!frame) return;
                         setDraggingCaption(true);
                         const rect = frame.getBoundingClientRect();
-                        // Snap to a 5% grid unless Alt is held, so lines line up
-                        // with each other instead of landing a pixel apart.
+                        // Magnetic snapping to the nine anchors: the caption
+                        // tracks the mouse freely and is taken by an anchor only
+                        // near one. Alt turns even that off.
                         const move = (ev: MouseEvent) => {
-                          const raw = {
-                            x: ((ev.clientX - rect.left) / rect.width) * 100,
-                            y: ((ev.clientY - rect.top) / rect.height) * 100,
-                          };
-                          const snap = (v: number) => (ev.altKey ? v : Math.round(v / 5) * 5);
-                          setCaptionPosition(snap(raw.x), snap(raw.y));
+                          const clamp = (v: number) => Math.max(0, Math.min(100, v));
+                          const rawX = clamp(((ev.clientX - rect.left) / rect.width) * 100);
+                          const rawY = clamp(((ev.clientY - rect.top) / rect.height) * 100);
+                          if (ev.altKey) {
+                            setCaptionSnap({ x: null, y: null });
+                            setCaptionPosition(rawX, rawY);
+                            return;
+                          }
+                          const x = snapToAnchor(rawX, CAPTION_ANCHORS_X);
+                          const y = snapToAnchor(rawY, CAPTION_ANCHORS_Y);
+                          setCaptionSnap({ x: x.anchor, y: y.anchor });
+                          setCaptionPosition(x.value, y.value);
                         };
                         const up = () => {
                           setDraggingCaption(false);
+                          setCaptionSnap({ x: null, y: null });
                           window.removeEventListener('mousemove', move);
                           window.removeEventListener('mouseup', up);
                         };
@@ -2696,12 +2747,21 @@ function App() {
                       <Move size={14}/>
                     </div>
 
+                    {/* Why the caption stopped where it did. Only while dragging,
+                        and only on the axis an anchor actually has it. */}
+                    {draggingCaption && captionSnap.x !== null && (
+                      <div className="caption-snap-guide vertical" style={{ left: `${captionSnap.x}%` }} />
+                    )}
+                    {draggingCaption && captionSnap.y !== null && (
+                      <div className="caption-snap-guide horizontal" style={{ top: `${captionSnap.y}%` }} />
+                    )}
+
                     <div className="caption-move-bar" onMouseDown={e => e.stopPropagation()}>
                       <div className="caption-move-row">
                         {([
-                          { x: 15, icon: <AlignLeft size={14}/>, label: 'Left' },
-                          { x: 50, icon: <AlignCenter size={14}/>, label: 'Centre' },
-                          { x: 85, icon: <AlignRight size={14}/>, label: 'Right' },
+                          { x: CAPTION_ANCHORS_X[0], icon: <AlignLeft size={14}/>, label: 'Left' },
+                          { x: CAPTION_ANCHORS_X[1], icon: <AlignCenter size={14}/>, label: 'Centre' },
+                          { x: CAPTION_ANCHORS_X[2], icon: <AlignRight size={14}/>, label: 'Right' },
                         ] as const).map(option => (
                           <button
                             key={option.label}
@@ -2715,9 +2775,9 @@ function App() {
                         ))}
                         <span className="caption-move-divider" />
                         {([
-                          { y: 15, icon: <ArrowUp size={14}/>, label: 'Top' },
-                          { y: 50, icon: <Minus size={14}/>, label: 'Middle' },
-                          { y: 82, icon: <ArrowDown size={14}/>, label: 'Bottom' },
+                          { y: CAPTION_ANCHORS_Y[0], icon: <ArrowUp size={14}/>, label: 'Top' },
+                          { y: CAPTION_ANCHORS_Y[1], icon: <Minus size={14}/>, label: 'Middle' },
+                          { y: CAPTION_ANCHORS_Y[2], icon: <ArrowDown size={14}/>, label: 'Bottom' },
                         ] as const).map(option => (
                           <button
                             key={option.label}

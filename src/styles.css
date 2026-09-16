@@ -10129,6 +10129,30 @@ kbd {
 .caption-move-grab:hover { transform: scale(1.08); border-color: #22c55e; }
 .caption-move-grab.is-dragging { cursor: grabbing; border-color: #22c55e; transform: scale(1.12); }
 
+/* Shown only while a caption drag is held by an anchor, so the snap is
+   something you can see rather than a jump you have to infer. */
+.caption-snap-guide {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
+}
+
+.caption-snap-guide.vertical {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+}
+
+.caption-snap-guide.horizontal {
+  left: 0;
+  right: 0;
+  height: 1px;
+  margin-top: -0.5px;
+}
+
 .caption-move-bar {
   position: absolute;
   left: 50%;

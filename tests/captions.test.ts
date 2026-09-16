@@ -881,6 +881,22 @@ test('the always-promote rule is keyed off the layout, not a template list', () 
     'stacked and single lockups promote; row layouts earn it');
 });
 
+test('a dragged caption lands on the nine anchors, not a fine grid', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(!/Math\.round\(v \/ 5\) \* 5/.test(editor),
+    'the 5% grid gave 441 landing spots, so the caption twitched to a new one on almost '
+    + 'every pixel of mouse travel without ever helping anything line up');
+  assert.ok(/const CAPTION_ANCHORS_X = \[15, 50, 85\]/.test(editor)
+    && /const CAPTION_ANCHORS_Y = \[15, 50, 82\]/.test(editor),
+    'three horizontal and three vertical anchors, shared with the alignment buttons so '
+    + 'dragging somewhere and clicking to it agree');
+  assert.ok(/{ x: CAPTION_ANCHORS_X\[0\]/.test(editor) && /{ y: CAPTION_ANCHORS_Y\[0\]/.test(editor),
+    'the buttons read the same constants rather than repeating the numbers');
+  assert.ok(/if \(anchor\.posX === nx && anchor\.posY === ny\) return;/.test(editor),
+    'a drag that asks for the position the caption already has does no work — it used to '
+    + 'push an undo entry per mousemove, flushing the history in a single drag');
+});
+
 test('the timeline and the caption panel open the same word inspector', () => {
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
   const panel = readFileSync(new URL('../src/components/CaptionsPanel.tsx', import.meta.url), 'utf8');
