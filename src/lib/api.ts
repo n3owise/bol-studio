@@ -1,4 +1,5 @@
 import type { MediaAsset, Project } from './types';
+import { AUTH_ENABLED, currentAccessToken, currentUserId, supabase } from './auth';
 
 /**
  * The backend's own origin in production, not a relative path.
@@ -42,13 +43,13 @@ export const API_KEY = (import.meta.env.VITE_API_KEY || '').trim();
  * header, so anyone can change it to anything. It keeps a group of people out
  * of each other's work by default; it does not stop someone who looks.
  *
- * When real accounts arrive this is the seam. The server already reads the
- * value as an opaque owner string, so a signed-in session supplies its user id
- * here instead and nothing about the stored projects has to change.
+ * This is now the signed-out path only. With accounts configured the server
+ * ignores the header entirely and takes the owner from the verified token, so a
+ * client cannot use it to claim a workspace.
  */
 const OWNER_STORAGE_KEY = 'bol.workspace-id';
 
-export const WORKSPACE_ID = (() => {
+const localWorkspaceId = (() => {
   try {
     const existing = localStorage.getItem(OWNER_STORAGE_KEY);
     if (existing) return existing;
@@ -62,34 +63,117 @@ export const WORKSPACE_ID = (() => {
   }
 })();
 
+/**
+ * Who the app is acting as. A function rather than the constant this used to be:
+ * a const is evaluated once at import, so it could never become the person who
+ * signed in a moment later.
+ */
+export function getOwner(): string {
+  return currentUserId() || localWorkspaceId;
+}
+
 /** Header form, for anything that goes through fetch or XHR. */
 export function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = { ...extra, 'X-Bol-Owner': WORKSPACE_ID };
+  const headers: Record<string, string> = { ...extra, 'X-Bol-Owner': getOwner() };
   if (API_KEY) headers['X-API-Key'] = API_KEY;
+  const token = currentAccessToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   return headers;
 }
 
 /**
  * Absolute URL for a file the browser loads by itself — <video src>, <img src>,
- * download links. Those cannot set headers, so both the key and the workspace
- * ride as query parameters instead.
+ * download links. Those cannot set headers, so the credentials ride as query
+ * parameters instead.
  *
- * The workspace matters here as much as the key: media sits under
- * /api/projects/{id}, so without it the browser asks for its own project's
- * video as a stranger and is correctly refused.
+ * Signed in, that credential is a media token and not the access token: an
+ * access token is good for an hour and for everything, and a query string ends
+ * up in proxy logs, browser history and Referer headers. A media token opens one
+ * project's media for fifteen minutes and nothing else.
+ *
+ * Signed out, the workspace id rides here as before — without it the browser
+ * asks for its own project's video as a stranger and is correctly refused.
  */
 export function mediaUrl(path: string): string {
   const base = path.startsWith('http') ? path : `${API}${path}`;
   const query = new URLSearchParams();
   if (API_KEY) query.set('key', API_KEY);
-  query.set('owner', WORKSPACE_ID);
+  if (AUTH_ENABLED) {
+    // Looked up rather than passed in. These calls sit inline in JSX in two
+    // files and eight places, several of them deep inside the media panel, and
+    // a token threaded through props is a token one of them silently does not
+    // get — which shows up as a dead video that looks like a backend fault.
+    // Every media path carries the project id already, so the id is read back
+    // out of the path and the token found here.
+    const token = mediaTokens.get(projectIdIn(base))?.token;
+    if (token) query.set('t', token);
+  } else {
+    query.set('owner', getOwner());
+  }
   return `${base}${base.includes('?') ? '&' : '?'}${query}`;
 }
-export async function request<T>(path: string, options?: RequestInit): Promise<T> {
+
+const PROJECT_IN_PATH = /\/api\/projects\/([0-9a-fA-F-]{36})\//;
+
+function projectIdIn(url: string): string {
+  return PROJECT_IN_PATH.exec(url)?.[1] ?? '';
+}
+
+/**
+ * Media tokens, minted per project and reused until they are nearly out.
+ *
+ * Re-minted with several minutes to spare rather than on expiry: a <video>
+ * element that asks for a byte range mid-playback with a token that died a
+ * second ago stalls with nothing to say. Concurrent callers share one request,
+ * because the editor asks for the video, the thumbnail and the waveform at once.
+ */
+const REMINT_WITHIN_MS = 8 * 60 * 1000;
+const mediaTokens = new Map<string, { token: string; expiresAt: number }>();
+const mintingNow = new Map<string, Promise<string>>();
+
+export async function ensureMediaToken(projectId: string): Promise<string> {
+  if (!AUTH_ENABLED) return '';
+  const held = mediaTokens.get(projectId);
+  if (held && held.expiresAt - Date.now() > REMINT_WITHIN_MS) return held.token;
+  const already = mintingNow.get(projectId);
+  if (already) return already;
+  const minting = request<{ token: string; expiresIn: number }>(
+    `/projects/${projectId}/media-token`, { method: 'POST' },
+  ).then(result => {
+    mediaTokens.set(projectId, {
+      token: result.token,
+      expiresAt: Date.now() + result.expiresIn * 1000,
+    });
+    return result.token;
+  }).finally(() => { mintingNow.delete(projectId); });
+  mintingNow.set(projectId, minting);
+  return minting;
+}
+
+/** Drop every media token, so signing out cannot leave one usable. */
+export function forgetMediaTokens(): void {
+  mediaTokens.clear();
+  mintingNow.clear();
+}
+export async function request<T>(path: string, options?: RequestInit, retried = false): Promise<T> {
   const response = await fetch(`${API}/api${path}`, {
     ...options,
     headers: authHeaders(options?.headers as Record<string, string> | undefined),
   });
+  // A session that ended has to be told apart from a request that failed. An
+  // expired token means the account is fine and the token is stale, so refresh
+  // and try once — exactly once, because the editor polls every seven seconds
+  // and a loop here would be expensive before anybody noticed. Anything else
+  // means the session is not coming back, so sign out and let the gate appear.
+  if (response.status === 401 && AUTH_ENABLED && supabase) {
+    const body = await response.clone().json().catch(() => ({} as { code?: string }));
+    if (body.code === 'token_expired' && !retried) {
+      const { data } = await supabase.auth.refreshSession();
+      if (data.session) return request<T>(path, options, true);
+    }
+    await supabase.auth.signOut();
+    throw new Error('Please sign in to continue.');
+  }
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try { const error = await response.json(); message = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail ?? error); } catch { /* Preserve status when the worker is offline. */ }
@@ -111,8 +195,7 @@ export function upload(file: File, script: string, language: string, onProgress:
     body.append('file', file); body.append('script', script); body.append('language', language);
     body.append('autostart', 'false');
     xhr.open('POST', `${API}/api/projects`);
-    xhr.setRequestHeader('X-Bol-Owner', WORKSPACE_ID);
-    if (API_KEY) xhr.setRequestHeader('X-API-Key', API_KEY);
+    for (const [name, value] of Object.entries(authHeaders())) xhr.setRequestHeader(name, value);
     xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100)); };
     xhr.onerror = () => reject(new Error('The studio backend is unavailable. Please check your connection or try again.'));
     xhr.onload = () => {
@@ -139,8 +222,7 @@ export function uploadMediaAsset(
     const body = new FormData();
     body.append('file', file);
     xhr.open('POST', `${API}/api/projects/${projectId}/assets`);
-    xhr.setRequestHeader('X-Bol-Owner', WORKSPACE_ID);
-    if (API_KEY) xhr.setRequestHeader('X-API-Key', API_KEY);
+    for (const [name, value] of Object.entries(authHeaders())) xhr.setRequestHeader(name, value);
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) {
         onProgress(Math.round((e.loaded / e.total) * 100), e.loaded, e.total);

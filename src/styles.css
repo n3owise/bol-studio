@@ -10225,3 +10225,149 @@ kbd {
 }
 
 .caption-move-reset:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }
+
+/* ==========================================================================
+   Sign in
+   ========================================================================== */
+
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--color-bg);
+  overflow-y: auto;
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 380px;
+  padding: 30px 28px 26px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-lg, 0 18px 50px rgba(0, 0, 0, 0.18));
+}
+
+.auth-brand {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 2px;
+}
+
+.auth-brand span { color: var(--color-accent); font-style: italic; }
+
+.auth-card h1 {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.auth-lede {
+  margin: -8px 0 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-soft, rgba(128, 128, 128, 0.95));
+}
+
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+
+.auth-field > span { font-size: 12px; font-weight: 600; }
+
+.auth-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--color-bg-input);
+  color: inherit;
+  font-size: 13.5px;
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-field input:focus { border-color: var(--color-accent); outline: none; }
+
+/* Inline and persistent: a form error has to survive while the reader retypes
+   the field it is about, which the six-second toast does not. */
+.auth-error {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: 8px;
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.auth-card .button.primary { margin-top: 4px; gap: 7px; }
+
+.auth-spinner { animation: auth-spin 900ms linear infinite; }
+
+@keyframes auth-spin { to { transform: rotate(360deg); } }
+
+.auth-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--color-text-soft, rgba(128, 128, 128, 0.95));
+}
+
+.auth-switch button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--color-accent);
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-switch button:hover { text-decoration: underline; }
+
+.auth-footnote {
+  margin: 4px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--color-text-soft, rgba(128, 128, 128, 0.9));
+}
+
+.auth-card-sent { align-items: center; text-align: center; }
+
+.auth-card-sent .auth-lede { text-align: center; }
+
+.auth-sent-icon { color: var(--color-accent); }
+
+/* The account button in the navbar: an initial, because there are no avatars
+   to show and a generic person icon says less than the letter does. */
+.account-initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-brand-ink, #04120a);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.account-email {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-all;
+}

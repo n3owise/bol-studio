@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, LogOut, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -30,6 +30,10 @@ import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
 import { CaptionsPanel } from './components/CaptionsPanel';
 import { WordInspector, recase, type WordCase } from './components/WordInspector';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
+import { AuthScreen } from './components/AuthScreen';
+import { AUTH_ENABLED, rememberSession, supabase } from './lib/auth';
+import type { Session } from '@supabase/supabase-js';
+import { ensureMediaToken, forgetMediaTokens } from './lib/api';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
 type Health = { status?: string; engine?: string; model?: string; [key: string]: unknown };
@@ -176,7 +180,8 @@ function App() {
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notice, setNotice] = useState('');
-  const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | null>(null);
+  const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | 'account' | null>(null);
+  const [accountEmail, setAccountEmail] = useState('');
   /**
    * Asked once, right after an upload, before any time is spent editing.
    *
@@ -571,6 +576,29 @@ function App() {
   useEffect(() => () => { if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current); }, []);
 
   const notify = useCallback((message: string) => setNotice(message), []);
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getUser().then(({ data }) => setAccountEmail(data.user?.email ?? ''));
+  }, []);
+
+  // Media URLs carry a token that expires, so one has to exist before the first
+  // <video src> is built and be replaced before it lapses. The counter is what
+  // makes the tree re-read it: mediaUrl looks the token up when it runs, so the
+  // URLs built before it arrived have to be built again.
+  const [, setMediaTokenTick] = useState(0);
+  useEffect(() => {
+    const id = project?.id;
+    if (!AUTH_ENABLED || !id) return;
+    let live = true;
+    const mint = () => {
+      ensureMediaToken(id)
+        .then(() => { if (live) setMediaTokenTick(n => n + 1); })
+        .catch(() => { /* request() has already handled a dead session. */ });
+    };
+    mint();
+    const timer = setInterval(mint, 7 * 60 * 1000);
+    return () => { live = false; clearInterval(timer); };
+  }, [project?.id]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { projectRef.current = project; }, [project]);
   useEffect(() => {
@@ -2341,6 +2369,16 @@ function App() {
           onThemeChange={setTheme}
           className="theme-toggle-btn"
         />
+        {AUTH_ENABLED && accountEmail && (
+          <button
+            className="nav-btn ghost"
+            aria-label={`Account — ${accountEmail}`}
+            title={accountEmail}
+            onClick={() => setModal('account')}
+          >
+            <span className="account-initial">{accountEmail[0]}</span>
+          </button>
+        )}
         <button
           className="nav-btn ghost"
           aria-label="Your projects"
@@ -3400,7 +3438,17 @@ function App() {
 
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
     {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
-    {modal==='projects'&&<Modal title="Your workspace" onClose={()=>setModal(null)}><p className="modal-description">Projects are saved on this computer, ready whenever you are.</p><button className="button primary full" onClick={()=>{setModal(null);input.current?.click();}}><Plus size={16}/>New upload</button><div className="project-list">{projects.length?projects.map(p=><button key={p.id} onClick={()=>void openProject(p)}><span className="project-list-icon">{p.mediaType==='audio'?<FileAudio size={21}/>:<Film size={21}/>}</span><span><strong>{p.name}</strong><small>{timecode(p.duration)} · {p.status==='ready'?`${p.words?.length??0} words`:p.status}</small></span><ChevronRight size={17}/></button>):<div className="empty-projects"><FolderOpen size={32}/><p>Your first story is one upload away.</p></div>}</div></Modal>}
+    {modal==='account'&&<Modal title="Your account" onClose={()=>setModal(null)}>
+      <p className="account-email">{accountEmail}</p>
+      <p className="modal-description">Signed in. Your projects follow this account, on any browser.</p>
+      <button className="button secondary full" onClick={async()=>{
+        setModal(null);
+        forgetMediaTokens();
+        await supabase?.auth.signOut();
+      }}><LogOut size={15}/>Sign out</button>
+      <p className="modal-footnote">Changed your mind about your password? Sign out and use “Forgot your password?”.</p>
+    </Modal>}
+    {modal==='projects'&&<Modal title="Your workspace" onClose={()=>setModal(null)}><p className="modal-description">{AUTH_ENABLED?'Projects are saved to your account. Cloud storage is temporary for now — export anything you want to keep.':'Projects are saved on this computer, ready whenever you are.'}</p><button className="button primary full" onClick={()=>{setModal(null);input.current?.click();}}><Plus size={16}/>New upload</button><div className="project-list">{projects.length?projects.map(p=><button key={p.id} onClick={()=>void openProject(p)}><span className="project-list-icon">{p.mediaType==='audio'?<FileAudio size={21}/>:<Film size={21}/>}</span><span><strong>{p.name}</strong><small>{timecode(p.duration)} · {p.status==='ready'?`${p.words?.length??0} words`:p.status}</small></span><ChevronRight size={17}/></button>):<div className="empty-projects"><FolderOpen size={32}/><p>Your first story is one upload away.</p></div>}</div></Modal>}
     {modal === 'export' && (
       <Modal title="Export Video" onClose={() => setModal(null)} wide>
         <p className="modal-description">
@@ -4120,4 +4168,49 @@ function App() {
   </div>;
 }
 
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+/**
+ * Sign-in, before the studio exists.
+ *
+ * A wrapper rather than a branch inside App, because App's startup effects run
+ * on mount whatever the render returns — it fetches limits, health and the
+ * project list, then polls every seven seconds. Returning a login form from
+ * inside it would leave all of that running against a backend that answers 401.
+ *
+ * Unconfigured, this is not in the way at all: no client, no gate, straight to
+ * the studio with the browser's own workspace id, exactly as before.
+ */
+function Root() {
+  const [session, setSession] = React.useState<Session | null>(null);
+  const [ready, setReady] = React.useState(!AUTH_ENABLED);
+  // A password-reset link signs the user in and then needs to ask for the new
+  // password. Without catching this the reset lands them in the editor with the
+  // old password still set and nothing to show for the link they clicked.
+  const [recovering, setRecovering] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      rememberSession(data.session);
+      setSession(data.session);
+      setReady(true);
+    });
+    const { data: subscription } = supabase.auth.onAuthStateChange((event, next) => {
+      rememberSession(next);
+      setSession(next);
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+      if (event === 'USER_UPDATED') setRecovering(false);
+      if (event === 'SIGNED_OUT') forgetMediaTokens();
+    });
+    return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  if (!ready) return <div className="auth-screen" aria-busy="true" />;
+  if (AUTH_ENABLED && !session) return <AuthScreen/>;
+  if (recovering) return <AuthScreen initialMode="recover"/>;
+  // Keyed on the account so signing in as someone else builds a new editor.
+  // Without it the previous user's project, words and media stay mounted, and
+  // one person's clip renders under another person's session.
+  return <App key={session?.user?.id ?? 'local'}/>;
+}
+
+createRoot(document.getElementById('root')!).render(<React.StrictMode><Root/></React.StrictMode>);
