@@ -62,6 +62,8 @@ interface CaptionsPanelProps {
   onSeek: (time: number) => void;
   onTogglePlay?: () => void;
   onUpdateSettings: (update: Partial<Settings>) => void;
+  /** Insert a new word beside an existing one. */
+  onInsertWord: (targetId: string, position: 'before' | 'after', text?: string) => void;
   onUpdateWord: (id: string, update: Partial<Word>) => void;
   onUpdateWords: (ids: string[] | Set<string>, update: Partial<Word>) => void;
   onDeleteWord?: (id: string) => void;
@@ -145,6 +147,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   groups,
   heroWordIds,
   settings,
+  onUpdateSettings,
+  onInsertWord,
   selectedWord,
   selectedWordIds,
   duration,
@@ -204,6 +208,14 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   // nothing, and the emoji encoder is English-trained.
   const [wantEmoji, setWantEmoji] = useState(!!project?.emoji);
   const [wantTranslate, setWantTranslate] = useState(!!project?.translate);
+  /**
+   * Where the "add a word" menu is open, from a right-click on a word.
+   *
+   * Right-click and hover offer the same two actions. Hover is quicker once you
+   * know the plus signs are there; right-click is what people try first, and
+   * finding nothing there reads as the feature being absent.
+   */
+  const [insertMenu, setInsertMenu] = useState<{ wordId: string; x: number; y: number } | null>(null);
   const [captionScript, setCaptionScript] = useState<'roman' | 'native' | 'en' | 'same'>('roman');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [wordsPerCaption, setWordsPerCaption] = useState(Math.min(settings.wordsPerLine || 5, MAX_WORDS_PER_PAGE));
@@ -1356,6 +1368,22 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                     : 'Edited'}
                 </button>
               ))}
+
+              {/* The same decision as the one taken after upload, reachable
+                  again once there are captions to judge it against — which is
+                  the first moment anyone can actually tell whether they want
+                  it. */}
+              <button
+                type="button"
+                className={`caption-filter-pill highlight-switch ${settings.autoHighlight !== false ? 'active' : ''}`}
+                aria-pressed={settings.autoHighlight !== false}
+                title={settings.autoHighlight !== false
+                  ? 'One word per line grows in your accent colour. Click to keep every word even.'
+                  : 'Every word is the same size. Click to let Bol pick one to grow per line.'}
+                onClick={() => onUpdateSettings({ autoHighlight: settings.autoHighlight === false })}
+              >
+                {settings.autoHighlight !== false ? 'Auto-highlight on' : 'Auto-highlight off'}
+              </button>
             </div>
           </div>
 
@@ -1735,7 +1763,31 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                       <div
                                         className={`caption-word-chip-wrapper ${isWordDragging ? 'is-dragging-source' : ''}`}
                                         data-word-id={w.id}
+                                        onContextMenu={e => {
+                                          e.preventDefault();
+                                          setInsertMenu({ wordId: w.id, x: e.clientX, y: e.clientY });
+                                        }}
                                       >
+                                        {/* Absolutely positioned, so appearing on hover moves
+                                            nothing. An affordance that reflows the line is worse
+                                            than none: the word you were aiming at slides away as
+                                            you approach it. */}
+                                        <button
+                                          type="button"
+                                          className="caption-word-insert before"
+                                          tabIndex={-1}
+                                          aria-label={`Add a word before "${w.text}"`}
+                                          title={`Add a word before "${w.text}"`}
+                                          onClick={e => { e.stopPropagation(); onInsertWord(w.id, 'before'); }}
+                                        >+</button>
+                                        <button
+                                          type="button"
+                                          className="caption-word-insert after"
+                                          tabIndex={-1}
+                                          aria-label={`Add a word after "${w.text}"`}
+                                          title={`Add a word after "${w.text}"`}
+                                          onClick={e => { e.stopPropagation(); onInsertWord(w.id, 'after'); }}
+                                        >+</button>
                                         <div
                                           role="button"
                                           tabIndex={0}
@@ -1816,6 +1868,24 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
               })
             )}
           </div>
+
+          {insertMenu && (
+            <>
+              <div className="insert-menu-backdrop" onClick={() => setInsertMenu(null)} />
+              <div
+                className="insert-menu"
+                style={{ position: 'fixed', top: insertMenu.y, left: insertMenu.x }}
+                role="menu"
+              >
+                <button type="button" role="menuitem" onClick={() => { onInsertWord(insertMenu.wordId, 'before'); setInsertMenu(null); }}>
+                  Add a word before
+                </button>
+                <button type="button" role="menuitem" onClick={() => { onInsertWord(insertMenu.wordId, 'after'); setInsertMenu(null); }}>
+                  Add a word after
+                </button>
+              </div>
+            </>
+          )}
 
           {/* CONTEXTUAL WORD INSPECTOR POPOVER */}
           {wordPopover && (

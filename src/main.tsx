@@ -2594,6 +2594,7 @@ function App() {
             playing={playing}
             groups={groups}
             heroWordIds={heroWordIds}
+            onInsertWord={handleInsertWord}
             settings={settings}
             selectedWord={selectedWord}
             selectedWordIds={selectedWordIds}
@@ -3904,36 +3905,51 @@ function App() {
           key words" describes two quite different results depending on what
           someone pictures, and one glance settles it. */}
       <div className="highlight-choice">
-        <label className="highlight-toggle">
-          <input
-            type="checkbox"
-            checked={settings.autoHighlight !== false}
-            onChange={e => updateSettings({ autoHighlight: e.target.checked })}
-          />
-          <span>
-            <strong>Make one word stand out on each line</strong>
-            <em>
-              Bol picks the strongest word and grows it in your accent colour. Turn this off for
-              interviews or lectures, where even captions read better. You can always highlight
-              a word yourself either way.
-            </em>
-          </span>
-        </label>
-        <div className="highlight-mockups" aria-hidden="true">
-          <figure className={settings.autoHighlight !== false ? 'is-chosen' : ''}>
-            <div className="mock">
-              <span>aap kaise</span>
-              <strong style={{ color: settings.accent }}>HO</strong>
-              <span>dosto</span>
-            </div>
-            <figcaption>On</figcaption>
-          </figure>
-          <figure className={settings.autoHighlight === false ? 'is-chosen' : ''}>
-            <div className="mock">
-              <span>aap kaise ho dosto</span>
-            </div>
-            <figcaption>Off</figcaption>
-          </figure>
+        <div className="highlight-choice-head">
+          <strong>Make one word stand out on each line?</strong>
+          <em>
+            Bol grows the strongest word in your accent colour. Turn it off for interviews or
+            lectures, where even captions read better — you can still highlight a word yourself.
+          </em>
+        </div>
+        {/* The two miniatures are the control, not an illustration beside one.
+            A checkbox made you read the label, decide what it meant, and then
+            check the pictures agreed; picking the picture you want is the same
+            decision with the reading removed. */}
+        <div className="highlight-mockups" role="radiogroup" aria-label="Highlight one word per line">
+          {([
+            { on: true, label: 'Highlight one word' },
+            { on: false, label: 'Keep every word even' },
+          ] as const).map(choice => {
+            const selected = (settings.autoHighlight !== false) === choice.on;
+            return (
+              <button
+                key={choice.label}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                aria-label={choice.label}
+                className={selected ? 'is-chosen' : ''}
+                onClick={() => updateSettings({ autoHighlight: choice.on })}
+              >
+                <span className="mock">
+                  {choice.on ? (
+                    <>
+                      <span>aap kaise</span>
+                      <strong style={{ color: settings.accent }}>HO</strong>
+                      <span>dosto</span>
+                    </>
+                  ) : (
+                    <span>aap kaise ho dosto</span>
+                  )}
+                </span>
+                <span className="highlight-mock-label">
+                  <span className="highlight-mock-tick" aria-hidden="true"><Check size={12}/></span>
+                  {choice.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
       <p className="modal-footnote">Emoji, translation and background-noise cleanup live in the Captions panel.</p>

@@ -10086,42 +10086,36 @@ kbd {
   border-radius: 12px;
 }
 
-.highlight-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-}
+.highlight-choice-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.highlight-choice-head strong { font-size: 13px; font-weight: 600; }
+.highlight-choice-head em { font-size: 11.5px; line-height: 1.45; font-style: normal; opacity: 0.65; }
 
-.highlight-toggle input { margin-top: 3px; flex-shrink: 0; }
-.highlight-toggle span { display: flex; flex-direction: column; gap: 4px; }
-.highlight-toggle strong { font-size: 13px; font-weight: 600; }
-.highlight-toggle em { font-size: 11.5px; line-height: 1.45; font-style: normal; opacity: 0.65; }
-
-/* Two miniatures rather than a description: "make a word stand out" means
-   different things to different people, and seeing both settles it at a
-   glance. The chosen one is lifted; the other stays legible so the difference
-   is readable rather than implied. */
+/* The miniatures are the control. Each is a radio, so the picture you click is
+   the answer — there is no label to read first and no checkbox to reconcile it
+   against. */
 .highlight-mockups {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-top: 12px;
 }
 
-.highlight-mockups figure {
-  margin: 0;
-  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.22));
-  border-radius: 9px;
+.highlight-mockups button {
+  display: block;
+  padding: 0;
   overflow: hidden;
-  opacity: 0.45;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.22));
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  opacity: 0.55;
   transition: opacity 140ms ease, border-color 140ms ease;
 }
 
-.highlight-mockups figure.is-chosen {
-  opacity: 1;
-  border-color: #22c55e;
-}
+.highlight-mockups button:hover { opacity: 0.85; border-color: rgba(34, 197, 94, 0.5); }
+.highlight-mockups button.is-chosen { opacity: 1; border-color: #22c55e; box-shadow: inset 0 0 0 1px #22c55e; }
+.highlight-mockups button:focus-visible { outline: 2px solid #22c55e; outline-offset: 2px; }
 
 .highlight-mockups .mock {
   display: flex;
@@ -10129,7 +10123,7 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 1px;
-  min-height: 72px;
+  min-height: 78px;
   padding: 10px 8px;
   background: #16181d;
   color: #fff;
@@ -10138,12 +10132,133 @@ kbd {
 }
 
 .highlight-mockups .mock span { font-size: 10px; font-weight: 600; }
-.highlight-mockups .mock strong { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
+.highlight-mockups .mock strong { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
 
-.highlight-mockups figcaption {
-  padding: 5px 8px;
-  font-size: 10.5px;
+.highlight-mock-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 8px;
+  font-size: 11px;
   font-weight: 600;
-  text-align: center;
-  opacity: 0.7;
 }
+
+/* The tick keeps its space in both states, so choosing does not nudge the
+   label sideways under the pointer. */
+.highlight-mock-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.highlight-mockups button.is-chosen .highlight-mock-tick { opacity: 1; transform: scale(1); }
+
+/* Distinct from the filter pills beside it: those narrow what is listed, this
+   changes the captions themselves. Same shape, different weight. */
+.caption-filter-pill.highlight-switch {
+  margin-left: auto;
+  border-style: dashed;
+}
+
+.caption-filter-pill.highlight-switch.active {
+  border-style: solid;
+}
+
+/* Adding a word ----------------------------------------------------------- */
+
+/* Absolutely positioned and sitting in the gap between chips, so showing them
+   on hover reflows nothing. An affordance that pushes the line apart is worse
+   than no affordance: the word you were reaching for slides out from under the
+   pointer as you arrive. */
+.caption-word-insert {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  border-radius: 50%;
+  background: var(--bg-surface, #fff);
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) scale(0.6);
+  transition: opacity 110ms ease, transform 110ms ease;
+}
+
+.caption-word-insert.before { left: -11px; }
+.caption-word-insert.after { right: -11px; }
+
+.caption-word-chip-wrapper:hover .caption-word-insert,
+.caption-word-insert:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) scale(1);
+}
+
+.caption-word-insert:hover {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #fff;
+}
+
+/* A dragged word must not collect plus signs from every chip it passes. */
+.caption-word-chip-wrapper.is-dragging-source .caption-word-insert { display: none; }
+
+[data-theme="dark"] .caption-word-insert,
+.theme-dark .caption-word-insert {
+  background: #1b1e24;
+  color: #4ade80;
+}
+
+.insert-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.insert-menu {
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.3));
+  border-radius: 9px;
+  background: var(--bg-surface, #fff);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.insert-menu button {
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.insert-menu button:hover { background: rgba(34, 197, 94, 0.14); }
+
+[data-theme="dark"] .insert-menu,
+.theme-dark .insert-menu { background: #1b1e24; }
