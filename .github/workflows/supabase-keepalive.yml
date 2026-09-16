@@ -1,0 +1,43 @@
+# Supabase pauses a free project after seven days without activity, and a paused
+# project means nobody can sign in until someone opens the dashboard and resumes
+# it. This keeps the timer from ever reaching zero.
+#
+# It lives here rather than in the backend on purpose. The Hugging Face Space
+# restarts on any config change, its filesystem is ephemeral, and a free Space
+# sleeps on its own — a timer there would die quietly while still appearing to
+# exist, which is worse than having none, because you would believe you had one.
+# A failed workflow run emails you.
+#
+# Note the irony worth knowing about: GitHub disables scheduled workflows on a
+# repository with sixty days of no activity. That is this same failure arriving
+# through a different door, so if the project goes quiet for two months, check
+# that this is still enabled before assuming sign-in works.
+name: Keep Supabase awake
+
+on:
+  schedule:
+    # Every three days, well inside the seven-day window, so a single missed run
+    # is not a pause.
+    - cron: '0 6 */3 * *'
+  # So it can be proved to work without waiting three days for the first run.
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Touch the auth service
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "SUPABASE_URL is not set — add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+          # -f so a non-2xx fails the job rather than passing quietly, which is
+          # the whole point of running this where failures are visible.
+          curl -fsS \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/auth/v1/health"
+          echo "Supabase answered — the pause timer is reset."
