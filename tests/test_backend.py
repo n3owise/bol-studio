@@ -68,7 +68,9 @@ def test_upload_valid_audio_persists_and_queues_once(client):
     assert project["status"] == "queued"
     assert len(backend.EXECUTOR.jobs) == 1
     assert backend.load_project(project["id"]) == project
-    assert client.get(f"/api/projects/{project['id']}/media").status_code == 409
+    # Playable straight away: the upload is served as-is rather than waiting for
+    # a re-encoded preview, which most uploads no longer need at all.
+    assert client.get(f"/api/projects/{project['id']}/media").status_code == 200
 
 
 def test_upload_invalid_media_is_rejected_and_cleaned(client):
@@ -797,9 +799,9 @@ def test_a_workspace_cannot_see_or_touch_another_ones_projects(client):
     assert client.get(f"/api/projects/{theirs}", headers=alice).status_code == 404
     assert client.patch(f"/api/projects/{theirs}", json={"name": "stolen"}, headers=alice).status_code == 404
     assert client.get(f"/api/projects/{theirs}/media", headers=alice).status_code == 404
-    # Bob gets the ordinary "preview not ready yet" instead, so the 404 above is
-    # the ownership refusal and not something every caller would have seen.
-    assert client.get(f"/api/projects/{theirs}/media", headers={"X-Bol-Owner": "bob"}).status_code == 409
+    # Bob gets his own media, so the 404 above is the ownership refusal and not
+    # something every caller would have seen.
+    assert client.get(f"/api/projects/{theirs}/media", headers={"X-Bol-Owner": "bob"}).status_code == 200
     assert client.get(f"/api/projects/{theirs}/assets", headers=alice).status_code == 404
 
     # Bob's project is untouched by the attempt.
@@ -921,3 +923,37 @@ def test_an_unlisted_origin_loses_its_cors_header_even_if_something_else_set_it(
         assert ours.headers.get("access-control-allow-origin") == "https://www.bol-studio.me"
         # No Origin at all is a same-origin or server-side call; nothing to strip.
         assert client.get("/x").status_code == 200
+
+
+def test_an_upload_costs_about_its_own_size_on_disk(client, monkeypatch):
+    """Storage was roughly three times the uploaded file, most of it needless.
+
+    Every upload kept the original, an uncompressed 16 kHz wav for the
+    recogniser, and a re-encoded preview written at crf 19 up to 1920px — export
+    quality for a file that is only ever scrubbed. A 3.3 MB clip became 10.4 MB,
+    and the preview alone was larger than the video it came from.
+
+    Most uploads are already h264 and aac, which a browser plays directly, so
+    they are remuxed in place rather than re-encoded and no preview is written.
+    This pins that: after preparing, the stored bytes stay close to the upload.
+    """
+    audio = audio_bytes()
+    response = client.post("/api/projects", files={"file": ("clip.wav", audio, "audio/wav")})
+    assert response.status_code == 201
+    project = response.json()
+    directory = backend.DATA_DIR / project["id"]
+
+    backend.prepare_media(project)
+    # A wav upload is not browser-playable, so this one does get a preview —
+    # the point is that it is a small one, not a near-lossless copy.
+    stored = {f.name: f.stat().st_size for f in directory.iterdir() if f.is_file()}
+    assert "source.bin" in stored
+
+    # The recogniser's copy is removed once transcription has run; simulate that
+    # step rather than running a real model here.
+    (directory / "audio.wav").unlink(missing_ok=True)
+    after = sum(f.stat().st_size for f in directory.iterdir() if f.is_file())
+    assert after < len(audio) * 2, (
+        f"stored {after} bytes for a {len(audio)}-byte upload; the derived copies "
+        "are supposed to be small or absent, not a multiple of the original"
+    )

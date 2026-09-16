@@ -145,23 +145,92 @@ def inspect_media(path: Path) -> dict:
             "mediaType": "video" if video else "audio"}
 
 
+# Containers and codecs a browser plays without help. Anything else needs a
+# transcoded preview; these only need their container rewritten, if that.
+_BROWSER_VIDEO = {"h264", "avc1", "vp8", "vp9", "av1"}
+_BROWSER_AUDIO = {"aac", "mp3", "opus", "vorbis"}
+
+
+def playable_media(project: dict) -> Path:
+    """The file the browser should stream for this project.
+
+    A separate preview is only written when the upload cannot be played as it
+    is, so most projects have none and this returns the source. Every caller
+    goes through here rather than reaching for preview.mp4, because whether that
+    file exists now depends on the upload.
+    """
+    directory = project_dir(project["id"])
+    preview = directory / ("preview.mp4" if project["mediaType"] == "video" else "preview.m4a")
+    return preview if preview.is_file() else directory / "source.bin"
+
+
+def _streams(path: Path) -> tuple[str, str]:
+    """(video codec, audio codec) for a media file, lowercase, '' when absent."""
+    try:
+        result = run_process(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,codec_type",
+                              "-of", "json", str(path)], 45)
+        streams = json.loads(result.stdout).get("streams", [])
+    except (ValueError, KeyError):
+        return ("", "")
+    video = next((s.get("codec_name", "") for s in streams if s.get("codec_type") == "video"), "")
+    audio = next((s.get("codec_name", "") for s in streams if s.get("codec_type") == "audio"), "")
+    return (video.lower(), audio.lower())
+
+
 def prepare_media(project: dict) -> None:
+    """Make the upload playable and transcribable, storing as little as possible.
+
+    This used to keep three copies of every upload: the original, an
+    uncompressed 16 kHz wav, and a re-encoded preview. The preview was written
+    at crf 19 and up to 1920px — export quality for a file only ever scrubbed —
+    so a 3.3 MB clip became 10.4 MB on disk, and the preview alone was larger
+    than the video it came from.
+
+    Most uploads are already h264 and aac in an MP4, which a browser plays
+    directly. Those are remuxed in place instead: the streams are copied
+    untouched and only the container is rewritten, which costs seconds, loses
+    nothing, and leaves one file serving as both the preview and the export
+    source. The remux is worth doing even when the file is already playable,
+    because phone recordings usually place the moov atom at the end and a
+    browser then has to download the whole clip before it can start.
+
+    Anything else — HEVC, AVI, ProRes — still needs a real preview, but a small
+    one: a scrubbing copy has no reason to be near-lossless.
+    """
     directory = project_dir(project["id"])
     source = directory / "source.bin"
     if not (directory / "audio.wav").is_file():
         run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
                      "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(directory / "audio.tmp.wav")], 300)
         (directory / "audio.tmp.wav").replace(directory / "audio.wav")
-    if project["mediaType"] == "video" and not (directory / "preview.mp4").is_file():
+
+    video_codec, audio_codec = _streams(source)
+    playable = (video_codec in _BROWSER_VIDEO if project["mediaType"] == "video" else True) \
+        and audio_codec in _BROWSER_AUDIO
+
+    if playable and not (directory / "preview.mp4").is_file() and not (directory / "preview.m4a").is_file():
+        # Lossless: same streams, faststart container. Replaces the source, so
+        # one file is both what the browser streams and what exports render.
+        remuxed = directory / "source.remux.mp4"
+        try:
+            run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0",
+                         "-c", "copy", "-movflags", "+faststart", str(remuxed)], 600)
+            remuxed.replace(source)
+        except ValueError:
+            # Some containers refuse a straight copy. Fall through to a preview.
+            remuxed.unlink(missing_ok=True)
+            playable = False
+
+    if not playable and project["mediaType"] == "video" and not (directory / "preview.mp4").is_file():
         set_progress(project["id"], 15, "Preparing a browser-friendly video preview.")
         run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:V:0", "-map", "0:a:0",
-                     "-vf", "scale=w='min(1920,iw)':h='min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p", "-c:a", "aac",
-                     "-b:a", "192k", "-movflags", "+faststart", str(directory / "preview.tmp.mp4")], 1800)
+                     "-vf", "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                     "-b:a", "128k", "-movflags", "+faststart", str(directory / "preview.tmp.mp4")], 1800)
         (directory / "preview.tmp.mp4").replace(directory / "preview.mp4")
-    if project["mediaType"] == "audio" and not (directory / "preview.m4a").is_file():
-        # Keep the original channel layout/sample rate for listening; mono16k is
-        # exclusively a recognizer input and is never used as export audio.
+
+    if not playable and project["mediaType"] == "audio" and not (directory / "preview.m4a").is_file():
+        # The recogniser's mono 16 kHz copy is never used for listening.
         run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
                      "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(directory / "preview.tmp.m4a")], 300)
         (directory / "preview.tmp.m4a").replace(directory / "preview.m4a")
@@ -181,6 +250,10 @@ def transcription_job(project_id: str) -> None:
         # The current project is reread under the lock: concurrent name/style edits survive.
         update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
                       message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
+        # The recogniser's copy is uncompressed 16 kHz wav and nothing reads it
+        # again — a third of the stored size for a file regenerated from the
+        # source in seconds if the clip is ever transcribed again.
+        (project_dir(project_id) / "audio.wav").unlink(missing_ok=True)
     except Exception as exc:
         LOGGER.exception("Transcription failed for %s", project_id)
         message = str(exc) if isinstance(exc, ValueError) else "Transcription failed. Check the local model installation or connection for its first download, then retry."
@@ -747,7 +820,7 @@ def retry_transcription(project_id: str, request: TranscribeRequest | None = Non
 def media(project_id: str):
     project = load_project(project_id)
     directory = project_dir(project_id)
-    path = directory / ("preview.mp4" if project["mediaType"] == "video" else "preview.m4a")
+    path = playable_media(project)
     if not path.is_file():
         raise HTTPException(409, "The media preview is still being prepared.")
     return FileResponse(path, media_type="video/mp4" if project["mediaType"] == "video" else "audio/mp4")
@@ -849,7 +922,7 @@ def project_media_thumbnail(project_id: str):
     directory = project_dir(project_id)
     thumb_path = directory / "preview.thumb.jpg"
     if not thumb_path.is_file():
-        source_path = directory / ("preview.mp4" if (directory / "preview.mp4").is_file() else "source.bin")
+        source_path = playable_media(load_project(project_id))
         if source_path.is_file():
             generate_asset_thumb(source_path, thumb_path, "video")
     if thumb_path.is_file():
@@ -954,9 +1027,7 @@ def get_asset_file(project_id: str, asset_id: str):
     directory = project_dir(project_id)
     if asset_id == "primary":
         project = load_project(project_id)
-        path = directory / ("preview.mp4" if project["mediaType"] == "video" else "preview.m4a")
-        if not path.is_file():
-            path = directory / "source.bin"
+        path = playable_media(project)
         if not path.is_file():
             raise HTTPException(404, "Primary media file not found.")
         return FileResponse(path, media_type="video/mp4" if project["mediaType"] == "video" else "audio/mp4")
@@ -1000,7 +1071,7 @@ def download_asset_file(project_id: str, asset_id: str):
     if asset_id == "primary":
         path = directory / "source.bin"
         if not path.is_file():
-            path = directory / ("preview.mp4" if project["mediaType"] == "video" else "preview.m4a")
+            path = playable_media(project)
         if not path.is_file():
             raise HTTPException(404, "Primary media file not found.")
         return FileResponse(path, filename=project.get("filename", "clip.mp4"))
@@ -1054,7 +1125,7 @@ def duplicate_asset(project_id: str, asset_id: str):
     if asset_id == "primary":
         source_file = directory / "source.bin"
         if not source_file.is_file():
-            source_file = directory / "preview.mp4"
+            source_file = playable_media(project)
         if not source_file.is_file():
             raise HTTPException(404, "Source file not found.")
         orig_filename = project.get("filename", "clip.mp4")
