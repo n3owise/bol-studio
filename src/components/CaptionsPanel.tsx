@@ -25,6 +25,7 @@ import {
 import type { MediaAsset, Project, Settings, Word } from '../lib/types';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';
 import { groupWords } from '../lib/pages';
+import { WordInspector, recase, type WordCase } from './WordInspector';
 
 interface WordSnapshot {
   id: string;
@@ -244,7 +245,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     position: { top: number; left: number };
     draftText: string;
   } | null>(null);
-  const [caseMenuOpen, setCaseMenuOpen] = useState(false);
   const wordPopoverRef = useRef<HTMLDivElement | null>(null);
   const popoverWordInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -320,7 +320,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       if (wordPopoverRef.current && !wordPopoverRef.current.contains(target)) {
         if (!(e.target as HTMLElement).closest('.caption-word-chip')) {
           setWordPopover(null);
-          setCaseMenuOpen(false);
         }
       }
     };
@@ -350,7 +349,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const handleContainerScroll = () => {
     if (wordPopover) {
       setWordPopover(null);
-      setCaseMenuOpen(false);
     }
     userScrolledRecentRef.current = true;
     if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
@@ -482,7 +480,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       position: { top, left },
       draftText: w.text,
     });
-    setCaseMenuOpen(false);
   };
 
   // Word Chip Double Click -> enter inline text edit mode
@@ -741,7 +738,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     }
     justDraggedRef.current = true;
     setWordPopover(null);
-    setCaseMenuOpen(false);
 
     let movingIds: string[] = [w.id];
     if (selectedWordIds.has(w.id) && selectedWordIds.size > 1 && project) {
@@ -905,34 +901,16 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   };
 
   // Apply Case Transformation
-  const applyWordCase = (c: 'normal' | 'uppercase' | 'lowercase' | 'title') => {
+  const applyWordCase = (c: WordCase) => {
     if (!wordPopover) return;
     const w = wordPopover.word;
-    let newText = w.text;
-
-    if (c === 'uppercase') {
-      newText = w.text.toUpperCase();
-    } else if (c === 'lowercase') {
-      newText = w.text.toLowerCase();
-    } else if (c === 'title') {
-      newText = w.text.replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
-    } else if (c === 'normal') {
-      newText = w.original || (w.text.charAt(0).toUpperCase() + w.text.substring(1).toLowerCase());
-    }
+    const newText = recase(w, c);
 
     if (selectedWordIds.size > 1 && selectedWordIds.has(w.id)) {
-      const ids = Array.from(selectedWordIds);
-      ids.forEach(id => {
+      for (const id of selectedWordIds) {
         const found = project?.words.find(pw => pw.id === id);
-        if (found) {
-          let t = found.text;
-          if (c === 'uppercase') t = found.text.toUpperCase();
-          else if (c === 'lowercase') t = found.text.toLowerCase();
-          else if (c === 'title') t = found.text.replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
-          else if (c === 'normal') t = found.original || found.text;
-          onUpdateWord(id, { text: t });
-        }
-      });
+        if (found) onUpdateWord(id, { text: recase(found, c) });
+      }
     } else {
       onUpdateWord(w.id, { text: newText });
     }
@@ -942,7 +920,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       word: { ...p.word, text: newText },
       draftText: newText,
     } : null);
-    setCaseMenuOpen(false);
     notify(`Changed case to ${c}`);
   };
 
@@ -1969,137 +1946,37 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
             </>
           )}
 
-          {/* CONTEXTUAL WORD INSPECTOR POPOVER */}
+          {/* CONTEXTUAL WORD INSPECTOR POPOVER — shared with the timeline */}
           {wordPopover && (
-            <div
+            <WordInspector
               ref={wordPopoverRef}
-              className="caption-word-inspector-popover"
-              style={{
-                position: 'fixed',
-                top: `${wordPopover.position.top}px`,
-                left: `${wordPopover.position.left}px`,
-                zIndex: 9999,
+              word={wordPopover.word}
+              draftText={wordPopover.draftText}
+              position={wordPopover.position}
+              onDraftChange={val => setWordPopover(p => p ? { ...p, draftText: val } : null)}
+              onCommit={handleCommitPopoverWord}
+              onRevert={() => setWordPopover(p => p ? { ...p, draftText: p.word.text } : null)}
+              onToggleHighlight={handleToggleWordHighlight}
+              onApplyCase={applyWordCase}
+              onSplit={() => {
+                if (onSplitLine) {
+                  onSplitLine(wordPopover.word.id);
+                } else {
+                  const currentG = groups.find(g => g.some(w => w.id === wordPopover.word.id));
+                  if (currentG) onSplitGroup(currentG);
+                }
+                setWordPopover(null);
               }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Header with directly editable word input */}
-              <div className="popover-header">
-                <div className="popover-title-row">
-                  <span className="popover-tag">WORD</span>
-                  <div className="popover-word-input-wrap">
-                    <input
-                      ref={popoverWordInputRef}
-                      type="text"
-                      className="popover-word-input"
-                      value={wordPopover.draftText}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setWordPopover(p => p ? { ...p, draftText: val } : null);
-                      }}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          handleCommitPopoverWord();
-                          (e.target as HTMLInputElement).blur();
-                        } else if (e.key === 'Escape') {
-                          setWordPopover(p => p ? { ...p, draftText: p.word.text } : null);
-                          (e.target as HTMLInputElement).blur();
-                        }
-                      }}
-                      onBlur={handleCommitPopoverWord}
-                      placeholder="Word text..."
-                      title="Click to edit word"
-                    />
-                    <Edit3 size={11} className="popover-word-input-icon" />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="popover-close-btn"
-                  title="Close inspector"
-                  onClick={() => {
-                    setWordPopover(null);
-                    setCaseMenuOpen(false);
-                  }}
-                >
-                  <X size={13} />
-                </button>
-              </div>
-
-              {/* Quick Actions (no separate edit button, no timing section) */}
-              <div className="popover-section">
-                <div className="popover-quick-actions">
-                  <button
-                    type="button"
-                    className={`popover-action-btn ${wordPopover.word.spotlight ? 'active' : ''}`}
-                    title={wordPopover.word.spotlight ? 'Remove highlight' : 'Highlight this word (⚡)'}
-                    onClick={handleToggleWordHighlight}
-                  >
-                    <span className="popover-zap-icon">⚡</span>
-                    <span>{wordPopover.word.spotlight ? 'Highlighted' : 'Highlight'}</span>
-                  </button>
-                </div>
-
-                <div className="popover-secondary-actions">
-                  {/* Case changer */}
-                  <div className="popover-case-wrap">
-                    <button
-                      type="button"
-                      className="popover-action-btn case-toggle"
-                      onClick={() => setCaseMenuOpen(prev => !prev)}
-                    >
-                      <Type size={12} />
-                      <span>Case</span>
-                      <ChevronDown size={11} />
-                    </button>
-                    {caseMenuOpen && (
-                      <div className="popover-case-dropdown">
-                        <button type="button" onClick={() => applyWordCase('normal')}>Normal</button>
-                        <button type="button" onClick={() => applyWordCase('uppercase')}>UPPERCASE</button>
-                        <button type="button" onClick={() => applyWordCase('lowercase')}>lowercase</button>
-                        <button type="button" onClick={() => applyWordCase('title')}>Title Case</button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Split Here */}
-                  <button
-                    type="button"
-                    className="popover-action-btn"
-                    title="Split caption here"
-                    onClick={() => {
-                      if (onSplitLine) {
-                        onSplitLine(wordPopover.word.id);
-                      } else {
-                        const currentG = groups.find(g => g.some(w => w.id === wordPopover.word.id));
-                        if (currentG) onSplitGroup(currentG);
-                      }
-                      setWordPopover(null);
-                    }}
-                  >
-                    <Scissors size={12} />
-                    <span>Split</span>
-                  </button>
-
-                  {/* Delete Word */}
-                  <button
-                    type="button"
-                    className="popover-action-btn danger"
-                    title="Delete word"
-                    onClick={() => {
-                      if (onDeleteWord) {
-                        onDeleteWord(wordPopover.word.id);
-                      } else {
-                        onUpdateWords([wordPopover.word.id], { text: '' });
-                      }
-                      setWordPopover(null);
-                    }}
-                  >
-                    <Trash2 size={12} />
-                    <span>Delete</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+              onDelete={() => {
+                if (onDeleteWord) {
+                  onDeleteWord(wordPopover.word.id);
+                } else {
+                  onUpdateWords([wordPopover.word.id], { text: '' });
+                }
+                setWordPopover(null);
+              }}
+              onClose={() => setWordPopover(null)}
+            />
           )}
 
           {/* BOTTOM + ADD CAPTION BUTTON */}

@@ -881,6 +881,18 @@ test('the always-promote rule is keyed off the layout, not a template list', () 
     'stacked and single lockups promote; row layouts earn it');
 });
 
+test('the timeline and the caption panel open the same word inspector', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../src/components/CaptionsPanel.tsx', import.meta.url), 'utf8');
+  for (const [name, source] of [['main.tsx', editor], ['CaptionsPanel.tsx', panel]] as const) {
+    assert.ok(/<WordInspector\b/.test(source),
+      `${name} renders the shared inspector — the two used to be separate markup, so the same `
+      + 'word looked and behaved differently depending on where it was clicked');
+  }
+  assert.ok(!/timeline-word-popover/.test(editor),
+    'the timeline\u2019s own popover markup is gone, not merely unused');
+});
+
 test('a stacked lockup with nothing promoted does not invent a hero', () => {
   const page = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
   assert.ok(!/heroRun\(page\)\s*\?\?/.test(page),

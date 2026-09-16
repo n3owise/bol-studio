@@ -28,6 +28,7 @@ import { CAPTION_FPS } from './remotion/Root';
 import { drawKeyedMedia } from './lib/chromakey';
 import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
 import { CaptionsPanel } from './components/CaptionsPanel';
+import { WordInspector, recase, type WordCase } from './components/WordInspector';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
@@ -1268,6 +1269,20 @@ function App() {
       p ? { ...p, ...patch, word: { ...p.word, ...patch } } : null
     );
   }
+  function applyTimelineWordCase(c: WordCase) {
+    if (!timelinePopover) return;
+    const w = timelinePopover.word;
+    const newText = recase(w, c);
+    if (selectedWordIds.size > 1 && selectedWordIds.has(w.id)) {
+      for (const id of selectedWordIds) {
+        const found = projectRef.current?.words.find(pw => pw.id === id);
+        if (found) updateWord(id, { text: recase(found, c) });
+      }
+    } else {
+      updateWord(w.id, { text: newText });
+    }
+    setTimelinePopover(p => p ? { ...p, word: { ...p.word, text: newText }, draftText: newText } : null);
+  }
   function saveTimelineWordEdit() {
     if (!timelinePopover) return;
     const trimmed = timelinePopover.draftText.trim();
@@ -1282,14 +1297,16 @@ function App() {
     }
     setTimelinePopover(null);
   }
-  function calculatePopoverPosition(rect: DOMRect): React.CSSProperties {
-    const width = 280;
-    const height = 180;
-    let top = rect.top - height - 12;
-    if (top < 10) top = rect.bottom + 12;
+  function calculatePopoverPosition(rect: DOMRect): { top: number; left: number } {
+    // Matches the caption panel's own placement maths, since the two open the
+    // same inspector at the same size.
+    const width = 250;
+    const height = 115;
+    let top = rect.bottom + 8;
+    if (top + height > window.innerHeight - 12) top = Math.max(10, rect.top - height - 8);
     let left = rect.left + rect.width / 2 - width / 2;
     left = Math.max(12, Math.min(window.innerWidth - width - 12, left));
-    return { top: `${top}px`, left: `${left}px`, width: `${width}px` };
+    return { top, left };
   }
   function handleTimelineTrackClick(e: React.MouseEvent<HTMLDivElement>) {
     if (!project || !duration || !timelineTrackRef.current) return;
@@ -3971,97 +3988,26 @@ function App() {
           className="timeline-popover-backdrop"
           onClick={saveTimelineWordEdit}
         />
-        <div
-          className="timeline-word-popover"
-          style={calculatePopoverPosition(timelinePopover.rect)}
-        >
-          <div className="popover-header">
-            <span className="popover-title">Highlight</span>
-            <div className="popover-style-group" role="group" aria-label="Highlight style">
-              <button
-                type="button"
-                className={`popover-icon-btn btn-spotlight ${timelinePopover.spotlight ? 'active' : ''}`}
-                title={timelinePopover.spotlight ? 'Remove highlight' : 'Highlight this word'}
-                aria-label="Highlight this word"
-                aria-pressed={timelinePopover.spotlight}
-                onClick={() => setWordHighlight('highlight')}
-              >
-                <Sparkles size={14} />
-              </button>
-
-              <button
-                type="button"
-                className={`popover-icon-btn btn-clear ${!timelinePopover.spotlight ? 'active' : ''}`}
-                title="No highlight"
-                aria-label="No highlight"
-                aria-pressed={!timelinePopover.spotlight}
-                onClick={() => setWordHighlight('clear')}
-              >
-                <Ban size={14} />
-              </button>
-            </div>
-          </div>
-
-          <div className="popover-input-wrapper">
-            <textarea
-              autoFocus
-              aria-label="Edit word text"
-              className="popover-word-input"
-              value={timelinePopover.draftText}
-              rows={2}
-              onChange={(e) => setTimelinePopover(p => p ? { ...p, draftText: e.target.value } : null)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  saveTimelineWordEdit();
-                } else if (e.key === 'Escape') {
-                  setTimelinePopover(null);
-                }
-              }}
-            />
-            <span className="popover-input-emoji" title="Word emoji tag" aria-hidden="true">
-              <Smile size={16} />
-            </span>
-          </div>
-
-          <div className="popover-footer">
-            <button
-              type="button"
-              className="popover-btn-delete"
-              title="Delete word"
-              aria-label="Delete word"
-              onClick={() => {
-                handleDeleteWord(timelinePopover.word.id);
-                setTimelinePopover(null);
-              }}
-            >
-              <Trash2 size={16} />
-            </button>
-
-            <div className="popover-footer-actions">
-              <button
-                type="button"
-                className="popover-btn-cancel"
-                title="Cancel"
-                aria-label="Cancel"
-                onClick={() => setTimelinePopover(null)}
-              >
-                <X size={16} />
-              </button>
-              <button
-                type="button"
-                className="popover-btn-confirm"
-                title="Save changes (Enter)"
-                aria-label="Save changes"
-                onClick={saveTimelineWordEdit}
-              >
-                <Check size={16} />
-              </button>
-            </div>
-          </div>
-
-          <div className="popover-arrow" />
-        </div>
+        <WordInspector
+          word={timelinePopover.word}
+          draftText={timelinePopover.draftText}
+          position={calculatePopoverPosition(timelinePopover.rect)}
+          autoFocus
+          onDraftChange={text => setTimelinePopover(p => p ? { ...p, draftText: text } : null)}
+          onCommit={saveTimelineWordEdit}
+          onRevert={() => setTimelinePopover(null)}
+          onToggleHighlight={() => setWordHighlight(timelinePopover.spotlight ? 'clear' : 'highlight')}
+          onApplyCase={c => applyTimelineWordCase(c)}
+          onSplit={() => {
+            handleSplitLine(timelinePopover.word.id);
+            setTimelinePopover(null);
+          }}
+          onDelete={() => {
+            handleDeleteWord(timelinePopover.word.id);
+            setTimelinePopover(null);
+          }}
+          onClose={() => setTimelinePopover(null)}
+        />
       </>
     )}
 
