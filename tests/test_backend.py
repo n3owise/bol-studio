@@ -862,7 +862,13 @@ def test_the_space_entrypoint_actually_enforces_the_gate(monkeypatch, tmp_path):
         # And our routes are actually mounted, not just Gradio's.
         assert client.get("/api/limits", headers={"X-API-Key": "gate-open-sesame"}).status_code == 200
 
+    # Clear the variable before reloading, not after. API_KEY is read at module
+    # level, so a reload while it is still set leaves the gate armed for every
+    # test that follows — monkeypatch undoes the environment after this function
+    # returns, which is too late to help.
+    monkeypatch.delenv("BOL_API_KEY", raising=False)
     importlib.reload(server_module)
+    assert not server_module.API_KEY, "the gate must not stay armed for later tests"
 
 
 def test_the_key_guards_our_api_and_nothing_else(monkeypatch):
