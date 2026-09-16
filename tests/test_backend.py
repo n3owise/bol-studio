@@ -1063,13 +1063,19 @@ def test_the_local_checkout_still_needs_no_account(client):
     assert client.get("/api/projects").status_code == 200
 
 
-def test_projects_without_an_owner_stay_visible_so_nothing_needs_migrating(client):
-    """Every project created before this existed has no owner field.
+def test_an_unowned_project_belongs_to_everyone_or_to_nobody(client, monkeypatch):
+    """An unowned project is everyone's without accounts, and nobody's with them.
 
-    Scoping those to nobody would have hidden the user's own work behind an
-    upgrade, and a local checkout sends no header at all. An unowned project is
-    therefore visible to everyone, which is what keeps `npm run dev` working
-    with no configuration and makes deploying this a no-op for existing data.
+    Scoping legacy projects to nobody would have hidden the user's own work
+    behind an upgrade, and a local checkout sends no header at all — so without
+    accounts they stay visible, which keeps `npm run dev` working with no
+    configuration.
+
+    That promise was true of an owner a browser invented and stops being true
+    the moment it means a person: every project already on disk has no owner, so
+    the same rule would hand them to whoever signed up first. With accounts on it
+    fails closed instead, and scripts/backfill-owner.py is how a directory gets
+    claimed on purpose.
     """
     response = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")})
     legacy = response.json()["id"]
@@ -1078,6 +1084,13 @@ def test_projects_without_an_owner_stay_visible_so_nothing_needs_migrating(clien
     for owner in ({}, {"X-Bol-Owner": "alice"}, {"X-Bol-Owner": "bob"}):
         assert client.get(f"/api/projects/{legacy}", headers=owner).status_code == 200
         assert legacy in {p["id"] for p in client.get("/api/projects", headers=owner).json()}
+
+    # Same project, accounts on: now it is nobody's.
+    monkeypatch.setattr(backend, "AUTH_ENABLED", True)
+    assert backend.owns({"owner": ""}, "anyone") is False
+    assert backend.owns({}, "anyone") is False
+    assert backend.owns({"owner": "alice"}, "alice") is True
+    assert backend.owns({"owner": "alice"}, "bob") is False
 
 
 def test_the_space_entrypoint_actually_enforces_the_gate(monkeypatch, tmp_path):
