@@ -25,7 +25,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
-from server.auth import AUTH_ENABLED, AuthError, user_id_from
+from server.auth import (AUTH_ENABLED, AuthError, MEDIA_TOKEN_TTL_SECONDS, mint_media_token,
+                         owner_from_media_token, user_id_from)
 from server.transcription import model_status, transcribe
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -487,6 +488,32 @@ async def scope_to_owner(request: Request, call_next):
     return await call_next(request)
 
 
+# Which media paths a media token opens. Deliberately a list of exact suffixes
+# rather than a prefix: a token is for watching one clip, so it must not reach
+# the project JSON, the asset list, or anything that could enumerate.
+_MEDIA_PATHS = re.compile(
+    r"^/api/projects/[0-9a-fA-F-]{36}/(media|media-thumbnail"
+    r"|exports/[0-9a-fA-F-]{36}/download"
+    r"|assets/[0-9a-zA-Z-]{1,64}/(file|thumbnail|download))$"
+)
+
+
+def _media_token_owner(request: Request) -> str:
+    """The owner a ?t= media token authorises here, or "".
+
+    GET only, and only on the paths above. Everything else — including a POST to
+    one of them — falls through to the normal token check, so a leaked media URL
+    cannot be turned into a way to change anything.
+    """
+    token = request.query_params.get("t") or ""
+    if not token or request.method != "GET":
+        return ""
+    match = _PROJECT_PATH.match(request.url.path)
+    if not match or not _MEDIA_PATHS.match(request.url.path):
+        return ""
+    return owner_from_media_token(token, match.group(1))
+
+
 async def require_user(request: Request, call_next):
     """Resolve the signed-in user before anything asks who is calling.
 
@@ -501,6 +528,10 @@ async def require_user(request: Request, call_next):
     with 401 stops the Space from starting.
     """
     if not AUTH_ENABLED or request.method == "OPTIONS" or not _is_guarded(request.url.path):
+        return await call_next(request)
+    media = _media_token_owner(request)
+    if media:
+        request.state.bol_owner = media
         return await call_next(request)
     authorization = request.headers.get("authorization", "")
     token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
@@ -893,6 +924,21 @@ def retry_transcription(project_id: str, request: TranscribeRequest | None = Non
     result = update_project(project_id, mutate)
     EXECUTOR.submit(transcription_job, project_id)
     return result
+
+
+@app.post("/api/projects/{project_id}/media-token")
+def media_token(project_id: str, request: Request):
+    """A short-lived key for this project's media URLs.
+
+    Reaching here means scope_to_owner has already proved the caller owns the
+    project, so there is nothing further to check. The token it returns is what
+    <video src> carries instead of a real credential.
+    """
+    load_project(project_id)
+    return {
+        "token": mint_media_token(project_id, owner_of(request)),
+        "expiresIn": MEDIA_TOKEN_TTL_SECONDS,
+    }
 
 
 @app.get("/api/projects/{project_id}/media")

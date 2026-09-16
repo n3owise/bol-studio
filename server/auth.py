@@ -24,7 +24,12 @@ again on every cache miss. httpx is already a dependency and is async.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import os
+import secrets
 import time
 from dataclasses import dataclass
 
@@ -177,3 +182,65 @@ async def user_id_from(token: str) -> str:
     if not subject:
         raise AuthError(UNAUTHENTICATED, "Please sign in to continue.")
     return subject
+
+
+# --- Media tokens -------------------------------------------------------------
+#
+# <video src> and <img src> cannot send headers, so media has always carried its
+# credentials in the query string. That was tolerable for the shared API key,
+# which ships in the bundle anyway. It is not tolerable for an access token: that
+# is a real credential, good for an hour and for everything, and a query string
+# ends up in proxy logs, browser history and Referer headers.
+#
+# So media URLs carry something built for the job instead — a signature over one
+# project id, one owner and an expiry. Fifteen minutes, read-only, one project.
+# Someone who steals it gets that clip's bytes until it expires and cannot list,
+# modify, or discover anything else.
+
+MEDIA_TOKEN_TTL_SECONDS = 900
+# Unset is fine for a single-process deployment: it means media URLs minted
+# before a restart stop working, and on an ephemeral Space the media they point
+# at did not survive the restart either. A multi-worker deployment would have to
+# set it, since each worker would otherwise reject the others' tokens.
+MEDIA_SECRET = (os.getenv("BOL_MEDIA_SECRET", "").strip() or secrets.token_urlsafe(32)).encode()
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _unb64(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def mint_media_token(project_id: str, owner: str) -> str:
+    payload = _b64(json.dumps(
+        {"p": project_id, "o": owner, "exp": int(time.time()) + MEDIA_TOKEN_TTL_SECONDS},
+        separators=(",", ":"),
+    ).encode())
+    signature = hmac.new(MEDIA_SECRET, payload.encode(), hashlib.sha256).digest()
+    return f"{payload}.{_b64(signature)}"
+
+
+def owner_from_media_token(token: str, project_id: str) -> str:
+    """The owner a media token authorises for this project, or "".
+
+    Returns a falsy value for every kind of failure rather than raising: the
+    caller's next move is the same either way, and the distinctions are not the
+    caller's business.
+    """
+    payload, _, signature = token.partition(".")
+    if not payload or not signature:
+        return ""
+    expected = hmac.new(MEDIA_SECRET, payload.encode(), hashlib.sha256).digest()
+    try:
+        if not hmac.compare_digest(_unb64(signature), expected):
+            return ""
+        claims = json.loads(_unb64(payload))
+    except Exception:
+        return ""
+    # The project is checked as well as the signature. A token is for one clip;
+    # without this, any valid token would open every project its owner has.
+    if claims.get("p") != project_id or float(claims.get("exp", 0)) < time.time():
+        return ""
+    return str(claims.get("o") or "")

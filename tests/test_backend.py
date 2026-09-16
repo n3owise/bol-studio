@@ -967,6 +967,75 @@ def test_a_token_signed_with_the_public_key_as_a_secret_is_refused(accounts):
     assert response.status_code == 401, "a public key is not a signing secret"
 
 
+def test_a_media_token_opens_one_clip_and_nothing_else(accounts):
+    """<video src> cannot send headers, so media has to carry something in the URL.
+
+    An access token there would be a real credential — an hour long, good for
+    everything — sitting in proxy logs, browser history and Referer headers. So
+    media carries a signature over one project and an expiry instead, and this
+    pins down how little it can do: the clip it was minted for and nothing else,
+    by any method other than GET, for any other project, or for anything that
+    could list or change something.
+    """
+    client, sign, _ = accounts
+    signed_in = {"Authorization": f"Bearer {sign(sub='alice')}"}
+
+    mine = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                       headers=signed_in).json()["id"]
+    other = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                        headers=signed_in).json()["id"]
+
+    minted = client.post(f"/api/projects/{mine}/media-token", headers=signed_in)
+    assert minted.status_code == 200, minted.text
+    token = minted.json()["token"]
+
+    # It does the one thing it is for, with no other credential present.
+    assert client.get(f"/api/projects/{mine}/media?t={token}").status_code == 200
+
+    # And nothing else. Another project of the same owner's is still refused —
+    # the signature covers the project id, not just who asked for it.
+    assert client.get(f"/api/projects/{other}/media?t={token}").status_code == 401
+    assert client.get(f"/api/projects/{mine}?t={token}").status_code == 401, "not the project JSON"
+    assert client.get(f"/api/projects/{mine}/assets?t={token}").status_code == 401, "cannot enumerate"
+    assert client.get(f"/api/projects?t={token}").status_code == 401
+    assert client.patch(f"/api/projects/{mine}?t={token}", json={"name": "x"}).status_code == 401
+
+    # Minting one for someone else's project is refused before it is minted.
+    assert client.post(f"/api/projects/{mine}/media-token",
+                       headers={"Authorization": f"Bearer {sign(sub='bob')}"}).status_code == 404
+
+
+def test_an_expired_or_tampered_media_token_is_refused(accounts, monkeypatch):
+    """The expiry and the signature both have to hold, not either one.
+
+    A token whose payload can be edited without invalidating it is not a token,
+    and one that never expires turns a URL shared once into permanent access.
+    """
+    import base64
+    import json as json_module
+    from server import auth as auth_module
+
+    client, sign, _ = accounts
+    signed_in = {"Authorization": f"Bearer {sign(sub='alice')}"}
+    mine = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                       headers=signed_in).json()["id"]
+    token = client.post(f"/api/projects/{mine}/media-token", headers=signed_in).json()["token"]
+
+    payload, _, signature = token.partition(".")
+    claims = json_module.loads(auth_module._unb64(payload))
+    assert claims["o"] == "alice" and claims["p"] == mine
+
+    # Rewrite the owner and keep the signature: the classic forgery attempt.
+    claims["o"] = "bob"
+    forged = auth_module._b64(json_module.dumps(claims, separators=(",", ":")).encode())
+    assert client.get(f"/api/projects/{mine}/media?t={forged}.{signature}").status_code == 401
+
+    # And once it ages out it stops working, without the server having to
+    # remember it was ever issued.
+    monkeypatch.setattr(auth_module.time, "time", lambda: 9_999_999_999)
+    assert client.get(f"/api/projects/{mine}/media?t={token}").status_code == 401
+
+
 def test_gradio_still_boots_without_a_token(accounts):
     """A gate answering the wrong request looks exactly like a broken deployment.
 
