@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { AlignCenter, AlignLeft, AlignRight, Bold, Check, Italic, Strikethrough, Underline, ChevronDown, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Star, Type, WandSparkles } from 'lucide-react';
 import captionFonts from '../lib/caption-fonts.json';
 import { templates } from '../lib/captions';
+import { treatmentFor } from '../remotion/treatments';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';
 import type { SafeAreaSpec, SafeAreaZone } from '../lib/safe-area';
 import { defaults, type Settings } from '../lib/types';
@@ -34,6 +35,10 @@ export function StylePanel({ settings, updateSettings, busy, notify, isStackedTe
   const [rightTab, setRightTab] = useState('templates');
   const [templateSearch, setTemplateSearch] = useState('');
   const [templateCategory, setTemplateCategory] = useState<'all' | 'minimal' | 'bold' | 'kinetic' | 'editorial' | 'fun'>('all');
+
+  // What the chosen template would make the highlighted word, so the control
+  // starts where the design puts it rather than at some arbitrary default.
+  const heroScale = treatmentFor(settings.template).heroScale;
 
   const filteredTemplates = useMemo(() => {
     return templates.filter(t => {
@@ -154,7 +159,7 @@ export function StylePanel({ settings, updateSettings, busy, notify, isStackedTe
                         No Devanagari in this face — Hindi words fall back to Noto. Pick one marked हिन्दी to keep one font throughout.
                       </p>
                     )}
-                    <label htmlFor="caption-size">Font size <span>{settings.fontSize}px</span></label>
+                    <label htmlFor="caption-size">Caption size <span>{settings.fontSize}px</span></label>
                     <div className="slider-row">
                       <button
                         type="button"
@@ -186,6 +191,44 @@ export function StylePanel({ settings, updateSettings, busy, notify, isStackedTe
                       <span className="slider-number-badge">{settings.fontSize}px</span>
                     </div>
                   </div>
+                  {/* The highlighted word has always been sized separately —
+                      each template multiplies the caption size by its own
+                      heroScale, from 1.3 up to 2.1 — but there was one control
+                      for both, so raising one raised the other and the gap
+                      between them could not be changed. This starts wherever
+                      the template puts it and takes over once moved. */}
+                  <div className="setting-field">
+                    <label htmlFor="hero-size">
+                      Highlighted word size{' '}
+                      <span>
+                        {Math.round(settings.heroFontSize ?? settings.fontSize * heroScale)}px
+                        {settings.heroFontSize === undefined ? ' · from template' : ''}
+                      </span>
+                    </label>
+                    <div className="slider-row">
+                      <input
+                        disabled={busy}
+                        id="hero-size"
+                        type="range"
+                        min="24"
+                        max="180"
+                        value={Math.round(settings.heroFontSize ?? settings.fontSize * heroScale)}
+                        onChange={e => updateSettings({ heroFontSize: Number(e.target.value) })}
+                      />
+                      {settings.heroFontSize !== undefined && (
+                        <button
+                          type="button"
+                          className="icon-button tiny"
+                          title="Back to the template's proportion"
+                          onClick={() => updateSettings({ heroFontSize: undefined })}
+                          disabled={busy}
+                        >
+                          <RotateCcw size={13}/>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="setting-field">
                     <label htmlFor="caption-position">Vertical Position <span>{settings.position}%</span></label>
                     <input

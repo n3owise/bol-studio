@@ -73,7 +73,10 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   const { set, boxes } = useRowMeasure(3);
 
   const base = settings.fontSize * width / 720;
-  const heroSize = base * treatment.heroScale;
+  // The template's proportion unless the creator has set the highlighted word's
+  // size outright. Both sizes used to come from one value, so raising the
+  // caption size raised the highlighted word with it.
+  const heroSize = (settings.heroFontSize ?? settings.fontSize * treatment.heroScale) * width / 720;
   // Two or three spotlighted words side by side at full hero size overflow the
   // frame, and the fit-to-width scale then shrinks the whole lockup until the
   // hero stops reading as a hero. Step the size down instead.

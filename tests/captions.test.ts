@@ -1174,3 +1174,23 @@ test('a dragged word can become a line of its own between two lines', () => {
   const top = moveWordsToNewLine(words, [words.find(w => w.text === 'hoon')!.id], -1, 5);
   assert.deepEqual(groupWords(top, 5)[0].map(w => w.text), ['hoon']);
 });
+
+test('the highlighted word can be sized apart from the rest of the caption', () => {
+  // Both sizes came from one value scaled by the template, so raising the
+  // caption size raised the highlighted word with it and the proportion between
+  // them was fixed by whichever template was chosen.
+  const source = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /settings\.heroFontSize \?\? settings\.fontSize \* treatment\.heroScale/,
+    'the template sets the proportion until the creator overrides it outright');
+
+  // Templates disagree about that proportion by more than two to one, which is
+  // why a single control could not serve both.
+  const scales = Object.values(treatments).map(t => t.heroScale);
+  assert.ok(Math.max(...scales) / Math.min(...scales) > 1.5,
+    'templates differ enough in hero scale that one size control cannot cover both');
+
+  const panel = readFileSync(new URL('../src/components/StylePanel.tsx', import.meta.url), 'utf8');
+  assert.ok(panel.includes('settings.heroFontSize'), 'and it has a control');
+  assert.ok(panel.includes('heroFontSize: undefined'),
+    'with a way back to the template, since an override otherwise survives every template change');
+});

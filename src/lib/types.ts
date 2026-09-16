@@ -45,6 +45,16 @@ export type Settings = {
    * what a lecture does not want, so it is a choice rather than a fixed style.
    */
   autoHighlight?: boolean;
+  /**
+   * Size of the highlighted word, when the template's own proportion is not
+   * wanted.
+   *
+   * Both sizes come from `fontSize` scaled by the template — heroScale ranges
+   * from 1.3 to 2.1 across the set — so raising the caption size raised the
+   * highlighted word with it and the two could never be set apart. Unset, the
+   * template still decides; set, this wins.
+   */
+  heroFontSize?: number;
 
   /**
    * Typography adjustments, applied on top of whatever the template specifies
