@@ -13,7 +13,7 @@ import '@fontsource/montserrat/900.css';
 import './styles.css';
 import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
-import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { appendWord, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
 import { SAMPLE_ITEMS, UNSAVED, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
@@ -915,6 +915,22 @@ function App() {
     markEdit({ ...p, words: updated }, true);
     setSelectedWordIds(new Set(wordIds));
     notify(wordIds.length > 1 ? `Moved ${wordIds.length} words to a new line.` : 'Moved to a new line.');
+  }
+  /**
+   * Take the highlight off every word.
+   *
+   * Needed twice over. Projects made before the fix carry `spotlight: true` on
+   * words the app chose rather than the creator, and those are honoured as
+   * decisions — so without this there is no way to undo a choice nobody made.
+   * And clearing by hand is one click per word.
+   */
+  function handleClearAllHighlights() {
+    const p = projectRef.current;
+    if (!p) return;
+    const marked = p.words.filter(w => w.spotlight || w.emphasis).length;
+    if (!marked) { notify('Nothing is highlighted.'); return; }
+    markEdit({ ...p, words: p.words.map(w => ({ ...w, emphasis: false, spotlight: false })) });
+    notify(`Cleared ${marked} highlight${marked === 1 ? '' : 's'}.`);
   }
   function handleInsertWord(targetId: string, position: 'before' | 'after', text = 'word') {
     const p = projectRef.current; if (!p) return;
@@ -2071,7 +2087,6 @@ function App() {
       const result = await upload(file,script,language,setUploadProgress);
       result.name = file.name || result.filename || result.name;
       result.settings = result.settings || defaults;
-      result.words = autoDetectHighlights(result.words || [], result.settings?.wordsPerLine || 4);
       setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
            setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
       setLanguagePrompt('open');
@@ -2133,10 +2148,14 @@ function App() {
       const result=await request<Project>(`/projects/${p.id}`);
       const projectScript = result.script || 'roman';
       const projectLanguage = result.language || 'auto';
-      const wordsPerLine = result.settings?.wordsPerLine || 4;
-      const hasSpotlight = (result.words || []).some(w => w.spotlight);
-      const normalizedWords = hasSpotlight ? (result.words || []) : autoDetectHighlights(result.words || [], wordsPerLine);
-      const normalized = { ...result, words: normalizedWords, script: projectScript, language: projectLanguage };
+      // Opening a project used to run autoDetectHighlights over it, writing
+      // `spotlight: true` onto whichever word scored best on each line. That is
+      // the field meaning "the creator chose this word", so an automatic guess
+      // was being recorded as a decision — and then honoured as one, which is
+      // why turning highlighting off left words still enlarged. The renderer
+      // picks a hero per line on its own when asked to; nothing needs writing
+      // down for that to work.
+      const normalized = { ...result, words: result.words || [], script: projectScript, language: projectLanguage };
       setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null);
       setActiveMediaAsset(null); setCanvasElements(result.canvasElements || []); setSelectedCanvasElementId(null);
          }
@@ -2333,6 +2352,7 @@ function App() {
             groups={groups}
             heroWordIds={heroWordIds}
             onInsertWord={handleInsertWord}
+            onClearAllHighlights={handleClearAllHighlights}
             onDropWordsAsNewLine={handleDropWordsAsNewLine}
             settings={settings}
             selectedWord={selectedWord}

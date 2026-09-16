@@ -64,6 +64,8 @@ interface CaptionsPanelProps {
   onUpdateSettings: (update: Partial<Settings>) => void;
   /** Insert a new word beside an existing one. */
   onInsertWord: (targetId: string, position: 'before' | 'after', text?: string) => void;
+  /** Take the highlight off every word in the project. */
+  onClearAllHighlights: () => void;
   /** Move the dragged words into a line of their own, after `afterGroupIdx` (-1 = above all). */
   onDropWordsAsNewLine: (wordIds: string[], afterGroupIdx: number) => void;
   onUpdateWord: (id: string, update: Partial<Word>) => void;
@@ -151,6 +153,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   settings,
   onUpdateSettings,
   onInsertWord,
+  onClearAllHighlights,
   onDropWordsAsNewLine,
   selectedWord,
   selectedWordIds,
@@ -1435,6 +1438,17 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
               >
                 {settings.autoHighlight !== false ? 'Auto-highlight on' : 'Auto-highlight off'}
               </button>
+
+              {groups.some(g => g.some(w => w.spotlight || w.emphasis)) && (
+                <button
+                  type="button"
+                  className="caption-filter-pill"
+                  title="Take the highlight off every word, including any the app chose before you did"
+                  onClick={onClearAllHighlights}
+                >
+                  Clear highlights
+                </button>
+              )}
             </div>
           </div>
 

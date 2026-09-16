@@ -201,7 +201,13 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   const now = page.start + frame / fps;
   const activeIndex = page.words.findIndex(w => now >= w.start && now < w.end);
 
-  const isStack = treatment.layout === 'stack' && page.words.length >= 1;
+  // A stacked lockup is built around a promoted word, so with nothing promoted
+  // — highlighting off, and the creator having chosen none by hand — there is no
+  // stack to build and the page falls through to flat rows. Defaulting the run
+  // to word 0 instead used to enlarge the first word of every line, which the
+  // caption panel (reading heroIndices) rightly showed as no highlight at all.
+  const stackRun = treatment.layout === 'stack' && page.words.length >= 1 ? heroRun(page) : null;
+  const isStack = stackRun !== null;
 
   // Tuck the supporting rows against the hero, the way the reference lockups do.
   const tuckTop = devanagari ? 0 : heroSize * 0.04;
@@ -212,7 +218,7 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   let boxHeight: number;
 
   if (isStack) {
-    const run = heroRun(page) ?? { start: 0, end: 0 };
+    const run = stackRun;
     const heroes = page.words.slice(run.start, run.end + 1);
     const prefix = page.words.slice(0, run.start);
     const suffix = page.words.slice(run.end + 1);

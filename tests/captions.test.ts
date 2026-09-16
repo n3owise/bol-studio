@@ -881,6 +881,15 @@ test('the always-promote rule is keyed off the layout, not a template list', () 
     'stacked and single lockups promote; row layouts earn it');
 });
 
+test('a stacked lockup with nothing promoted does not invent a hero', () => {
+  const page = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
+  assert.ok(!/heroRun\(page\)\s*\?\?/.test(page),
+    'defaulting the hero run to word 0 enlarged the first word of every line with highlighting '
+    + 'off, while the caption panel — reading heroIndices — showed no highlight at all');
+  assert.ok(/const isStack = stackRun !== null/.test(page),
+    'no promoted word means no stack to build, so the page falls through to flat rows');
+});
+
 test('every offerable caption font is bundled for the headless renderer', () => {
   const fonts = JSON.parse(readFileSync(new URL('../src/lib/caption-fonts.json', import.meta.url), 'utf8'));
   const track = readFileSync(new URL('../src/remotion/CaptionTrack.tsx', import.meta.url), 'utf8');
@@ -1240,4 +1249,29 @@ test('a line can carry its own position, overriding the project', () => {
   assert.equal(rebuilt.length, 2, 'positioning a line does not change where lines fall');
   assert.equal(rebuilt[0].words[0].posY, 15);
   assert.equal(rebuilt[1].words[0].posY, undefined, 'and leaves every other line alone');
+});
+
+test('turning highlighting off actually leaves every word even', () => {
+  // The setting was honoured, and still produced highlighted words, because
+  // opening a project ran autoDetectHighlights over it and wrote spotlight:true
+  // onto the best-scoring word of each line. That field means "the creator
+  // chose this word", so an automatic guess was recorded as a decision and then
+  // correctly honoured as one.
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  // A call, not the name: the comment explaining why it went is allowed to
+  // mention it, and should.
+  assert.ok(!editor.includes('autoDetectHighlights('),
+    'nothing writes an automatic highlight onto a word — the renderer picks a hero '
+    + 'per line when asked to, and needs nothing written down to do it');
+
+  // With it off and nothing chosen by hand, no word is promoted.
+  const words = [word('bas', 0, .3), word('yahi', .32, .6), word('money', .62, 1.0)];
+  const off = buildPages(words, 5, { alwaysPromote: true, autoHighlight: false });
+  assert.deepEqual(off[0].heroIndices, []);
+
+  // A word the creator did choose still wins, which is the behaviour the bug
+  // was imitating for words nobody had chosen.
+  const chosen = words.map(w => (w.text === 'yahi' ? { ...w, spotlight: true } : w));
+  const kept = buildPages(chosen, 5, { alwaysPromote: true, autoHighlight: false });
+  assert.deepEqual(kept[0].heroIndices.map(i => kept[0].words[i].text), ['yahi']);
 });
