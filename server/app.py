@@ -613,10 +613,22 @@ install_middleware(app)
 
 @app.get("/api/limits")
 def limits():
-    """What this deployment will accept, so the editor can say so up front."""
+    """What this deployment will accept, so the editor can say so up front.
+
+    The disk figures are reported because nothing else can see them. A hosted
+    deployment's disk size is not published by its host, projects are never
+    deleted — there is no endpoint for it — and each upload keeps the original
+    alongside two derived copies, so a clip costs roughly three times its own
+    size. Without this the first sign of a full disk is uploads failing.
+    """
+    usage = shutil.disk_usage(DATA_DIR)
+    projects = sum(f.stat().st_size for f in DATA_DIR.rglob("*") if f.is_file())
     return {"maxExportSeconds": MAX_EXPORT_SECONDS or None,
             "maxUploadBytes": MAX_BYTES,
-            "maxDurationSeconds": MAX_DURATION}
+            "maxDurationSeconds": MAX_DURATION,
+            "diskTotalBytes": usage.total,
+            "diskFreeBytes": usage.free,
+            "diskUsedByProjectsBytes": projects}
 
 
 @app.get("/api/health")
