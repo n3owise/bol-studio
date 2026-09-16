@@ -31,6 +31,15 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
   // the sign-in form the user switched to.
   const go = (next: Mode) => { setMode(next); setError(''); };
 
+  // And clearing as they type stops it hanging over the field they are fixing.
+  // An error that outlives the mistake reads as a second, unrelated failure —
+  // "passwords need at least 8 characters" sitting above an eighteen-character
+  // password is worse than no message at all.
+  const edit = (set: (value: string) => void) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    set(event.target.value);
+    if (error) setError('');
+  };
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!supabase || busy) return;
@@ -118,7 +127,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
               autoFocus
               required
               placeholder="you@example.com"
-              onChange={e => setEmail(e.target.value)}
+              onChange={edit(setEmail)}
             />
           </label>
         )}
@@ -133,7 +142,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
               autoFocus={mode === 'recover'}
               required
               placeholder={mode === 'signin' ? '' : 'At least 8 characters'}
-              onChange={e => setPassword(e.target.value)}
+              onChange={edit(setPassword)}
             />
           </label>
         )}
