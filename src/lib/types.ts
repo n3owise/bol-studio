@@ -13,7 +13,20 @@ export type Word = { id: string; text: string; original: string; start: number; 
   lineBreak?: boolean;
   /** An emoji the recogniser matched to this word, and how sure it was. */
   emoji?: string;
-  emojiScore?: number };
+  emojiScore?: number;
+  /**
+   * A position for the line this word begins, overriding the project's.
+   *
+   * Percentages of the frame, as the project settings are. Kept on the word
+   * rather than in a separate map because a caption line has no identity of its
+   * own — lines are recomputed from the words every time anything changes — so
+   * anything keyed by line would be orphaned by the next edit. `lineBreak`
+   * lives here for the same reason.
+   *
+   * Only read from the first word of a line; on any other word it is ignored.
+   */
+  posX?: number;
+  posY?: number };
 export type Settings = {
   template: string;
   accent: string;

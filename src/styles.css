@@ -10321,3 +10321,106 @@ kbd {
 
 [data-theme="dark"] .size-link.is-linked,
 .theme-dark .size-link.is-linked { color: #4ade80; }
+
+/* Moving captions from the preview ---------------------------------------- */
+
+/* Only the controls take the pointer; the rest of the overlay lets clicks
+   through to the video beneath it. */
+.caption-move-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* The handle sits on the captions themselves, so what you grab is what moves. */
+.caption-move-grab {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: rgba(20, 22, 26, 0.72);
+  color: #fff;
+  cursor: grab;
+  pointer-events: auto;
+  backdrop-filter: blur(6px);
+  transition: transform 110ms ease, border-color 110ms ease;
+}
+
+.caption-move-grab:hover { transform: scale(1.08); border-color: #22c55e; }
+.caption-move-grab.is-dragging { cursor: grabbing; border-color: #22c55e; transform: scale(1.12); }
+
+.caption-move-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(20, 22, 26, 0.9);
+  color: #fff;
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.caption-move-row { display: flex; align-items: center; gap: 2px; }
+
+.caption-move-row button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+
+.caption-move-row button:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+
+.caption-move-divider {
+  width: 1px;
+  height: 17px;
+  margin: 0 5px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.caption-move-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.caption-move-reset {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.caption-move-reset:hover { background: rgba(255, 255, 255, 0.2); color: #fff; }

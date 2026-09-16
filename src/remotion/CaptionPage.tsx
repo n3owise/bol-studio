@@ -302,8 +302,12 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     boxHeight = boxes[1].height || base;
   }
 
-  const posX = settings.positionX ?? 50;
-  const posY = settings.position ?? 70;
+  // A line may carry its own position, which the project's setting does not
+  // override — that is the point of it. It is read from the word the line
+  // starts on, since a line has no identity that survives an edit.
+  const anchor = page.words[0];
+  const posX = anchor?.posX ?? settings.positionX ?? 50;
+  const posY = anchor?.posY ?? settings.position ?? 70;
 
   const maxWidth = width * theme.layout.maxWidth;
   const fit = boxWidth > maxWidth && boxWidth > 0 ? maxWidth / boxWidth : 1;

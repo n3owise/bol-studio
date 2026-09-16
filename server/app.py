@@ -507,6 +507,9 @@ class Word(ValidatedModel):
     # line's candidates is actually drawn — see pickEmoji in src/lib/pages.ts.
     emoji: str | None = Field(default=None, max_length=16)
     emojiScore: float | None = Field(default=None, ge=0, le=1)
+    # A position for the line this word starts, overriding the project's.
+    posX: float | None = Field(default=None, ge=0, le=100)
+    posY: float | None = Field(default=None, ge=0, le=100)
 
     @field_validator("text")
     @classmethod

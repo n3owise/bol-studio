@@ -1218,3 +1218,26 @@ test('linking the two caption sizes holds their ratio, and unlinking frees it', 
 
   assert.match(panel, /settings\.linkFontSizes !== false/, 'linked is the default');
 });
+
+test('a line can carry its own position, overriding the project', () => {
+  const words = [word('aap', 0, .3), word('kaise', .35, .7), breakAfter(word('ho', .75, 1.1)),
+    word('main', 1.2, 1.5), word('theek', 1.55, 1.9)];
+  const [first, second] = buildPages(words, 5);
+  assert.deepEqual(first.words.map(w => w.text), ['aap', 'kaise', 'ho']);
+
+  // The override lives on the word the line starts on, because a line has no
+  // identity that survives an edit — they are rebuilt from the words every
+  // time. Anything keyed by line would be orphaned by the next change.
+  const source = readFileSync(new URL('../src/remotion/CaptionPage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /const anchor = page\.words\[0\]/);
+  assert.match(source, /anchor\?\.posX \?\? settings\.positionX/,
+    'the line wins over the project, which is the whole point of it');
+  assert.match(source, /anchor\?\.posY \?\? settings\.position/);
+
+  // Moving a line is moving its first word, and the split has to survive it.
+  const moved = words.map(w => (w.id === first.words[0].id ? { ...w, posX: 20, posY: 15 } : w));
+  const rebuilt = buildPages(moved, 5);
+  assert.equal(rebuilt.length, 2, 'positioning a line does not change where lines fall');
+  assert.equal(rebuilt[0].words[0].posY, 15);
+  assert.equal(rebuilt[1].words[0].posY, undefined, 'and leaves every other line alone');
+});

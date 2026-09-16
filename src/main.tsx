@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -223,6 +223,11 @@ function App() {
     [words, perPage, settings.template, settings.autoHighlight],
   );
   const groups = useMemo(() => pages.map(page => page.words), [pages]);
+  /** The caption line on screen right now — what the preview overlay acts on. */
+  const activePage = useMemo(
+    () => pages.find(page => time >= page.start && time < page.end) ?? null,
+    [pages, time],
+  );
   /** Words the renderer will enlarge, whether chosen by the creator or by score. */
   const safeArea = useMemo(() => safeAreaFor(settings.safeArea), [settings.safeArea]);
   /** The strip a caption at the current vertical position would land behind. */
@@ -248,6 +253,43 @@ function App() {
   const videoEnabled = hasVideoLayer && project?.videoEnabled !== false;
   const selected = project?.words.find(w => w.id === selectedWord);
   const activeWord = words.find(w => time >= w.start && time < w.end);
+  /**
+   * Position controls over the preview, shown only while the pointer is there.
+   *
+   * The preview is what people look at, so it is where they reach to move a
+   * caption. The alternative is the Text panel's two sliders, which move every
+   * line at once and give no feedback until you look back at the video.
+   */
+  const [previewHover, setPreviewHover] = useState(false);
+  const [draggingCaption, setDraggingCaption] = useState(false);
+  /**
+   * Whether a change applies to this line alone or to the whole project.
+   *
+   * Off is the safe default: most projects want one position throughout, and a
+   * per-line override is invisible from the panel afterwards, so it should be
+   * asked for rather than fallen into.
+   */
+  const [thisLineOnly, setThisLineOnly] = useState(false);
+
+  /** Move the captions, either this one line or the project as a whole. */
+  const setCaptionPosition = useCallback((x: number, y: number) => {
+    const p = projectRef.current;
+    if (!p) return;
+    const clamp = (v: number) => Math.max(4, Math.min(96, Math.round(v)));
+    if (thisLineOnly && activePage) {
+      const anchorId = activePage.words[0]?.id;
+      if (!anchorId) return;
+      markEdit({ ...p, words: p.words.map(w => (w.id === anchorId ? { ...w, posX: clamp(x), posY: clamp(y) } : w)) });
+      return;
+    }
+    // Project-wide, so any per-line override would silently win over what was
+    // just asked for. Clearing them is the honest reading of "move them all".
+    const cleared = p.words.some(w => w.posX !== undefined || w.posY !== undefined)
+      ? p.words.map(w => (w.posX === undefined && w.posY === undefined ? w : { ...w, posX: undefined, posY: undefined }))
+      : p.words;
+    markEdit({ ...p, words: cleared, settings: { ...settings, positionX: clamp(x), position: clamp(y) } });
+    setSettings({ ...settings, positionX: clamp(x), position: clamp(y) });
+  }, [thisLineOnly, activePage, settings]);
   const latestExport = project?.exports?.at(-1);
   const hasExportRunning = project?.exports?.some(e => ['queued','processing','rendering'].includes(e.status));
   const [timelineZoom, setTimelineZoom] = useState(1);
@@ -2534,6 +2576,8 @@ function App() {
                 ref={preview}
                 className={`video-frame ${hasVideoLayer && !videoEnabled ? 'video-removed' : ''}`}
                 style={{ aspectRatio: `${size.width}/${size.height}` }}
+                onMouseEnter={() => setPreviewHover(true)}
+                onMouseLeave={() => { if (!draggingCaption) setPreviewHover(false); }}
               >
                 <video
                   ref={media}
@@ -2575,6 +2619,108 @@ function App() {
                   // by the frame's overflow. Positioning has to be inline too.
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
                 />
+                {/* Nothing until the pointer is here: the preview is for judging
+                    the result, and controls parked over it permanently become
+                    part of what you are judging. */}
+                {previewHover && !busy && project.words.length > 0 && (
+                  <div className="caption-move-overlay">
+                    <div
+                      className={`caption-move-grab ${draggingCaption ? 'is-dragging' : ''}`}
+                      style={{
+                        left: `${activePage?.words[0]?.posX ?? settings.positionX ?? 50}%`,
+                        top: `${activePage?.words[0]?.posY ?? settings.position ?? 70}%`,
+                      }}
+                      title="Drag to move the captions"
+                      onMouseDown={e => {
+                        e.preventDefault();
+                        const frame = preview.current;
+                        if (!frame) return;
+                        setDraggingCaption(true);
+                        const rect = frame.getBoundingClientRect();
+                        // Snap to a 5% grid unless Alt is held, so lines line up
+                        // with each other instead of landing a pixel apart.
+                        const move = (ev: MouseEvent) => {
+                          const raw = {
+                            x: ((ev.clientX - rect.left) / rect.width) * 100,
+                            y: ((ev.clientY - rect.top) / rect.height) * 100,
+                          };
+                          const snap = (v: number) => (ev.altKey ? v : Math.round(v / 5) * 5);
+                          setCaptionPosition(snap(raw.x), snap(raw.y));
+                        };
+                        const up = () => {
+                          setDraggingCaption(false);
+                          window.removeEventListener('mousemove', move);
+                          window.removeEventListener('mouseup', up);
+                        };
+                        window.addEventListener('mousemove', move);
+                        window.addEventListener('mouseup', up);
+                      }}
+                    >
+                      <Move size={14}/>
+                    </div>
+
+                    <div className="caption-move-bar" onMouseDown={e => e.stopPropagation()}>
+                      <div className="caption-move-row">
+                        {([
+                          { x: 15, icon: <AlignLeft size={14}/>, label: 'Left' },
+                          { x: 50, icon: <AlignCenter size={14}/>, label: 'Centre' },
+                          { x: 85, icon: <AlignRight size={14}/>, label: 'Right' },
+                        ] as const).map(option => (
+                          <button
+                            key={option.label}
+                            type="button"
+                            title={option.label}
+                            aria-label={`Move ${option.label.toLowerCase()}`}
+                            onClick={() => setCaptionPosition(option.x, activePage?.words[0]?.posY ?? settings.position ?? 70)}
+                          >
+                            {option.icon}
+                          </button>
+                        ))}
+                        <span className="caption-move-divider" />
+                        {([
+                          { y: 15, icon: <ArrowUp size={14}/>, label: 'Top' },
+                          { y: 50, icon: <Minus size={14}/>, label: 'Middle' },
+                          { y: 82, icon: <ArrowDown size={14}/>, label: 'Bottom' },
+                        ] as const).map(option => (
+                          <button
+                            key={option.label}
+                            type="button"
+                            title={option.label}
+                            aria-label={`Move to ${option.label.toLowerCase()}`}
+                            onClick={() => setCaptionPosition(activePage?.words[0]?.posX ?? settings.positionX ?? 50, option.y)}
+                          >
+                            {option.icon}
+                          </button>
+                        ))}
+                      </div>
+
+                      <label className="caption-move-scope">
+                        <input
+                          type="checkbox"
+                          checked={thisLineOnly}
+                          onChange={e => setThisLineOnly(e.target.checked)}
+                        />
+                        <span>This line only</span>
+                      </label>
+
+                      {project.words.some(w => w.posX !== undefined || w.posY !== undefined) && (
+                        <button
+                          type="button"
+                          className="caption-move-reset"
+                          onClick={() => {
+                            const p = projectRef.current;
+                            if (!p) return;
+                            markEdit({ ...p, words: p.words.map(w => ({ ...w, posX: undefined, posY: undefined })) });
+                            notify('Every line is back to the project position.');
+                          }}
+                        >
+                          <X size={12}/> Clear line positions
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <canvas
                   ref={canvas}
                   width={size.width}
