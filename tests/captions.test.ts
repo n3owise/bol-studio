@@ -5,7 +5,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import {
   appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor,
   groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
-  replaceAllOccurrences, splitLineAtWord, subtitleText, templates
+  moveWordsToNewLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
 import { MAX_WORDS_PER_PAGE, buildPages, heroRun, pickEmoji } from '../src/lib/pages.ts';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.ts';
@@ -1142,4 +1142,35 @@ test('typography adjustments layer over the template rather than replacing it', 
   assert.match(source, /heroLineHeightIndic|subLineHeightIndic/,
     'the Devanagari line height still applies underneath the multiplier');
   assert.match(source, /\* lineHeightScale/, 'the scale multiplies the template value');
+});
+
+test('a dragged word can become a line of its own between two lines', () => {
+  // Dragging could only move a word *into* a line: aiming at the gap between
+  // two of them snapped to whichever row was nearest, so splitting a long line
+  // took a move and then a split — two operations for one intention.
+  const words = [
+    word('aap', 0, .2), word('kaise', .25, .5), breakAfter(word('ho', .55, .8)),
+    word('main', .85, 1.1), word('theek', 1.15, 1.4), word('hoon', 1.45, 1.7),
+  ];
+  assert.deepEqual(groupWords(words, 5).map(g => g.map(w => w.text)),
+    [['aap', 'kaise', 'ho'], ['main', 'theek', 'hoon']]);
+
+  // "theek" becomes its own line, sitting after the first. The helper builds
+  // ids from the text and start time, so the id is not simply the word.
+  const theek = words.find(w => w.text === 'theek')!.id;
+  const split = moveWordsToNewLine(words, [theek], 0, 5);
+  const lines = groupWords(split, 5).map(g => g.map(w => w.text));
+  assert.ok(lines.some(l => l.length === 1 && l[0] === 'theek'),
+    `expected a line holding only "theek", got ${JSON.stringify(lines)}`);
+  assert.equal(split.length, words.length, 'no word is lost or duplicated');
+
+  // Timings stay ordered and non-overlapping, which the export validates.
+  for (let i = 0; i < split.length - 1; i++) {
+    assert.ok(split[i].start < split[i].end, `${split[i].text} has a positive duration`);
+    assert.ok(split[i].end <= split[i + 1].start, `${split[i].text} ends before the next begins`);
+  }
+
+  // -1 puts the new line above everything.
+  const top = moveWordsToNewLine(words, [words.find(w => w.text === 'hoon')!.id], -1, 5);
+  assert.deepEqual(groupWords(top, 5)[0].map(w => w.text), ['hoon']);
 });

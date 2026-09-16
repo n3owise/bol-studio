@@ -13,7 +13,7 @@ import '@fontsource/montserrat/900.css';
 import './styles.css';
 import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
 import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
-import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
 import { SAMPLE_ITEMS, UNSAVED, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
@@ -860,6 +860,17 @@ function App() {
     setSelectedWordIds(new Set([wordId]));
     setSelectedWord(wordId);
     lastSelectedWordIdRef.current = wordId;
+  }
+  /** Drop the dragged words into a line of their own, between two existing lines. */
+  function handleDropWordsAsNewLine(wordIds: string[], afterGroupIdx: number) {
+    const p = projectRef.current;
+    if (!p || !wordIds.length) return;
+    const effectivePerLine = isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine;
+    const updated = moveWordsToNewLine(p.words, wordIds, afterGroupIdx, effectivePerLine);
+    if (updated === p.words) return;
+    markEdit({ ...p, words: updated }, true);
+    setSelectedWordIds(new Set(wordIds));
+    notify(wordIds.length > 1 ? `Moved ${wordIds.length} words to a new line.` : 'Moved to a new line.');
   }
   function handleInsertWord(targetId: string, position: 'before' | 'after', text = 'word') {
     const p = projectRef.current; if (!p) return;
@@ -2278,6 +2289,7 @@ function App() {
             groups={groups}
             heroWordIds={heroWordIds}
             onInsertWord={handleInsertWord}
+            onDropWordsAsNewLine={handleDropWordsAsNewLine}
             settings={settings}
             selectedWord={selectedWord}
             selectedWordIds={selectedWordIds}

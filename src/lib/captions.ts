@@ -460,6 +460,52 @@ export function moveWordsToLine(
   return currentWords;
 }
 
+/**
+ * Move words out into a line of their own, between two existing lines.
+ *
+ * Dragging could previously only move a word *into* a line. Aiming at the gap
+ * between two of them did nothing useful — the nearest row won — so splitting a
+ * long line meant moving words one at a time and then splitting, which is two
+ * operations to express one intention.
+ *
+ * The move itself goes through `moveWordsToLine`, so the timing logic that
+ * settles a word into its new neighbours' gap is the tested one rather than a
+ * second copy. Only the line break is added here: the word before the run and
+ * the last word of the run both close their line, which is exactly what makes
+ * the run a line.
+ *
+ * `afterGroupIdx` of -1 puts the new line above everything.
+ */
+export function moveWordsToNewLine(
+  words: Word[],
+  wordIds: string[],
+  afterGroupIdx: number,
+  maxWordsPerLine = 5
+): Word[] {
+  const moving = words.filter(w => wordIds.includes(w.id));
+  if (!moving.length) return words;
+
+  const groups = groupWords(words, maxWordsPerLine);
+  if (afterGroupIdx >= groups.length) return words;
+
+  const moved = afterGroupIdx < 0
+    ? moveWordsToLine(words, wordIds, 0, 'start', maxWordsPerLine)
+    : moveWordsToLine(words, wordIds, afterGroupIdx, 'end', maxWordsPerLine);
+
+  const movingIds = new Set(wordIds);
+  const first = moved.findIndex(w => movingIds.has(w.id));
+  let last = first;
+  while (last + 1 < moved.length && movingIds.has(moved[last + 1].id)) last += 1;
+  if (first === -1) return moved;
+
+  return moved.map((word, index) => {
+    if (index === first - 1) return { ...word, lineBreak: true };   // close the line above
+    if (index === last) return { ...word, lineBreak: true };        // close the new line
+    if (movingIds.has(word.id)) return { ...word, lineBreak: false }; // hold the run together
+    return word;
+  });
+}
+
 export function moveWordToLine(
   words: Word[],
   wordId: string,

@@ -10262,3 +10262,32 @@ kbd {
 
 [data-theme="dark"] .insert-menu,
 .theme-dark .insert-menu { background: #1b1e24; }
+
+/* Dropping a word into a line of its own ---------------------------------- */
+
+/* Sits in the gap between two rows, which is where the cursor already is when
+   this appears — an indicator inside a row would be pointing somewhere the
+   drop will not land. It reserves its own height, so rows part to make the new
+   line visible before it exists. */
+.caption-new-line-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  margin: 2px 0;
+  border: 1px dashed #22c55e;
+  border-radius: 9px;
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  font-size: 11.5px;
+  font-weight: 600;
+  animation: caption-new-line-in 120ms ease;
+}
+
+@keyframes caption-new-line-in {
+  from { height: 0; opacity: 0; margin: 0; }
+  to { height: 34px; opacity: 1; }
+}
+
+[data-theme="dark"] .caption-new-line-slot,
+.theme-dark .caption-new-line-slot { color: #4ade80; }

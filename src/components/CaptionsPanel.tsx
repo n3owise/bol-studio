@@ -64,6 +64,8 @@ interface CaptionsPanelProps {
   onUpdateSettings: (update: Partial<Settings>) => void;
   /** Insert a new word beside an existing one. */
   onInsertWord: (targetId: string, position: 'before' | 'after', text?: string) => void;
+  /** Move the dragged words into a line of their own, after `afterGroupIdx` (-1 = above all). */
+  onDropWordsAsNewLine: (wordIds: string[], afterGroupIdx: number) => void;
   onUpdateWord: (id: string, update: Partial<Word>) => void;
   onUpdateWords: (ids: string[] | Set<string>, update: Partial<Word>) => void;
   onDeleteWord?: (id: string) => void;
@@ -149,6 +151,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   settings,
   onUpdateSettings,
   onInsertWord,
+  onDropWordsAsNewLine,
   selectedWord,
   selectedWordIds,
   duration,
@@ -252,6 +255,13 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     targetWordId?: string;
     insert: 'before' | 'after';
     isLineEnd?: boolean;
+    /**
+     * Dropping in the gap between two lines, to make the dragged words a line
+     * of their own. The value is the line it goes after, so -1 means above
+     * everything. Aiming here used to snap to whichever row was nearest, which
+     * made splitting a line take a move and then a split.
+     */
+    newLineAfter?: number;
   } | null>(null);
   const justDraggedRef = useRef(false);
 
@@ -572,8 +582,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     clientX: number,
     clientY: number,
     movingIds: string[],
-    currentDropTarget: { groupIdx: number; targetWordId?: string; insert: 'before' | 'after'; isLineEnd?: boolean } | null
-  ): { groupIdx: number; targetWordId?: string; insert: 'before' | 'after'; isLineEnd?: boolean } | null => {
+    currentDropTarget: { groupIdx: number; targetWordId?: string; insert: 'before' | 'after'; isLineEnd?: boolean; newLineAfter?: number } | null
+  ): { groupIdx: number; targetWordId?: string; insert: 'before' | 'after'; isLineEnd?: boolean; newLineAfter?: number } | null => {
     let snapshots = layoutSnapshotRef.current;
     if (!snapshots || snapshots.length === 0) {
       snapshots = takeLayoutSnapshot();
@@ -599,6 +609,44 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       targetRow = snapshots.find(
         r => relY >= r.rowTop - 4 && relY <= r.rowBottom + 4
       );
+    }
+
+    // Measured against the words, not the cards. Rows sit only about six pixels
+    // apart, and each already claims four of those as hit tolerance, so there
+    // is no dead space between the cards to aim at. The padding inside a card
+    // is real space though, so "past the end of the words" is what a drop
+    // between lines actually looks like to the person doing it.
+    {
+      // Measured: about ten pixels of card padding below the words, six between
+      // the cards, ten above the next row's words — roughly twenty-six of
+      // continuous space. Nine from each side left eight, which was too fine to
+      // hit; six leaves a fourteen-pixel band without making the zone so eager
+      // that it steals drops meant for the row itself.
+      const EDGE = 6;
+      const ordered = [...snapshots].sort((a, b) => a.rowTop - b.rowTop);
+      const extent = (row: RowSnapshot) => {
+        const live = row.words.filter(w => !movingIds.includes(w.id));
+        if (!live.length) return null;
+        return {
+          top: Math.min(...live.map(w => w.top)),
+          bottom: Math.max(...live.map(w => w.bottom)),
+        };
+      };
+
+      const first = extent(ordered[0]);
+      if (first && relY < first.top - EDGE) {
+        return { groupIdx: ordered[0].groupIdx, insert: 'before', newLineAfter: -1 };
+      }
+      for (let i = 0; i < ordered.length; i++) {
+        const here = extent(ordered[i]);
+        const next = ordered[i + 1] ? extent(ordered[i + 1]) : null;
+        if (!here) continue;
+        const pastThisRow = relY > here.bottom + EDGE;
+        const beforeNextRow = !next || relY < next.top - EDGE;
+        if (pastThisRow && beforeNextRow) {
+          return { groupIdx: ordered[i].groupIdx, insert: 'after', newLineAfter: ordered[i].groupIdx };
+        }
+      }
     }
 
     if (!targetRow) {
@@ -777,7 +825,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
         prev?.groupIdx === newTarget.groupIdx &&
         prev?.targetWordId === newTarget.targetWordId &&
         prev?.insert === newTarget.insert &&
-        prev?.isLineEnd === newTarget.isLineEnd
+        prev?.isLineEnd === newTarget.isLineEnd &&
+        prev?.newLineAfter === newTarget.newLineAfter
       ) {
         return prev;
       }
@@ -812,7 +861,9 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
         getDropTargetFromSnapshot(e.clientX, e.clientY, movingIds, dropTarget);
 
       if (finalTarget) {
-        if (finalTarget.targetWordId && !movingIds.includes(finalTarget.targetWordId)) {
+        if (finalTarget.newLineAfter !== undefined) {
+          onDropWordsAsNewLine(movingIds, finalTarget.newLineAfter);
+        } else if (finalTarget.targetWordId && !movingIds.includes(finalTarget.targetWordId)) {
           onDropWords(movingIds, finalTarget.groupIdx, {
             targetWordId: finalTarget.targetWordId,
             insert: finalTarget.insert,
@@ -1424,8 +1475,16 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                 const gDuration = Math.max(0, (group[group.length - 1]?.end ?? 0) - (group[0]?.start ?? 0));
 
                 return (
+                  <React.Fragment key={`caption-group-${idx}-${group[0]?.id || idx}`}>
+                  {/* A line the dragged words would become, shown in the gap
+                      they are hovering rather than as a hint inside a row —
+                      the gap is what was aimed at. */}
+                  {dropTarget?.newLineAfter === idx - 1 && (
+                    <div className="caption-new-line-slot">
+                      <span>↵ {draggingLabel || 'Word'} on its own line</span>
+                    </div>
+                  )}
                   <div
-                    key={`caption-group-${idx}-${group[0]?.id || idx}`}
                     ref={isActiveSpoken ? activeRowRef : undefined}
                     data-group-idx={idx}
                     className={`caption-row compact-card ${isActiveSpoken ? 'active-spoken' : ''} ${
@@ -1864,6 +1923,15 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                       </>
                     )}
                   </div>
+                  {/* Only when this is the last row: every other gap is drawn
+                      by the slot *before* the row beneath it, and both matching
+                      rendered the indicator twice. */}
+                  {dropTarget?.newLineAfter === idx && idx === groups.length - 1 && (
+                    <div className="caption-new-line-slot">
+                      <span>↵ {draggingLabel || 'Word'} on its own line</span>
+                    </div>
+                  )}
+                  </React.Fragment>
                 );
               })
             )}
