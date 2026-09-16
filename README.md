@@ -53,6 +53,76 @@ The test suite covers transcript grouping, SRT/VTT timestamps, font rendering, c
 
 The model’s practical Hinglish quality still needs evaluation on consented creator recordings. Names, slang, rapid code-switching, background music, overlapping voices, and preferred Roman spellings should be reviewed in the editor. See [docs/RESEARCH.md](docs/RESEARCH.md) for the Kalakar comparison, model tradeoffs, accuracy plan, and the later Vercel worker architecture.
 
+## Accounts
+
+Optional, and off unless configured. With no Supabase project set up, the studio
+opens straight to the editor and keeps projects under a random id the browser
+stores — which is what lets `npm run dev` work with nothing to configure, and is
+separation rather than authentication.
+
+Configured, people sign in and their projects follow the account rather than the
+browser.
+
+### Setting it up
+
+1. Create a Supabase project. **Authentication → Providers → Email**: turn on
+   *Confirm email*.
+2. **Authentication → URL Configuration**: set the Site URL to your deployed
+   origin and add `http://localhost:5173` to the redirect URLs. Confirmation and
+   reset links bounce to the wrong place otherwise.
+3. Frontend (Vercel, or `.env` locally):
+   ```
+   VITE_SUPABASE_URL=https://<ref>.supabase.co
+   VITE_SUPABASE_ANON_KEY=<anon key>
+   ```
+4. Backend (the Space, or your shell):
+   ```
+   BOL_SUPABASE_URL=https://<ref>.supabase.co
+   BOL_MEDIA_SECRET=<a long random string>
+   ```
+
+The anon key is meant to ship in the bundle — it identifies the project and
+authorises nothing by itself. **The service role key is never needed here**: the
+backend verifies signatures with Supabase's public keys and never calls the
+Supabase API. Anything named `VITE_*` is inlined into public JavaScript, so a
+service key there would publish full database access to every visitor.
+
+### What the backend actually does
+
+It verifies the access token and reads the user id out of it. That id becomes the
+`owner` already stored on every project, so nothing else about the data model
+changes. Passwords, confirmation mail and reset links are Supabase's; the backend
+never sees a password.
+
+`<video src>` cannot send headers, so media URLs carry a short-lived signed token
+that opens one project's media for fifteen minutes and nothing else — rather than
+an access token, which is good for an hour and for everything and would end up in
+proxy logs and browser history.
+
+### Existing projects
+
+Turning accounts on makes a project with no owner belong to nobody rather than to
+everyone. Every project created before accounts existed has no owner, so claim
+them deliberately:
+
+```
+python scripts/backfill-owner.py --owner <supabase-user-id> --dry-run
+```
+
+There is no automatic version, because nothing can tell whose those projects
+were — and "the first account to sign in gets them" would hand one person
+everyone else's work.
+
+### Two things to know
+
+Supabase's built-in mail sender allows **2 emails per hour** and is not meant for
+production. Configure custom SMTP before real users sign up, or their first
+experience is a confirmation link that never arrives.
+
+A free Supabase project **pauses after 7 days idle**, and paused means nobody can
+sign in. `.github/workflows/supabase-keepalive.yml` pings it every three days;
+it needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` as repository secrets.
+
 ## Deploying later
 
 Vercel is a good home for the frontend and lightweight authenticated API. Large media uploads should go directly to private object storage, while transcription and rendering run in a separate durable worker. The local Python/FFmpeg process is deliberately not bundled into a Vercel function. Add authentication, ownership checks, private media URLs, quotas, retention, and job recovery before making the editor public.
