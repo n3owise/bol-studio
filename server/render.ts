@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import { dimensions, templates } from '../src/lib/captions.ts';
 import { streamCaptionFrames } from './remotion-captions.ts';
-import { drawTextElements } from '../src/lib/text.ts';
 import type { Project, Settings, Word } from '../src/lib/types.ts';
 
 const require = createRequire(import.meta.url);
@@ -88,9 +87,6 @@ export function validateRenderProject(value: unknown): Project {
       throw new Error('Caption words must be ordered, nonempty, and have valid start and end times.');
     }
     lastStart = w.start;
-  }
-  if (value.textElements !== undefined && (!Array.isArray(value.textElements) || value.textElements.length > 500)) {
-    throw new Error('The project contains an invalid text elements list.');
   }
   if (value.canvasElements !== undefined && (!Array.isArray(value.canvasElements) || value.canvasElements.length > 500)) {
     throw new Error('The project contains an invalid canvas elements list.');
@@ -229,9 +225,6 @@ export async function renderCaptionVideo(options: {
 
         const captionFrame = await loadImage(captionPng).catch(() => null);
         if (captionFrame) ctx.drawImage(captionFrame, 0, 0, width, height);
-        if (project.textElements && project.textElements.length > 0) {
-          drawTextElements(ctx as unknown as CanvasRenderingContext2D, width, height, project.textElements, currentTime);
-        }
         if (mode === 'green' || project.mediaType.startsWith('audio') || project.videoEnabled === false) {
           ctx.save();
           ctx.globalCompositeOperation = 'destination-over';

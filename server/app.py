@@ -597,7 +597,6 @@ class ProjectPatch(ValidatedModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     videoEnabled: StrictBool | None = None
     revision: StrictInt | None = Field(default=None, ge=0)
-    textElements: list[dict] | None = None
     canvasElements: list[dict] | None = None
 
 
@@ -815,8 +814,6 @@ def patch_project(project_id: str, request: ProjectPatch):
             project["isolateVocals"] = bool(request.isolateVocals)
         if request.glossary is not None:
             project["glossary"] = [t.strip()[:80] for t in request.glossary if t and t.strip()][:200]
-        if request.textElements is not None:
-            project["textElements"] = request.textElements
         if request.canvasElements is not None:
             project["canvasElements"] = request.canvasElements
     return update_project(project_id, mutate)

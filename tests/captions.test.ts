@@ -10,17 +10,9 @@ import {
 import { MAX_WORDS_PER_PAGE, buildPages, heroRun, pickEmoji } from '../src/lib/pages.ts';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.ts';
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
-import { defaults, type CanvasTextElement, type Word } from '../src/lib/types.ts';
+import { defaults, type Word } from '../src/lib/types.ts';
 import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
 import { createOrderedDispatcher } from '../server/remotion-captions.ts';
-import {
-  createDefaultTextElement,
-  drawTextElements,
-  getAnimationTransform,
-  transformTextCase,
-  TEXT_PRESETS,
-  TEXT_TEMPLATES,
-} from '../src/lib/text.ts';
 
 const word = (text: string, start: number, end: number, emphasis = false): Word => ({
   id: `${text}-${start}`, text, original: text, start, end, confidence: .95, emphasis, emphasisScore: emphasis ? .9 : .2,
@@ -422,109 +414,10 @@ test('subtitleText exports clean and compliant SRT and VTT subtitles', () => {
   assert.ok(vtt.includes('00:00:00.000 --> 00:00:01.900\nNamaste everyone today'), 'VTT cue timing format with period');
 });
 
-test('createDefaultTextElement initializes all 5 core text types with valid defaults', () => {
-  const types = ['heading', 'subheading', 'body', 'quote', 'label'] as const;
-  for (const t of types) {
-    const el = createDefaultTextElement(t, 2.0, 15.0);
-    assert.equal(el.type, t);
-    assert.ok(el.text.length > 0);
-    assert.equal(el.x, 50);
-    assert.equal(el.y, 50);
-    assert.equal(el.start, 2.0);
-    assert.ok(el.end > el.start);
-    assert.ok(el.fontSize >= 20);
-    assert.equal(el.visible, true);
-    assert.equal(el.locked, false);
-  }
-});
 
-test('transformTextCase formats text as uppercase, lowercase, title case, or normal', () => {
-  const sample = 'hello WORLD';
-  assert.equal(transformTextCase(sample, 'normal'), 'hello WORLD');
-  assert.equal(transformTextCase(sample, 'uppercase'), 'HELLO WORLD');
-  assert.equal(transformTextCase(sample, 'lowercase'), 'hello world');
-  assert.equal(transformTextCase(sample, 'title'), 'Hello World');
-});
 
-test('getAnimationTransform calculates smooth alpha and scale for in/out animations', () => {
-  const el: CanvasTextElement = {
-    ...createDefaultTextElement('heading', 1.0, 10.0),
-    start: 1.0,
-    end: 5.0,
-    animationIn: 'fade',
-    animationOut: 'scale',
-    animationDuration: 0.5,
-  };
 
-  // Middle of in-animation (time = 1.25s, progress = 0.5)
-  const animIn = getAnimationTransform(el, 1.25);
-  assert.ok(Math.abs(animIn.alpha - 0.5) < 0.05);
 
-  // Middle of steady state (time = 3.0s)
-  const animMid = getAnimationTransform(el, 3.0);
-  assert.equal(animMid.alpha, 1.0);
-  assert.equal(animMid.scale, 1.0);
-
-  // Near end of out-animation (time = 4.75s, remaining = 0.25 / 0.5 = 0.5)
-  const animOut = getAnimationTransform(el, 4.75);
-  assert.ok(animOut.scale < 0.9);
-});
-
-test('drawTextElements renders visible elements and respects layer order & visibility', () => {
-  registerRenderFonts();
-  const canvas = createCanvas(720, 1280);
-  const ctx = canvas.getContext('2d');
-
-  const elements: CanvasTextElement[] = [
-    {
-      ...createDefaultTextElement('heading', 0, 10),
-      text: 'MAIN TITLE',
-      start: 1.0,
-      end: 4.0,
-      visible: true,
-      fontSize: 60,
-      color: '#ffffff',
-    },
-    {
-      ...createDefaultTextElement('label', 0, 10),
-      text: 'HIDDEN LABEL',
-      start: 1.0,
-      end: 4.0,
-      visible: false,
-    },
-  ];
-
-  // At t = 0.5s: element not yet started -> canvas should be blank
-  ctx.clearRect(0, 0, 720, 1280);
-  drawTextElements(ctx as unknown as CanvasRenderingContext2D, 720, 1280, elements, 0.5);
-  assert.ok(canvas.data().every(v => v === 0), 'Canvas is empty before element start');
-
-  // At t = 2.0s: MAIN TITLE is visible -> canvas has pixels
-  ctx.clearRect(0, 0, 720, 1280);
-  drawTextElements(ctx as unknown as CanvasRenderingContext2D, 720, 1280, elements, 2.0);
-  assert.ok(canvas.data().some((v, idx) => idx % 4 === 3 && v > 0), 'MAIN TITLE rendered visible pixels');
-
-  // At t = 5.0s: element ended -> canvas is empty
-  ctx.clearRect(0, 0, 720, 1280);
-  drawTextElements(ctx as unknown as CanvasRenderingContext2D, 720, 1280, elements, 5.0);
-  assert.ok(canvas.data().every(v => v === 0), 'Canvas is empty after element end');
-});
-
-test('validateRenderProject accepts project snapshots containing textElements', () => {
-  const p = validateRenderProject({
-    duration: 5,
-    width: 1280,
-    height: 720,
-    mediaType: 'video',
-    settings: { ...defaults },
-    words: [word('Test', 0, 1)],
-    textElements: [
-      createDefaultTextElement('heading', 0, 5),
-      createDefaultTextElement('label', 1, 4),
-    ],
-  });
-  assert.equal(p.textElements?.length, 2);
-});
 
 test('validateRenderProject accepts project snapshots containing canvasElements', () => {
   const p = validateRenderProject({

@@ -119,48 +119,6 @@ export type CanvasVisualElement = {
   locked?: boolean;
   zIndex?: number;
 };
-export type CanvasTextType = 'heading' | 'subheading' | 'body' | 'quote' | 'label';
-export type TextAnimationIn = 'none' | 'fade' | 'pop' | 'slide' | 'scale';
-export type TextAnimationOut = 'none' | 'fade' | 'drop' | 'slide' | 'scale';
-export type TextCase = 'normal' | 'uppercase' | 'lowercase' | 'title';
-
-export type CanvasTextElement = {
-  id: string;
-  type: CanvasTextType;
-  text: string;
-  start: number; // timeline seconds
-  end: number;
-  x: number; // percentage 0 - 100 of canvas width (center origin)
-  y: number; // percentage 0 - 100 of canvas height (center origin)
-  fontSize: number; // base font size in px
-  fontFamily: string;
-  fontWeight: 'normal' | 'bold' | '500' | '700' | '800';
-  fontStyle: 'normal' | 'italic';
-  textDecoration: 'none' | 'underline';
-  align: 'left' | 'center' | 'right' | 'justify';
-  color: string;
-  backgroundColor?: string;
-  backgroundOpacity?: number; // 0 - 100
-  strokeColor?: string;
-  strokeWidth?: number;
-  shadowEnabled?: boolean;
-  shadowColor?: string;
-  shadowBlur?: number;
-  shadowX?: number;
-  shadowY?: number;
-  opacity?: number; // 0 - 100
-  rotation?: number; // degrees -180 to 180
-  lineHeight?: number; // default 1.2
-  letterSpacing?: number; // px / em
-  wordSpacing?: number; // px
-  textCase?: TextCase;
-  animationIn?: TextAnimationIn;
-  animationOut?: TextAnimationOut;
-  animationDuration?: number; // seconds, default 0.4
-  visible: boolean;
-  locked: boolean;
-  zIndex: number;
-};
 export type Project = {
   id: string;
   name: string;
@@ -192,7 +150,6 @@ export type Project = {
   emoji?: boolean;
   /** Whether the last run asked Whisper for English instead of the spoken words. */
   translate?: boolean;
-  textElements?: CanvasTextElement[];
   activeMediaAssetId?: string;
 };
 /**

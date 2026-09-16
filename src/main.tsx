@@ -12,7 +12,7 @@ import '@fontsource/montserrat/800.css';
 import '@fontsource/montserrat/900.css';
 import './styles.css';
 import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
-import { defaults, type CanvasTextElement, type CanvasTextType, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
+import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
 import { SAMPLE_ITEMS, UNSAVED, type NavPanelId } from './lib/shell';
@@ -27,14 +27,11 @@ import { CAPTION_FPS } from './remotion/Root';
 import { drawKeyedMedia } from './lib/chromakey';
 import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
 import { CaptionsPanel } from './components/CaptionsPanel';
-import { TextPanel } from './components/TextPanel';
-import { createDefaultTextElement, drawTextElements, transformTextCase } from './lib/text';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
 type Health = { status?: string; engine?: string; model?: string; [key: string]: unknown };
 type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> & {
-  textElements?: CanvasTextElement[];
   canvasElements?: CanvasVisualElement[];
 };
 
@@ -42,7 +39,6 @@ type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> &
 const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
   { id: 'caption', label: 'Caption', icon: <Captions size={20} strokeWidth={1.75} /> },
   { id: 'media', label: 'Media', icon: <Camera size={20} strokeWidth={1.75} /> },
-  { id: 'text', label: 'Text', icon: <Type size={20} strokeWidth={1.75} /> },
   { id: 'style', label: 'Style', icon: <Clock size={20} strokeWidth={1.75} /> },
   { id: 'audio', label: 'Audio', icon: <Music size={20} strokeWidth={1.75} /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} strokeWidth={1.75} /> },
@@ -176,10 +172,6 @@ function App() {
   const [canvasElements, setCanvasElements] = useState<CanvasVisualElement[]>([]);
   const [selectedCanvasElementId, setSelectedCanvasElementId] = useState<string | null>(null);
   const [greenScreenTargetEl, setGreenScreenTargetEl] = useState<CanvasVisualElement | null>(null);
-  const [textElements, setTextElements] = useState<CanvasTextElement[]>([]);
-  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  const [isEditingCanvasTextId, setIsEditingCanvasTextId] = useState<string | null>(null);
-  const [copiedTextStyle, setCopiedTextStyle] = useState<Partial<CanvasTextElement> | null>(null);
   const [snapGuideX, setSnapGuideX] = useState(false);
   const [snapGuideY, setSnapGuideY] = useState(false);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -569,7 +561,6 @@ function App() {
             settings: p.settings,
             name: p.name,
             videoEnabled: p.videoEnabled,
-            textElements: p.textElements,
             canvasElements: p.canvasElements,
           }),
         });
@@ -593,7 +584,6 @@ function App() {
         settings: previous.settings,
         name: previous.name,
         videoEnabled: previous.videoEnabled,
-        textElements: previous.textElements,
         canvasElements: previous.canvasElements,
       }]);
       setFuture([]);
@@ -601,8 +591,7 @@ function App() {
     projectRef.current = next;
     setProject(next);
     setSettings(next.settings);
-    if (next.textElements !== undefined) {
-      setTextElements(next.textElements);
+    if (false) {
     }
     if (next.canvasElements !== undefined) {
       setCanvasElements(next.canvasElements);
@@ -616,260 +605,6 @@ function App() {
     if (projectRef.current && !busy) markEdit({ ...projectRef.current, settings: next });
   }
 
-  const handleAddText = useCallback((type: CanvasTextType) => {
-    const curTime = time || 0;
-    const totalDuration = duration || projectRef.current?.duration || 10;
-    const newEl = createDefaultTextElement(type, curTime, totalDuration);
-    const nextList = [...(projectRef.current?.textElements || textElements), newEl];
-    setTextElements(nextList);
-    setSelectedTextId(newEl.id);
-    setActiveNavPanel('text');
-    if (projectRef.current && !busy) {
-      markEdit({ ...projectRef.current, textElements: nextList });
-    }
-    notify(`Added ${type} to canvas`);
-  }, [time, duration, textElements, busy, notify]);
-
-  const handleUpdateText = useCallback((id: string, update: Partial<CanvasTextElement>) => {
-    setTextElements(prev => {
-      const nextList = prev.map(el => el.id === id ? { ...el, ...update } : el);
-      if (projectRef.current && !busy) {
-        markEdit({ ...projectRef.current, textElements: nextList });
-      }
-      return nextList;
-    });
-  }, [busy]);
-
-  const handleDeleteText = useCallback((id: string) => {
-    setTextElements(prev => {
-      const nextList = prev.filter(el => el.id !== id);
-      if (selectedTextId === id) setSelectedTextId(null);
-      if (isEditingCanvasTextId === id) setIsEditingCanvasTextId(null);
-      if (projectRef.current && !busy) {
-        markEdit({ ...projectRef.current, textElements: nextList });
-      }
-      return nextList;
-    });
-    notify('Removed text element');
-  }, [selectedTextId, isEditingCanvasTextId, busy, notify]);
-
-  const handleDuplicateText = useCallback((id: string) => {
-    const currentList = projectRef.current?.textElements || textElements;
-    const el = currentList.find(t => t.id === id);
-    if (!el) return;
-    const totalDuration = duration || projectRef.current?.duration || 10;
-    const newEl: CanvasTextElement = {
-      ...el,
-      id: `text-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      x: Math.min(90, el.x + 3),
-      y: Math.min(90, el.y + 3),
-      start: el.start + 0.5,
-      end: Math.min(totalDuration, el.end + 0.5),
-      zIndex: Date.now(),
-    };
-    const nextList = [...currentList, newEl];
-    setTextElements(nextList);
-    setSelectedTextId(newEl.id);
-    if (projectRef.current && !busy) {
-      markEdit({ ...projectRef.current, textElements: nextList });
-    }
-    notify('Duplicated text element');
-  }, [textElements, duration, busy, notify]);
-
-  const handleReorderText = useCallback((id: string, direction: 'forward' | 'backward' | 'front' | 'back') => {
-    setTextElements(prev => {
-      const idx = prev.findIndex(t => t.id === id);
-      if (idx === -1) return prev;
-      const nextList = [...prev];
-      const [item] = nextList.splice(idx, 1);
-      if (direction === 'forward') {
-        nextList.splice(Math.min(nextList.length, idx + 1), 0, item);
-      } else if (direction === 'backward') {
-        nextList.splice(Math.max(0, idx - 1), 0, item);
-      } else if (direction === 'front') {
-        nextList.push(item);
-      } else if (direction === 'back') {
-        nextList.unshift(item);
-      }
-      const updated = nextList.map((t, i) => ({ ...t, zIndex: 100 + i }));
-      if (projectRef.current && !busy) {
-        markEdit({ ...projectRef.current, textElements: updated });
-      }
-      return updated;
-    });
-  }, [busy]);
-
-  const handleCopyStyle = useCallback((element: CanvasTextElement) => {
-    setCopiedTextStyle({
-      fontFamily: element.fontFamily,
-      fontSize: element.fontSize,
-      fontWeight: element.fontWeight,
-      fontStyle: element.fontStyle,
-      textDecoration: element.textDecoration,
-      color: element.color,
-      backgroundColor: element.backgroundColor,
-      backgroundOpacity: element.backgroundOpacity,
-      strokeColor: element.strokeColor,
-      strokeWidth: element.strokeWidth,
-      shadowEnabled: element.shadowEnabled,
-      shadowColor: element.shadowColor,
-      shadowBlur: element.shadowBlur,
-      shadowX: element.shadowX,
-      shadowY: element.shadowY,
-      opacity: element.opacity,
-      lineHeight: element.lineHeight,
-      letterSpacing: element.letterSpacing,
-      wordSpacing: element.wordSpacing,
-      textCase: element.textCase,
-      animationIn: element.animationIn,
-      animationOut: element.animationOut,
-      animationDuration: element.animationDuration,
-    });
-    notify('Copied text style to clipboard');
-  }, [notify]);
-
-  const handlePasteStyle = useCallback((targetId: string) => {
-    if (!copiedTextStyle) return;
-    handleUpdateText(targetId, copiedTextStyle);
-    notify('Applied copied style');
-  }, [copiedTextStyle, handleUpdateText, notify]);
-
-  const handleStartDragText = useCallback((e: React.MouseEvent, id: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const el = textElements.find(t => t.id === id);
-    if (!el || el.locked) return;
-
-    setSelectedTextId(id);
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const origX = el.x;
-    const origY = el.y;
-    const frameRect = preview.current?.getBoundingClientRect();
-    if (!frameRect) return;
-
-    let currentX = origX;
-    let currentY = origY;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      let newX = origX + (dx / frameRect.width) * 100;
-      let newY = origY + (dy / frameRect.height) * 100;
-
-      let snappedX = false;
-      let snappedY = false;
-      if (Math.abs(newX - 50) < 2) {
-        newX = 50;
-        snappedX = true;
-      }
-      if (Math.abs(newY - 50) < 2) {
-        newY = 50;
-        snappedY = true;
-      }
-      setSnapGuideX(snappedX);
-      setSnapGuideY(snappedY);
-
-      newX = Math.max(5, Math.min(95, newX));
-      newY = Math.max(5, Math.min(95, newY));
-      currentX = newX;
-      currentY = newY;
-
-      setTextElements(prev => prev.map(item => item.id === id ? { ...item, x: newX, y: newY } : item));
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      setSnapGuideX(false);
-      setSnapGuideY(false);
-      handleUpdateText(id, { x: currentX, y: currentY });
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  }, [textElements, handleUpdateText]);
-
-  const handleStartResizeText = useCallback((e: React.MouseEvent, id: string, handle: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const el = textElements.find(t => t.id === id);
-    if (!el || el.locked) return;
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const origFontSize = el.fontSize;
-    let currentFontSize = origFontSize;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      const delta = (handle.includes('e') || handle.includes('s')) ? (dx + dy) : (-dx - dy);
-      const newFontSize = Math.max(12, Math.min(160, Math.round(origFontSize + delta * 0.4)));
-      currentFontSize = newFontSize;
-      setTextElements(prev => prev.map(item => item.id === id ? { ...item, fontSize: newFontSize } : item));
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      handleUpdateText(id, { fontSize: currentFontSize });
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  }, [textElements, handleUpdateText]);
-
-  const handleStartDragTimelineText = useCallback((e: React.MouseEvent, id: string, mode: 'move' | 'start' | 'end') => {
-    e.preventDefault();
-    e.stopPropagation();
-    const el = textElements.find(t => t.id === id);
-    const totalDuration = duration || projectRef.current?.duration;
-    if (!el || !totalDuration) return;
-
-    setSelectedTextId(id);
-    const startClientX = e.clientX;
-    const origStart = el.start;
-    const origEnd = el.end;
-    const origDuration = origEnd - origStart;
-    const trackWidth = timelineTrackRef.current?.getBoundingClientRect().width || 1;
-    let finalStart = origStart;
-    let finalEnd = origEnd;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startClientX;
-      const deltaTime = (dx / trackWidth) * totalDuration;
-
-      if (mode === 'start') {
-        finalStart = Math.max(0, Math.min(origEnd - 0.2, origStart + deltaTime));
-      } else if (mode === 'end') {
-        finalEnd = Math.min(totalDuration, Math.max(origStart + 0.2, origEnd + deltaTime));
-      } else {
-        let newStart = origStart + deltaTime;
-        let newEnd = origEnd + deltaTime;
-        if (newStart < 0) {
-          newStart = 0;
-          newEnd = origDuration;
-        } else if (newEnd > totalDuration) {
-          newEnd = totalDuration;
-          newStart = Math.max(0, totalDuration - origDuration);
-        }
-        finalStart = newStart;
-        finalEnd = newEnd;
-      }
-
-      setTextElements(prev => prev.map(item => item.id === id ? { ...item, start: finalStart, end: finalEnd } : item));
-    };
-
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      handleUpdateText(id, { start: finalStart, end: finalEnd });
-    };
-
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  }, [textElements, duration, handleUpdateText]);
 
   const handleUpdateCanvasElement = useCallback((id: string, updates: Partial<CanvasVisualElement>) => {
     setCanvasElements(prev => {
@@ -940,7 +675,6 @@ function App() {
       return updated;
     });
     setSelectedCanvasElementId(newEl.id);
-    setSelectedTextId(null);
   }, [duration, busy]);
 
   const handleStartDragCanvasElement = useCallback((e: React.MouseEvent, id: string) => {
@@ -950,7 +684,6 @@ function App() {
     if (!el || el.locked) return;
 
     setSelectedCanvasElementId(id);
-    setSelectedTextId(null);
     const startX = e.clientX;
     const startY = e.clientY;
     const origX = el.x;
@@ -1038,7 +771,6 @@ function App() {
     if (!el || !totalDuration) return;
 
     setSelectedCanvasElementId(id);
-    setSelectedTextId(null);
     const startClientX = e.clientX;
     const origStart = el.start ?? 0;
     const origEnd = el.end ?? totalDuration;
@@ -2098,11 +1830,11 @@ function App() {
   }
   function undo() {
     const p = projectRef.current; const previous = history.at(-1); if (!p || !previous) return;
-    setFuture(f => [...f,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,textElements:p.textElements,canvasElements:p.canvasElements }]); setHistory(h => h.slice(0,-1)); markEdit({ ...p,...previous },false);
+    setFuture(f => [...f,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,canvasElements:p.canvasElements }]); setHistory(h => h.slice(0,-1)); markEdit({ ...p,...previous },false);
   }
   function redo() {
     const p = projectRef.current; const next = future.at(-1); if (!p || !next) return;
-    setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,textElements:p.textElements,canvasElements:p.canvasElements }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
+    setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,canvasElements:p.canvasElements }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
   }
   function seek(value: number) { if (!project) return; const t = Math.max(0,Math.min(duration,value)); setTime(t); if (media.current) media.current.currentTime=t; }
   const togglePlay = useCallback(() => {
@@ -2171,10 +1903,6 @@ function App() {
           img.crossOrigin = 'anonymous';
           img.src = el.url;
           img.onload = () => {
-            const c = canvas.current?.getContext('2d');
-            if (c && projectRef.current && textElements.length > 0) {
-              drawTextElements(c, size.width, size.height, textElements, time);
-            }
           };
           imageCacheRef.current.set(el.url, img);
         }
@@ -2192,27 +1920,12 @@ function App() {
     // Remotion <Player> using the exact composition the exporter renders, so the
     // preview cannot drift from the finished file.
 
-    // 4. Draw visual text elements on top
-    if (textElements.length > 0) {
-      drawTextElements(ctx, size.width, size.height, textElements, time);
-    }
-  }, [project, words, settings, time, size.width, size.height, groups, activeMediaAsset, canvasElements, selectedCanvasElementId, hasVideoLayer, videoEnabled, textElements]);
+  }, [project, words, settings, time, size.width, size.height, groups, activeMediaAsset, canvasElements, selectedCanvasElementId, hasVideoLayer, videoEnabled]);
 
-  useEffect(() => {
-    void document.fonts.ready.then(() => {
-      const ctx = canvas.current?.getContext('2d');
-      if (ctx && project) {
-        if (textElements.length > 0) {
-          drawTextElements(ctx, size.width, size.height, textElements, time);
-        }
-      }
-    });
-  }, [project, words, settings, time, groups, size.width, size.height, textElements]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isEditingCanvasTextId) { setIsEditingCanvasTextId(null); return; }
-        if (timelinePopover) { setTimelinePopover(null); return; }
+          if (timelinePopover) { setTimelinePopover(null); return; }
         if (wordMenu) { setWordMenu(null); return; }
         if (captionToolsOpen) { setCaptionToolsOpen(false); return; }
         if (editingWordId) { setEditingWordId(null); return; }
@@ -2225,17 +1938,7 @@ function App() {
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); handleSplitAtCurrent(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && selectedTextId) {
-        e.preventDefault();
-        handleDuplicateText(selectedTextId);
-        return;
-      }
       if ((e.target as HTMLElement)?.closest('input, textarea, select, dialog, button, a, [contenteditable]')) return;
-      if (selectedTextId && (e.key === 'Delete' || e.key === 'Backspace')) {
-        e.preventDefault();
-        handleDeleteText(selectedTextId);
-        return;
-      }
       if (selectedCanvasElementId && (e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
         handleDeleteCanvasElement(selectedCanvasElementId);
@@ -2259,25 +1962,7 @@ function App() {
         });
         return;
       }
-      if (selectedTextId && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-        e.preventDefault();
-        const step = e.shiftKey ? 5 : 1;
-        setTextElements(prev => {
-          const el = prev.find(t => t.id === selectedTextId);
-          if (!el || el.locked) return prev;
-          let nx = el.x;
-          let ny = el.y;
-          if (e.key === 'ArrowLeft') nx = Math.max(0, nx - step);
-          if (e.key === 'ArrowRight') nx = Math.min(100, nx + step);
-          if (e.key === 'ArrowUp') ny = Math.max(0, ny - step);
-          if (e.key === 'ArrowDown') ny = Math.min(100, ny + step);
-          const updated = prev.map(t => t.id === selectedTextId ? { ...t, x: nx, y: ny } : t);
-          if (projectRef.current && !busy) markEdit({ ...projectRef.current, textElements: updated });
-          return updated;
-        });
-        return;
-      }
-      if (selectedWord && !selectedCanvasElementId && !selectedTextId) {
+      if (selectedWord && !selectedCanvasElementId) {
         if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
           e.preventDefault();
           const p = projectRef.current;
@@ -2320,7 +2005,7 @@ function App() {
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener('keydown',onKey); return () => window.removeEventListener('keydown',onKey);
-  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId,selectedWord,time,project,selectedTextId,selectedCanvasElementId,isEditingCanvasTextId,handleDuplicateText,handleDeleteText,handleDeleteCanvasElement,busy]);
+  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId,selectedWord,time,project,selectedCanvasElementId,handleDeleteCanvasElement,busy]);
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
@@ -2333,8 +2018,7 @@ function App() {
       result.settings = result.settings || defaults;
       result.words = autoDetectHighlights(result.words || [], result.settings?.wordsPerLine || 4);
       setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
-      setTextElements(result.textElements || []); setSelectedTextId(null); setIsEditingCanvasTextId(null);
-      setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
+           setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
       setLanguagePrompt('open');
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
@@ -2400,8 +2084,7 @@ function App() {
       const normalized = { ...result, words: normalizedWords, script: projectScript, language: projectLanguage };
       setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null);
       setActiveMediaAsset(null); setCanvasElements(result.canvasElements || []); setSelectedCanvasElementId(null);
-      setTextElements(result.textElements || []); setSelectedTextId(null); setIsEditingCanvasTextId(null);
-    }
+         }
     catch(e) { notify((e as Error).message); }
   }
   async function startExport() {
@@ -2709,20 +2392,6 @@ function App() {
             safeArea={safeArea}
             safeAreaClash={safeAreaClash}
           />
-      ) : activeNavPanel === 'text' ? (
-        <TextPanel
-          textElements={textElements}
-          selectedTextId={selectedTextId}
-          onSelectText={(id) => setSelectedTextId(id)}
-          onAddText={handleAddText}
-          onUpdateText={handleUpdateText}
-          onDeleteText={handleDeleteText}
-          onDuplicateText={handleDuplicateText}
-          onReorderText={handleReorderText}
-          copiedStyle={copiedTextStyle}
-          onCopyStyle={handleCopyStyle}
-          onPasteStyle={handlePasteStyle}
-        />
       ) : (
         <section className="style-panel panel placeholder-panel">
           <div className="panel-tabs">
@@ -2944,158 +2613,6 @@ function App() {
                 {snapGuideX && <div className="canvas-snap-guide vertical" />}
                 {snapGuideY && <div className="canvas-snap-guide horizontal" />}
 
-                {/* Interactive Canvas Text Overlays */}
-                {textElements.map(el => {
-                  const isVisible = el.visible !== false && (time >= el.start && time <= el.end || selectedTextId === el.id);
-                  if (!isVisible) return null;
-                  const isSelected = selectedTextId === el.id;
-                  const isEditing = isEditingCanvasTextId === el.id;
-
-                  return (
-                    <div
-                      key={el.id}
-                      className={`canvas-text-box-wrapper ${isSelected ? 'selected' : ''} ${el.locked ? 'locked' : ''}`}
-                      style={{
-                        left: `${el.x}%`,
-                        top: `${el.y}%`,
-                        transform: `translate(-50%, -50%) rotate(${el.rotation || 0}deg)`,
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedTextId(el.id);
-                        setActiveNavPanel('text');
-                      }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        if (!el.locked) {
-                          setSelectedTextId(el.id);
-                          setIsEditingCanvasTextId(el.id);
-                        }
-                      }}
-                      onMouseDown={(e) => {
-                        if (el.locked || isEditing) return;
-                        handleStartDragText(e, el.id);
-                      }}
-                    >
-                      {isEditing ? (
-                        <textarea
-                          autoFocus
-                          className="canvas-inline-text-editor"
-                          value={el.text}
-                          style={{
-                            fontFamily: el.fontFamily || 'DM Sans',
-                            fontSize: `${Math.max(12, Math.round((el.fontSize / 1080) * (preview.current?.clientWidth || 360)))}px`,
-                            fontWeight: el.fontWeight || 'bold',
-                            fontStyle: el.fontStyle || 'normal',
-                            color: el.color || '#FFFFFF',
-                            textAlign: el.align === 'justify' ? 'center' : (el.align || 'center'),
-                          }}
-                          onChange={(e) => handleUpdateText(el.id, { text: e.target.value })}
-                          onBlur={() => setIsEditingCanvasTextId(null)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              setIsEditingCanvasTextId(null);
-                            } else if (e.key === 'Escape') {
-                              setIsEditingCanvasTextId(null);
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className="canvas-text-hit-target"
-                          style={{
-                            fontFamily: el.fontFamily || 'DM Sans',
-                            fontSize: `${Math.max(12, Math.round((el.fontSize / 1080) * (preview.current?.clientWidth || 360)))}px`,
-                            fontWeight: el.fontWeight || 'bold',
-                            fontStyle: el.fontStyle || 'normal',
-                            lineHeight: el.lineHeight || 1.2,
-                          }}
-                        >
-                          <span style={{ opacity: 0, userSelect: 'none', pointerEvents: 'none' }}>
-                            {transformTextCase(el.text || ' ', el.textCase)}
-                          </span>
-                        </div>
-                      )}
-
-                      {isSelected && !isEditing && (
-                        <>
-                          <div className="canvas-selection-box" />
-                          {!el.locked && (
-                            <>
-                              <div className="resize-handle handle-nw" onMouseDown={(e) => handleStartResizeText(e, el.id, 'nw')} />
-                              <div className="resize-handle handle-ne" onMouseDown={(e) => handleStartResizeText(e, el.id, 'ne')} />
-                              <div className="resize-handle handle-se" onMouseDown={(e) => handleStartResizeText(e, el.id, 'se')} />
-                              <div className="resize-handle handle-sw" onMouseDown={(e) => handleStartResizeText(e, el.id, 'sw')} />
-                              <div className="resize-handle handle-n" onMouseDown={(e) => handleStartResizeText(e, el.id, 'n')} />
-                              <div className="resize-handle handle-e" onMouseDown={(e) => handleStartResizeText(e, el.id, 'e')} />
-                              <div className="resize-handle handle-s" onMouseDown={(e) => handleStartResizeText(e, el.id, 's')} />
-                              <div className="resize-handle handle-w" onMouseDown={(e) => handleStartResizeText(e, el.id, 'w')} />
-                            </>
-                          )}
-
-                          {/* Floating Quick Toolbar */}
-                          <div className="canvas-floating-toolbar" onMouseDown={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              className={`floating-tool-btn ${el.fontWeight === 'bold' || el.fontWeight === '800' || el.fontWeight === '700' ? 'active' : ''}`}
-                              onClick={() => {
-                                const isBold = el.fontWeight === 'bold' || el.fontWeight === '800' || el.fontWeight === '700';
-                                handleUpdateText(el.id, { fontWeight: isBold ? 'normal' : 'bold' });
-                              }}
-                              title="Bold"
-                            >
-                              <Bold size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              className={`floating-tool-btn ${el.fontStyle === 'italic' ? 'active' : ''}`}
-                              onClick={() => handleUpdateText(el.id, { fontStyle: el.fontStyle === 'italic' ? 'normal' : 'italic' })}
-                              title="Italic"
-                            >
-                              <Italic size={13} />
-                            </button>
-                            <div className="floating-tool-divider" />
-                            <button
-                              type="button"
-                              className={`floating-tool-btn ${el.align === 'left' ? 'active' : ''}`}
-                              onClick={() => handleUpdateText(el.id, { align: 'left' })}
-                              title="Align Left"
-                            >
-                              <AlignLeft size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              className={`floating-tool-btn ${el.align === 'center' || !el.align ? 'active' : ''}`}
-                              onClick={() => handleUpdateText(el.id, { align: 'center' })}
-                              title="Align Center"
-                            >
-                              <AlignCenter size={13} />
-                            </button>
-                            <button
-                              type="button"
-                              className={`floating-tool-btn ${el.align === 'right' ? 'active' : ''}`}
-                              onClick={() => handleUpdateText(el.id, { align: 'right' })}
-                              title="Align Right"
-                            >
-                              <AlignRight size={13} />
-                            </button>
-                            <div className="floating-tool-divider" />
-                            <label className="floating-color-btn" title="Text Color">
-                              <span className="floating-color-swatch" style={{ backgroundColor: el.color || '#FFFFFF' }} />
-                              <input
-                                type="color"
-                                className="floating-color-picker"
-                                value={el.color || '#FFFFFF'}
-                                onChange={(e) => handleUpdateText(el.id, { color: e.target.value })}
-                              />
-                            </label>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
 
                 {/* Interactive Canvas Media Overlays */}
                 {canvasElements.map(el => {
@@ -3117,7 +2634,6 @@ function App() {
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedCanvasElementId(el.id);
-                        setSelectedTextId(null);
                       }}
                       onMouseDown={(e) => {
                         if (el.locked) return;
@@ -3357,55 +2873,6 @@ function App() {
                 ) : null}
 
                 {/* 2.5. Text Elements Lane */}
-                {project && duration > 0 && textElements.length > 0 && (
-                  <div className="timeline-text-lane">
-                    {textElements.map(el => {
-                      const isSelected = selectedTextId === el.id;
-                      const leftPct = Math.max(0, Math.min(100, (el.start / duration) * 100));
-                      const widthPct = Math.max(1.2, Math.min(100 - leftPct, ((el.end - el.start) / duration) * 100));
-
-                      return (
-                        <div
-                          key={el.id}
-                          className={`timeline-text-block ${isSelected ? 'selected' : ''} ${el.visible === false ? 'hidden' : ''}`}
-                          style={{
-                            left: `${leftPct}%`,
-                            width: `${widthPct}%`,
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTextId(el.id);
-                            setActiveNavPanel('text');
-                            seek(el.start);
-                          }}
-                          onMouseDown={(e) => handleStartDragTimelineText(e, el.id, 'move')}
-                          title={`Text: "${el.text}" (${el.start.toFixed(1)}s - ${el.end.toFixed(1)}s)`}
-                        >
-                          <div
-                            className="timeline-block-handle left"
-                            title="Drag to adjust start"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleStartDragTimelineText(e, el.id, 'start');
-                            }}
-                          />
-                          <div className="timeline-text-block-content">
-                            <Type size={12} className="timeline-text-icon" />
-                            <span className="timeline-text-title">{el.text || 'Text'}</span>
-                          </div>
-                          <div
-                            className="timeline-block-handle right"
-                            title="Drag to adjust end"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleStartDragTimelineText(e, el.id, 'end');
-                            }}
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
 
                 {/* 2.6. Media Elements Lane */}
                 {project && duration > 0 && canvasElements.length > 0 && (
@@ -3428,7 +2895,6 @@ function App() {
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedCanvasElementId(el.id);
-                            setSelectedTextId(null);
                             seek(elStart);
                           }}
                           onMouseDown={(e) => handleStartDragTimelineMedia(e, el.id, 'move')}
