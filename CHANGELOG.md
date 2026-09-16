@@ -2,6 +2,108 @@
 
 Notable changes to Bol Studio.
 
+## 0.3.0 — 2026-09-17
+
+Captions became something you can style. Most of this release is control that
+existed only as a template's opinion being handed over — typography, the size
+of the highlighted word, where the block sits in the frame, whether a word is
+enlarged at all — plus the deployment work that made the Hugging Face Space
+actually run the app rather than a hollowed-out copy of it.
+
+The theme from 0.2.0 continues: several of the fixes below are two parts of
+the app that had each grown their own answer to the same question, and the fix
+is one of them being deleted.
+
+### Added
+
+- **A Text panel** holding the caption typography: font, size, colour, fill,
+  stroke and its weight, background, line height, letter spacing, alignment,
+  underline, strikethrough, bold, italic, and buttons for uppercase, lowercase,
+  sentence case and title case. Five of these settings were already read by the
+  renderer and had no control anywhere, so the only way to change them was to
+  edit a project file by hand.
+- **A separate size for the highlighted word**, with a link button that holds
+  its ratio to the caption size while either moves, and a reset beside each.
+  Both sizes used to come from one number scaled by the template, so raising
+  the caption size raised the highlight with it and the two could never be set
+  apart.
+- **Automatic highlighting can be turned off.** Asked as a picture — two
+  captions, one with a word enlarged and one without — after the language
+  question, and available afterwards in the caption panel. The emphasis is what
+  a reel is for and what a lecture does not want, so it is a choice rather than
+  a fixed style. A Clear highlights button takes back every highlight at once.
+- **Move the captions from the preview.** Hovering the preview reveals a drag
+  handle and a bar for alignment and vertical position; dragging snaps to nine
+  anchors with a guide line showing which one has it. "This line only" applies
+  the position to the caption line on screen rather than the whole project, so
+  one line can step around something in the shot without moving the rest.
+- **Add a word where one is missing.** Hover a word in the caption panel for a
+  `+` on either side, or right-click for a menu. The hover target is reserved
+  in the layout rather than inserted on hover, so nothing shifts under the
+  pointer as you aim at it.
+- **Drop a dragged word between two lines** to make it a line of its own,
+  instead of having to drop it into a neighbour and split afterwards.
+- **A workspace per browser.** Projects are scoped to the browser that made
+  them, so a shared deployment stops showing everyone everyone else's uploads.
+- **Disk usage in `/api/limits`**, so the app can say how much room is left
+  rather than discovering it during an upload.
+- **A model bench** (`scripts/compare-models.py`) that scores transcription
+  candidates by word error rate through the app's own pipeline. It is what
+  settled that `hi-hinglish-apex` stays: Whisper-turbo translates Hinglish into
+  English instead of transcribing it, and the Trelis fine-tune writes Devanagari
+  and takes 196s for a 45s clip.
+
+### Changed
+
+- **The timeline and the caption panel now open the same word inspector.**
+  Clicking a word used to give two different editors depending on where it was
+  clicked — the timeline's with a highlight icon pair, a textarea, an emoji
+  affordance that did nothing and save/cancel buttons; the panel's with a field
+  that commits on blur, a case menu, split and delete. The timeline gains the
+  case menu and split it never had.
+- **An upload no longer starts recognition before the creator has been asked.**
+  The language question used to arrive after the work it was meant to decide
+  had already begun.
+- **The Style panel is now just the template picker**, its typography having
+  moved to Text, and it no longer lives inside `main.tsx`.
+
+### Fixed
+
+- **Highlighting stayed on after being turned off.** Every caption line
+  enlarged its first word while the caption panel showed nothing highlighted,
+  because the renderer treated a stacked template as reason enough to build a
+  hero lockup and defaulted the hero to word 0 when the page had none. A
+  separate pass also wrote the flag that means "the creator chose this word"
+  across the transcript on upload, so highlighting off still arrived with words
+  already highlighted and nothing told them apart from a real choice.
+- **Dragging a caption around the preview was glitchy.** Snapping was to a 5%
+  grid — 441 landing spots, fine enough that the caption twitched to a new one
+  on almost every pixel of mouse travel without ever helping anything line up.
+  Every mousemove also pushed an undo entry, so one drag flushed the whole
+  40-step history.
+- **Touching the drag handle moved the caption.** The drag ignored where inside
+  the handle the pointer came down, so the caption jumped to put its anchor
+  under the cursor the instant the handle was pressed.
+- **The three align icons set the horizontal position** rather than the text
+  alignment they depict.
+- **An upload was stored roughly three times.** The original, a normalised
+  copy and a remux all survived; only one needs to.
+- **Uploads no longer pass through Vercel's proxy**, which capped them at 50MB
+  regardless of what the backend would have accepted.
+- **The Hugging Face Space was serving the API with none of its middleware** —
+  no key check, no workspace scoping, no CORS allowlist. Three separate causes:
+  `include_router` copies routes without middleware, `demo.launch()` discarded
+  the app the routes were attached to, and the Space installed a smaller
+  dependency set than a checkout. The API gate also had to be narrowed to
+  `/api/`, since it was blocking Gradio's own startup route and stopping the
+  Space from booting.
+
+### Removed
+
+- **The on-screen text overlay.** Every setting in that panel was a caption
+  setting; a second, separate text feature on top of the video was not
+  something the app did.
+
 ## 0.2.1 — 2026-09-15
 
 ### Fixed
