@@ -55,6 +55,16 @@ export type Settings = {
    * template still decides; set, this wins.
    */
   heroFontSize?: number;
+  /**
+   * Whether changing the caption size carries the highlighted word with it.
+   *
+   * Only meaningful once `heroFontSize` is set: until then the template's
+   * proportion already ties the two together. Linked, the ratio between them
+   * is held while either moves; unlinked, they are independent numbers.
+   * Default on, because a caption whose highlight stops scaling with it is
+   * surprising rather than useful.
+   */
+  linkFontSizes?: boolean;
 
   /**
    * Typography adjustments, applied on top of whatever the template specifies

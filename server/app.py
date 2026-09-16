@@ -576,6 +576,7 @@ class Settings(BaseModel):
     showSafeArea: StrictBool | None = None
     autoHighlight: StrictBool | None = None
     heroFontSize: float | None = Field(default=None, ge=20, le=200)
+    linkFontSizes: StrictBool | None = None
     # Typography adjustments layered over the template's own, so 1 and 0 mean
     # "leave it alone" — see src/lib/types.ts.
     lineHeight: float | None = Field(default=None, ge=0.6, le=2.0)

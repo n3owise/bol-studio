@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Bold, Check, ChevronDown, Italic, Plus, RotateCcw, SlidersHorizontal, Star, Strikethrough, Type, Underline, WandSparkles } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Bold, Check, ChevronDown, Italic, Link2, Plus, RotateCcw, SlidersHorizontal, Star, Strikethrough, Type, Underline, Unlink, WandSparkles } from 'lucide-react';
 import captionFonts from '../lib/caption-fonts.json';
 import { templates } from '../lib/captions';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';
@@ -33,6 +33,25 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
   // What the chosen template would make the highlighted word, so the control
   // starts where the design puts it rather than at some arbitrary default.
   const heroScale = treatmentFor(settings.template).heroScale;
+  const linked = settings.linkFontSizes !== false;
+  const heroSize = Math.round(settings.heroFontSize ?? settings.fontSize * heroScale);
+
+  /**
+   * Change the caption size, carrying the highlighted word if they are linked.
+   *
+   * With no override the template's proportion already moves the two together,
+   * so there is nothing to carry. Once the highlighted word has its own size,
+   * the ratio between them is what the creator actually chose — not either
+   * number on its own — so that is what is held.
+   */
+  const setCaptionSize = (next: number) => {
+    if (!linked || settings.heroFontSize === undefined) {
+      updateSettings({ fontSize: next });
+      return;
+    }
+    const ratio = settings.heroFontSize / settings.fontSize;
+    updateSettings({ fontSize: next, heroFontSize: Math.round(next * ratio) });
+  };
 
   return (
     <section className="style-panel panel">
@@ -76,7 +95,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         type="button"
         className="icon-button tiny"
         title="Decrease font size"
-        onClick={() => updateSettings({ fontSize: Math.max(20, settings.fontSize - 2) })}
+        onClick={() => setCaptionSize(Math.max(20, settings.fontSize - 2))}
         disabled={busy}
       >
         -
@@ -88,13 +107,13 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         min="24"
         max="92"
         value={settings.fontSize}
-        onChange={e => updateSettings({ fontSize: Number(e.target.value) })}
+        onChange={e => setCaptionSize(Number(e.target.value))}
       />
       <button
         type="button"
         className="icon-button tiny"
         title="Increase font size"
-        onClick={() => updateSettings({ fontSize: Math.min(92, settings.fontSize + 2) })}
+        onClick={() => setCaptionSize(Math.min(92, settings.fontSize + 2))}
         disabled={busy}
       >
         +
@@ -108,7 +127,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
           className="icon-button tiny"
           title={`Back to ${defaults.fontSize}px`}
           aria-label="Reset caption size"
-          onClick={() => updateSettings({ fontSize: defaults.fontSize })}
+          onClick={() => setCaptionSize(defaults.fontSize)}
           disabled={busy}
         >
           <RotateCcw size={13}/>
@@ -116,6 +135,29 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
       )}
     </div>
   </div>
+  {/* Between the two sizes, because that is what it joins. Linking matters
+      only once the highlighted word has its own size: until then the
+      template's proportion already moves them together, so the button says
+      so rather than looking broken. */}
+  <button
+    type="button"
+    className={`size-link ${linked ? 'is-linked' : ''}`}
+    aria-pressed={linked}
+    disabled={busy}
+    title={settings.heroFontSize === undefined
+      ? 'The template already scales the highlighted word with the caption size.'
+      : linked
+        ? 'Linked — the highlighted word keeps its proportion when the caption size changes. Click to unlink.'
+        : 'Unlinked — the two sizes move independently. Click to link them.'}
+    onClick={() => updateSettings({ linkFontSizes: !linked })}
+  >
+    {linked ? <Link2 size={13}/> : <Unlink size={13}/>}
+    <span>
+      {linked ? 'Sizes linked' : 'Sizes independent'}
+      {settings.heroFontSize === undefined && linked ? ' · template proportion' : ''}
+    </span>
+  </button>
+
   {/* The highlighted word has always been sized separately —
       each template multiplies the caption size by its own
       heroScale, from 1.3 up to 2.1 — but there was one control
@@ -126,7 +168,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
     <label htmlFor="hero-size">
       Highlighted word size{' '}
       <span>
-        {Math.round(settings.heroFontSize ?? settings.fontSize * heroScale)}px
+        {heroSize}px
         {settings.heroFontSize === undefined ? ' · from template' : ''}
       </span>
     </label>
@@ -137,7 +179,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         type="range"
         min="24"
         max="180"
-        value={Math.round(settings.heroFontSize ?? settings.fontSize * heroScale)}
+        value={heroSize}
         onChange={e => updateSettings({ heroFontSize: Number(e.target.value) })}
       />
       {settings.heroFontSize !== undefined && (

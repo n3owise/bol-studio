@@ -1194,3 +1194,27 @@ test('the highlighted word can be sized apart from the rest of the caption', () 
   assert.ok(panel.includes('heroFontSize: undefined'),
     'with a way back to the template, since an override otherwise survives every template change');
 });
+
+test('linking the two caption sizes holds their ratio, and unlinking frees it', () => {
+  // The link only means anything once the highlighted word has its own size:
+  // without an override the template's proportion already moves the two
+  // together, so there is no ratio of the creator's to preserve.
+  const panel = readFileSync(new URL('../src/components/TextPanel.tsx', import.meta.url), 'utf8');
+
+  assert.match(panel, /const ratio = settings\.heroFontSize \/ settings\.fontSize/,
+    'the ratio between the sizes is what is held — not either number on its own');
+  assert.match(panel, /heroFontSize: Math\.round\(next \* ratio\)/,
+    'and the highlighted word is carried by that ratio');
+  assert.match(panel, /if \(!linked \|\| settings\.heroFontSize === undefined\)/,
+    'unlinked, or with no override to carry, the caption size moves alone');
+
+  // Every way of changing the caption size goes through the one function, or
+  // the link would hold for the slider and not for the plus and minus buttons.
+  // The only direct writes are the two inside that function.
+  assert.equal((panel.match(/updateSettings\(\{ fontSize:/g) || []).length, 2,
+    'fontSize is written only inside setCaptionSize, once per branch');
+  assert.equal((panel.match(/setCaptionSize\(/g) || []).length, 4,
+    'the definition plus the slider, the steppers and the reset');
+
+  assert.match(panel, /settings\.linkFontSizes !== false/, 'linked is the default');
+});
