@@ -222,8 +222,11 @@ function App() {
   // highlighted one; without this the creator sees a word grow on the preview
   // with nothing in the panel explaining why.
   const pages = useMemo(
-    () => buildPages(words, perPage, { alwaysPromote: treatmentFor(settings.template).layout !== 'rows' }),
-    [words, perPage, settings.template],
+    () => buildPages(words, perPage, {
+      alwaysPromote: treatmentFor(settings.template).layout !== 'rows',
+      autoHighlight: settings.autoHighlight !== false,
+    }),
+    [words, perPage, settings.template, settings.autoHighlight],
   );
   const groups = useMemo(() => pages.map(page => page.words), [pages]);
   /** Words the renderer will enlarge, whether chosen by the creator or by score. */
@@ -3894,6 +3897,44 @@ function App() {
             </button>
           );
         })}
+      </div>
+      {/* Shown here rather than in the Captions panel because it changes how
+          every caption looks, which is a first-run decision in a way the
+          optional passes are not. The mockup is the explanation: "highlight
+          key words" describes two quite different results depending on what
+          someone pictures, and one glance settles it. */}
+      <div className="highlight-choice">
+        <label className="highlight-toggle">
+          <input
+            type="checkbox"
+            checked={settings.autoHighlight !== false}
+            onChange={e => updateSettings({ autoHighlight: e.target.checked })}
+          />
+          <span>
+            <strong>Make one word stand out on each line</strong>
+            <em>
+              Bol picks the strongest word and grows it in your accent colour. Turn this off for
+              interviews or lectures, where even captions read better. You can always highlight
+              a word yourself either way.
+            </em>
+          </span>
+        </label>
+        <div className="highlight-mockups" aria-hidden="true">
+          <figure className={settings.autoHighlight !== false ? 'is-chosen' : ''}>
+            <div className="mock">
+              <span>aap kaise</span>
+              <strong style={{ color: settings.accent }}>HO</strong>
+              <span>dosto</span>
+            </div>
+            <figcaption>On</figcaption>
+          </figure>
+          <figure className={settings.autoHighlight === false ? 'is-chosen' : ''}>
+            <div className="mock">
+              <span>aap kaise ho dosto</span>
+            </div>
+            <figcaption>Off</figcaption>
+          </figure>
+        </div>
       </div>
       <p className="modal-footnote">Emoji, translation and background-noise cleanup live in the Captions panel.</p>
       <div className="modal-actions">

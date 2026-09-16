@@ -56,8 +56,8 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({ words, settings, bac
   // a word earns it, so the quieter templates stay quiet.
   const alwaysPromote = layout !== 'rows';
   const pages = useMemo(
-    () => buildPages(words ?? [], perPage, { alwaysPromote }),
-    [words, perPage, alwaysPromote],
+    () => buildPages(words ?? [], perPage, { alwaysPromote, autoHighlight: resolved.autoHighlight !== false }),
+    [words, perPage, alwaysPromote, resolved.autoHighlight],
   );
 
   return (

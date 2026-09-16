@@ -41,6 +41,19 @@ export type PageOptions = {
    * forcing one there meant every caption had something shouting in it.
    */
   alwaysPromote?: boolean;
+  /**
+   * Whether the app may choose a word to enlarge on its own.
+   *
+   * Off, every word on a page is the same size and colour unless the creator
+   * highlighted one by hand — an explicit choice always wins, here as
+   * everywhere else. A stacked template with nothing promoted falls back to
+   * flat rows on its own, so this needs no special case in the renderer.
+   *
+   * It exists because the emphasis is the most divisive thing about the
+   * output: it is the whole point for a reel, and completely wrong for a
+   * lecture or an interview.
+   */
+  autoHighlight?: boolean;
 };
 
 export type CaptionPage = {
@@ -292,10 +305,12 @@ export function isSecondaryEmphasis(word: Word): boolean {
  * With no spotlight, the auto pick is kept off both ends of a page of three or
  * more: the three-tier lockup needs words above *and* below its hero.
  */
-function pickHeroes(words: Word[], alwaysPromote: boolean): number[] {
+function pickHeroes(words: Word[], alwaysPromote: boolean, autoHighlight: boolean): number[] {
   if (!words.length) return [];
   const explicit = words.flatMap((w, i) => (w.spotlight ? [i] : []));
   if (explicit.length) return explicit;
+  // Nothing was chosen by hand, and the creator asked the app not to choose.
+  if (!autoHighlight) return [];
 
   let index = -1;
   let best = -Infinity;
@@ -392,7 +407,10 @@ export function buildPages(words: Word[], wordsPerPage: number, options: PageOpt
       id: run[0].id ?? `page-${i}`,
       words: run,
       ...(() => {
-        const heroIndices = maxWords === 1 ? [0] : pickHeroes(run, !!options.alwaysPromote);
+        const autoHighlight = options.autoHighlight !== false;
+        const heroIndices = maxWords === 1
+          ? (autoHighlight || run[0]?.spotlight ? [0] : [])
+          : pickHeroes(run, !!options.alwaysPromote, autoHighlight);
         return { heroIndices, heroIndex: heroIndices[0] ?? -1 };
       })(),
       start,

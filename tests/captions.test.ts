@@ -1192,3 +1192,28 @@ test('a failing frame stops the export instead of writing a short video', async 
   await assert.rejects(() => dispatcher.push(3, Buffer.alloc(0)), /FFmpeg stopped/);
   assert.equal(dispatcher.delivered, 3);
 });
+
+test('turning off automatic highlighting leaves every word the same, but never overrides a manual one', () => {
+  // A line with a clear winner: "money" is a hook word and scores well above
+  // the threshold, so it is promoted on its own merits when allowed to be.
+  const words = [word('bas', 0, .3), word('yahi', .32, .6), word('money', .62, 1.0),
+    word('hai', 1.02, 1.3)];
+
+  const on = buildPages(words, 5, { alwaysPromote: true, autoHighlight: true });
+  assert.equal(on[0].heroIndices.length, 1, 'left alone, a lockup promotes a word');
+  assert.equal(on[0].words[on[0].heroIndices[0]].text, 'money');
+
+  const off = buildPages(words, 5, { alwaysPromote: true, autoHighlight: false });
+  assert.deepEqual(off[0].heroIndices, [],
+    'switched off, nothing is promoted — even on a lockup, which then falls back to flat rows');
+
+  // The creator's own choice still wins. "Off" means the app stops choosing,
+  // not that the creator loses the ability to.
+  const chosen = words.map(w => (w.text === 'yahi' ? { ...w, spotlight: true } : w));
+  const manual = buildPages(chosen, 5, { alwaysPromote: true, autoHighlight: false });
+  assert.deepEqual(manual[0].heroIndices.map(i => manual[0].words[i].text), ['yahi'],
+    'an explicit highlight is honoured whatever the automatic setting says');
+
+  // Default is on: an absent option must not silently disable the feature.
+  assert.equal(buildPages(words, 5, { alwaysPromote: true })[0].heroIndices.length, 1);
+});

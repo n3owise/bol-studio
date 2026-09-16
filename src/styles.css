@@ -10077,3 +10077,73 @@ kbd {
   gap: 10px;
   margin-top: 18px;
 }
+
+/* The highlight choice in the post-upload prompt --------------------------- */
+.highlight-choice {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.26));
+  border-radius: 12px;
+}
+
+.highlight-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.highlight-toggle input { margin-top: 3px; flex-shrink: 0; }
+.highlight-toggle span { display: flex; flex-direction: column; gap: 4px; }
+.highlight-toggle strong { font-size: 13px; font-weight: 600; }
+.highlight-toggle em { font-size: 11.5px; line-height: 1.45; font-style: normal; opacity: 0.65; }
+
+/* Two miniatures rather than a description: "make a word stand out" means
+   different things to different people, and seeing both settles it at a
+   glance. The chosen one is lifted; the other stays legible so the difference
+   is readable rather than implied. */
+.highlight-mockups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.highlight-mockups figure {
+  margin: 0;
+  border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.22));
+  border-radius: 9px;
+  overflow: hidden;
+  opacity: 0.45;
+  transition: opacity 140ms ease, border-color 140ms ease;
+}
+
+.highlight-mockups figure.is-chosen {
+  opacity: 1;
+  border-color: #22c55e;
+}
+
+.highlight-mockups .mock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-height: 72px;
+  padding: 10px 8px;
+  background: #16181d;
+  color: #fff;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.highlight-mockups .mock span { font-size: 10px; font-weight: 600; }
+.highlight-mockups .mock strong { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
+
+.highlight-mockups figcaption {
+  padding: 5px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+  opacity: 0.7;
+}

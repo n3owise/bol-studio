@@ -38,6 +38,14 @@ export type Settings = {
   align?: 'left' | 'center' | 'right';
   showSafeArea?: boolean;
   /**
+   * Whether the app picks a word to enlarge on each line. Default on.
+   *
+   * Off, captions read evenly — every word the same size and colour — unless
+   * the creator highlights one by hand. The emphasis is what a reel is for and
+   * what a lecture does not want, so it is a choice rather than a fixed style.
+   */
+  autoHighlight?: boolean;
+  /**
    * Which app's interface to outline over the preview, so captions do not end
    * up behind it. 'none' is off.
    *
