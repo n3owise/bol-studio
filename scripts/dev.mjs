@@ -1,10 +1,33 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 if (!existsSync('.venv/bin/python')) {
   console.error('Set up the Python environment first. See README.md.'); process.exit(1);
 }
+
+/**
+ * Hand .env to the backend too.
+ *
+ * Vite reads it for VITE_ variables; the Python process inherits the shell and
+ * would see none of it. That splits the two halves apart in a way that is
+ * genuinely hard to read from the outside: the editor would ask people to sign
+ * in while the backend verified nothing, accepting whatever owner the browser
+ * claimed, and every request would still succeed.
+ */
+function dotenv() {
+  if (!existsSync('.env')) return {};
+  const values = {};
+  for (const line of readFileSync('.env', 'utf8').split('\n')) {
+    const match = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (match) values[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
+  }
+  return values;
+}
+
+// The real environment wins, so `BOL_SUPABASE_URL= npm run dev` still turns
+// accounts off for one run without editing the file.
+const env = { ...process.env, ...dotenv(), ...process.env };
 const children = [
-  spawn('.venv/bin/python', ['-m', 'uvicorn', 'server.app:app', '--host', '::', '--port', '8765'], { stdio: 'inherit' }),
+  spawn('.venv/bin/python', ['-m', 'uvicorn', 'server.app:app', '--host', '::', '--port', '8765'], { stdio: 'inherit', env }),
   spawn('npm', ['run', 'dev:web'], { stdio: 'inherit' }),
 ];
 let stopping = false;
