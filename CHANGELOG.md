@@ -2,6 +2,73 @@
 
 Notable changes to Bol Studio.
 
+## 0.4.0 — 2026-09-17
+
+Accounts. Until now a project belonged to a random id the browser invented and
+kept in local storage, which the code was honest about being separation rather
+than authentication: it rode in a header anyone could edit, and clearing site
+data lost every project with no way back.
+
+Supabase holds the accounts now. It stores the users, hashes the passwords and
+sends the mail; this backend never sees a password. Its only job is to verify an
+access token and read the user id out of it, which then becomes the `owner`
+string already stored on every project — so nothing about the stored data
+changed shape.
+
+**Projects on a deployment that had none of this are unreachable after
+upgrading.** They carry no owner, and an unowned project now belongs to nobody
+rather than to everybody. `scripts/backfill-owner.py` claims a data directory
+for an account on purpose; there is no automatic version, because nothing can
+tell whose those projects were.
+
+### Added
+
+- **Sign in, sign up, and password reset.** Confirmation by email is required
+  before a new account works. Reset includes the screen that is easy to leave
+  out — a reset link signs you in, so without somewhere to type the new password
+  you land in the editor with the old one still set.
+- **An account menu** in the top bar, and projects that follow the account
+  instead of the browser.
+- **Signed media URLs.** `<video src>` cannot send headers, so media has always
+  carried credentials in the query string. It now carries a signature good for
+  one project's media for fifteen minutes and nothing else, rather than an
+  access token that is good for an hour and for everything and would end up in
+  proxy logs and browser history.
+- **A keepalive** for the Supabase project, which a free plan pauses after seven
+  days idle. In GitHub Actions rather than the backend: a timer inside an
+  ephemeral container dies quietly while still appearing to exist.
+- `scripts/backfill-owner.py`, for claiming existing projects.
+
+### Changed
+
+- **`Authorization: Bearer` no longer satisfies the shared API key.** That
+  header carries the signed-in user's token now, and one header cannot mean two
+  credentials — a key sent that way would pass one gate and fail the other,
+  answering a single request with two different 401s. The key keeps `X-API-Key`
+  and `?key=`. Breaking for anyone scripting against the API with a bearer
+  header.
+- Token verification is **ES256 against Supabase's published key set**, not the
+  legacy shared secret. That secret also signs service-role tokens, so a copy of
+  it in a deployment's environment is a copy of full database access; what this
+  holds instead can check signatures and cannot make them.
+- Accounts are **off unless configured**, exactly as the API key is. A checkout
+  with no Supabase project still runs with no setup at all.
+
+### Fixed
+
+- A form error on the sign-in screen stayed put while the reader corrected the
+  field it was about, so "passwords need at least 8 characters" could sit above
+  an eighteen-character password.
+
+### Removed
+
+- **The three "Or try a sample" cards on the upload screen.** They showed stock
+  photographs captioned Mountain Ascent, Personal Story and City Skyline, with
+  durations written into the source. None of it was real: clicking one opened
+  the creator's own Nth most recent project — a different clip, a different
+  length, behind a picture of a mountain — and with no projects yet, the case
+  the cards exist for, it announced "Sample media ready." and did nothing.
+
 ## 0.3.0 — 2026-09-17
 
 Captions became something you can style. Most of this release is control that
