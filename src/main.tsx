@@ -2302,7 +2302,7 @@ function App() {
 
     <header className="studio-navbar">
       <div className="navbar-left">
-        <button className="navbar-brand" onClick={() => setModal('projects')} title="Projects workspace" aria-label="Bol Studio - Projects workspace">
+        <button className="navbar-brand" type="button" title="Bol Studio" aria-label="Bol Studio">
           <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo logo-light-only" />
           <img src="/bol.studio-white.svg" alt="bol.studio" className="navbar-brand-logo logo-dark-only" />
         </button>
@@ -2369,15 +2369,10 @@ function App() {
             <span className="account-initial">{accountEmail[0]}</span>
           </button>
         )}
-        <button
-          className="nav-btn ghost"
-          aria-label="Your projects"
-          title="All projects"
-          onClick={() => setModal('projects')}
-        >
-          <FolderOpen size={16} />
-          <span>Projects</span>
-        </button>
+        {/* The projects list is out of the interface while how to present past
+            work is still being decided. The modal and everything behind it are
+            untouched — this is the entry point being withheld, not the feature
+            being removed, so putting it back is one element. */}
         <button
           className="nav-btn primary"
           onClick={() => setModal('export')}
