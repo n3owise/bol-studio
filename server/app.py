@@ -53,6 +53,15 @@ CAPTION_FONTS = {
     )
 }
 
+# Faces licensed for this machine only, mirroring DEV_ONLY_FONTS in
+# src/lib/caption-fonts.ts. The editor offers them and the renderer draws them,
+# so the validator has to admit them too — otherwise picking one saves nothing
+# and the project cannot be exported, which is how this was found.
+#
+# Same switch as the renderer: told by the environment, never inferred. A
+# deployment that does not set it rejects these names exactly as before.
+LOCAL_ONLY_FONTS = {"Satoshi"} if os.getenv("BOL_LOCAL_FONTS") == "1" else set()
+
 DEFAULT_SETTINGS = json.loads(
     (Path(__file__).resolve().parent.parent / "src" / "lib" / "caption-defaults.json").read_text()
 )
@@ -627,7 +636,7 @@ class Settings(BaseModel):
     @field_validator("fontFamily")
     @classmethod
     def _known_font(cls, value: str | None) -> str | None:
-        if value is not None and value not in CAPTION_FONTS:
+        if value is not None and value not in CAPTION_FONTS | LOCAL_ONLY_FONTS:
             raise ValueError(f"Unknown caption font: {value}")
         return value
 

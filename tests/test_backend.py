@@ -771,6 +771,43 @@ def test_deployed_requirements_match_the_local_ones():
     )
 
 
+def test_a_font_licensed_for_this_machine_is_accepted_only_when_configured(client, monkeypatch):
+    """Selecting a local-only face has to survive being saved, or it is not usable.
+
+    The editor offered Satoshi and the renderer drew it, but the settings
+    validator knew only the shipped list — so choosing it failed the save with
+    "Unknown caption font" and the project could not be exported at all. Three
+    places have to agree about which faces exist, and this is the third.
+
+    The switch is the environment variable, never anything inferred, so a
+    deployment that does not set it rejects the name exactly as before.
+    """
+    project_id = client.post(
+        "/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")}
+    ).json()["id"]
+
+    def save(font):
+        # Re-read the revision each time: a successful save bumps it, and the
+        # optimistic-concurrency check would answer 409 rather than the thing
+        # this test is asking about.
+        revision = client.get(f"/api/projects/{project_id}").json()["revision"]
+        return client.patch(
+            f"/api/projects/{project_id}",
+            json={
+                "settings": {**copy.deepcopy(backend.DEFAULT_SETTINGS), "fontFamily": font},
+                "revision": revision,
+            },
+        )
+
+    monkeypatch.setattr(backend, "LOCAL_ONLY_FONTS", set())
+    assert save("Satoshi").status_code == 422, "not configured, so not a font this server knows"
+    assert save("Montserrat").status_code == 200, "a shipped face is always fine"
+
+    monkeypatch.setattr(backend, "LOCAL_ONLY_FONTS", {"Satoshi"})
+    assert save("Satoshi").status_code == 200
+    assert save("Comic Sans MS").status_code == 422, "and the list is still a list"
+
+
 def test_a_workspace_cannot_see_or_touch_another_ones_projects(client):
     """Two people sharing a deployment must not share a workspace.
 
