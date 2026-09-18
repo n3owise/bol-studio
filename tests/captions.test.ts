@@ -937,6 +937,16 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('a processing project has no source attached to the player', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(/const busy = .*\['queued','processing','transcribing','extracting'\]\.includes\(project\.status\)/.test(editor),
+    'these are the states in which the media may be rewritten or replaced on the server');
+  assert.ok(/src=\{busy \? undefined :/.test(editor),
+    'so the player is given no source while a project is in them. A file swapped underneath a '
+    + 'stream leaves the browser asking for byte ranges that no longer exist, which the server '
+    + 'answers 416 and the player reports as a preview that could not load');
+});
+
 test('the play button reads the player, not a state that can drift from it', () => {
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
 

@@ -188,6 +188,56 @@ def _streams(path: Path) -> tuple[str, str]:
     return (video.lower(), audio.lower())
 
 
+# Written once the source will not be rewritten again. Its absence is what makes
+# the remux safe to retry, and its presence is what stops a second one.
+PLAYBACK_READY = ".playback-ready"
+
+
+def remux_for_playback(project: dict) -> bool:
+    """Rewrite the container so a browser can start playing straight away.
+
+    Lossless: the streams are copied untouched and only the container changes,
+    which costs seconds and loses nothing. It is worth doing even for a file
+    that is already playable, because phone recordings usually put the moov atom
+    at the end and a browser then has to fetch the whole clip before it can
+    start. Replacing the source rather than writing a second file is what keeps
+    one copy on disk serving as both the preview and the export source.
+
+    Called at upload, before the project is handed back, because replacing a
+    file is only safe while nobody is reading it. Doing it when transcription
+    started rewrote the very bytes the preview was streaming: the browser had
+    cached the old length, its next range request fell past the end of the new
+    file, the server correctly answered 416, and playback stopped with "the
+    preview could not load" moments after the captions appeared.
+
+    Returns whether the file is now something a browser can play.
+    """
+    directory = project_dir(project["id"])
+    source = directory / "source.bin"
+    marker = directory / PLAYBACK_READY
+    video_codec, audio_codec = _streams(source)
+    playable = (video_codec in _BROWSER_VIDEO if project["mediaType"] == "video" else True) \
+        and audio_codec in _BROWSER_AUDIO
+    if not playable:
+        return False
+    # Already done, or a preview is serving instead. Either way the file must
+    # not be rewritten again — something may be part-way through reading it.
+    if marker.is_file() or (directory / "preview.mp4").is_file() or (directory / "preview.m4a").is_file():
+        return True
+
+    remuxed = directory / "source.remux.mp4"
+    try:
+        run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0",
+                     "-c", "copy", "-movflags", "+faststart", str(remuxed)], 600)
+        remuxed.replace(source)
+    except ValueError:
+        # Some containers refuse a straight copy. Fall through to a preview.
+        remuxed.unlink(missing_ok=True)
+        return False
+    marker.write_text("")
+    return True
+
+
 def prepare_media(project: dict) -> None:
     """Make the upload playable and transcribable, storing as little as possible.
 
@@ -215,22 +265,7 @@ def prepare_media(project: dict) -> None:
                      "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(directory / "audio.tmp.wav")], 300)
         (directory / "audio.tmp.wav").replace(directory / "audio.wav")
 
-    video_codec, audio_codec = _streams(source)
-    playable = (video_codec in _BROWSER_VIDEO if project["mediaType"] == "video" else True) \
-        and audio_codec in _BROWSER_AUDIO
-
-    if playable and not (directory / "preview.mp4").is_file() and not (directory / "preview.m4a").is_file():
-        # Lossless: same streams, faststart container. Replaces the source, so
-        # one file is both what the browser streams and what exports render.
-        remuxed = directory / "source.remux.mp4"
-        try:
-            run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0",
-                         "-c", "copy", "-movflags", "+faststart", str(remuxed)], 600)
-            remuxed.replace(source)
-        except ValueError:
-            # Some containers refuse a straight copy. Fall through to a preview.
-            remuxed.unlink(missing_ok=True)
-            playable = False
+    playable = remux_for_playback(project)
 
     if not playable and project["mediaType"] == "video" and not (directory / "preview.mp4").is_file():
         set_progress(project["id"], 15, "Preparing a browser-friendly video preview.")
@@ -865,6 +900,10 @@ async def upload_project(request: Request, file: Annotated[UploadFile, File()], 
                    "waveform": [], "exports": [], "script": script, "language": language, "revision": 1,
                    "owner": owner_of(request)}
         write_project(project)
+        # Before the project is handed back, so the file the browser streams is
+        # the final one. Left until transcription, this rewrote the source out
+        # from under a preview that was already playing it.
+        await asyncio.to_thread(remux_for_playback, project)
         # The editor asks what language was spoken before starting, so it opts
         # out and calls /transcribe itself once the creator has answered.
         # Starting here regardless would transcribe with whatever settings were

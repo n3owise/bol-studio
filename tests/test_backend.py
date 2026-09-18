@@ -1042,6 +1042,39 @@ def test_a_media_token_opens_one_clip_and_nothing_else(accounts):
                        headers={"Authorization": f"Bearer {sign(sub='bob')}"}).status_code == 404
 
 
+def test_the_file_the_browser_streams_is_not_rewritten_underneath_it(client, monkeypatch, tmp_path):
+    """Playback died moments after the captions appeared, on a perfectly good file.
+
+    The upload was remuxed in place when transcription started — replacing the
+    very bytes the preview was already streaming. The browser had cached the old
+    length, so its next range request fell past the end of the new file, the
+    server answered 416 exactly as it should, and the player gave up with "the
+    preview could not load".
+
+    The remux happens before the project is handed back now, so whatever the
+    browser first sees is final. This pins the property that matters: the served
+    file's size does not change after upload.
+    """
+    created = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")})
+    assert created.status_code == 201
+    project = created.json()
+    source = backend.project_dir(project["id"]) / "source.bin"
+    size_when_first_served, mtime = source.stat().st_size, source.stat().st_mtime_ns
+
+    # Everything transcription does to the media, without the recogniser.
+    monkeypatch.setattr(backend, "transcribe", lambda *args, **kwargs: {"words": [word()]})
+    backend.transcription_job(project["id"])
+
+    assert (source.stat().st_size, source.stat().st_mtime_ns) == (size_when_first_served, mtime), \
+        "a byte range the browser already holds has to keep meaning the same thing"
+
+    # A source a browser cannot play is a separate matter: transcription writes a
+    # preview beside it and /media serves that instead from then on. That switch
+    # is safe only because the editor detaches the player's source while a
+    # project is processing, so nothing is mid-stream to break — which is a
+    # property of the editor, asserted in captions.test.ts rather than here.
+
+
 def test_a_transcript_with_no_speech_says_so_rather_than_reporting_success(client, monkeypatch, tmp_path):
     """A recogniser that finds nothing must not look like one that succeeded.
 
