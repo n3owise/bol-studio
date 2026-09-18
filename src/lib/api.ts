@@ -99,14 +99,15 @@ export function mediaUrl(path: string): string {
   const query = new URLSearchParams();
   if (API_KEY) query.set('key', API_KEY);
   if (AUTH_ENABLED) {
-    // Looked up rather than passed in. These calls sit inline in JSX in two
-    // files and eight places, several of them deep inside the media panel, and
-    // a token threaded through props is a token one of them silently does not
-    // get — which shows up as a dead video that looks like a backend fault.
-    // Every media path carries the project id already, so the id is read back
-    // out of the path and the token found here.
+    // No token yet means no authorised URL yet. Returning one anyway sends a
+    // request that is certain to be refused, and a <video> that has been handed
+    // a 401 stays broken until its source changes — so pressing play in the
+    // moment before the token lands reports that the media cannot be played,
+    // which is both alarming and untrue. An empty string instead: callers hand
+    // the element nothing until there is something worth loading.
     const token = mediaTokens.get(projectIdIn(base))?.token;
-    if (token) query.set('t', token);
+    if (!token) return '';
+    query.set('t', token);
   } else {
     query.set('owner', getOwner());
   }

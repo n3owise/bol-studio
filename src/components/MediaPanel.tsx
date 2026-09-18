@@ -28,7 +28,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { API, deleteMediaAsset, duplicateMediaAsset, fetchMediaAssets, updateMediaAsset, uploadMediaAsset, mediaUrl } from '../lib/api';
+import { API, deleteMediaAsset, duplicateMediaAsset, fetchMediaAssets, updateMediaAsset, uploadMediaAsset, mediaUrl, ensureMediaToken } from '../lib/api';
 import { applyChromaKey, drawKeyedMedia, hexToRgb, samplePixelColor } from '../lib/chromakey';
 import { defaultGreenScreen, type CanvasVisualElement, type GreenScreenSettings, type MediaAsset, type Project } from '../lib/types';
 
@@ -329,8 +329,11 @@ export function MediaPanel({
     }
   };
 
-  const handleDownload = (asset: MediaAsset) => {
+  const handleDownload = async (asset: MediaAsset) => {
     if (!project) return;
+    // A download URL with no token is refused, and a refused download looks to
+    // the browser like nothing happening at all.
+    await ensureMediaToken(project.id);
     const downloadUrl = mediaUrl(`/api/projects/${project.id}/assets/${asset.id}/download`);
     const a = document.createElement('a');
     a.href = downloadUrl;
@@ -619,7 +622,7 @@ export function MediaPanel({
                     <div className="media-card-thumb-wrap">
                       {asset.thumbnailUrl ? (
                         <img
-                          src={mediaUrl(asset.thumbnailUrl || '')}
+                          src={mediaUrl(asset.thumbnailUrl || '') || undefined}
                           alt={asset.name}
                           className="media-card-img"
                           loading="lazy"
@@ -629,7 +632,7 @@ export function MediaPanel({
                         />
                       ) : isImage && asset.url ? (
                         <img
-                          src={mediaUrl(asset.url || '')}
+                          src={mediaUrl(asset.url || '') || undefined}
                           alt={asset.name}
                           className="media-card-img"
                           loading="lazy"
@@ -945,7 +948,7 @@ function MediaPreviewModal({
     if (media) media.currentTime = val;
   };
 
-  const mediaSourceUrl = mediaUrl(asset.url || '');
+  const mediaSourceUrl = mediaUrl(asset.url || '') || undefined;
 
   return (
     <div className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
@@ -1256,7 +1259,7 @@ export function GreenScreenModal({
   const [videoDuration, setVideoDuration] = useState(asset.duration || 0);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  const mediaSourceUrl = mediaUrl(asset.url || '');
+  const mediaSourceUrl = mediaUrl(asset.url || '') || undefined;
 
   // Live Canvas render loop
   const renderFrame = useCallback(() => {

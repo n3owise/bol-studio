@@ -937,6 +937,23 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('a media element is given no source until an authorised one exists', () => {
+  const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+
+  assert.ok(/if \(!token\) return '';/.test(api),
+    'mediaUrl returns nothing rather than a URL that is certain to be refused: the first render '
+    + 'happens before the token is minted, and a <video> handed a 401 stays broken until its '
+    + 'source changes — so pressing play in that window said the media could not be played');
+  const panel = readFileSync(new URL('../src/components/MediaPanel.tsx', import.meta.url), 'utf8');
+  assert.ok(/\|\| undefined\)\}/.test(editor) && /\|\| undefined/.test(panel),
+    'and every element treats the empty string as "nothing yet" rather than as a source — an '
+    + 'empty src resolves against the page and loads the HTML document as media');
+  assert.ok(/await ensureMediaToken\(project\.id\);/.test(editor),
+    'a download waits for a token instead of assuming the one minted at open is still current — '
+    + 'a refused download looks like nothing happening at all');
+});
+
 test('a font that may not ship cannot reach a production build', () => {
   const list = readFileSync(new URL('../src/lib/caption-fonts.ts', import.meta.url), 'utf8');
   const faces = readFileSync(new URL('../src/fonts/local-faces.ts', import.meta.url), 'utf8');

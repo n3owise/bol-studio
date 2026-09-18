@@ -649,14 +649,20 @@ function App() {
       downloadedExportIdsRef.current.add(job.id);
       setActiveExportId(null);
       setLastDownloadedExportId(job.id);
-      const downloadUrl = mediaUrl(`/api/projects/${project.id}/exports/${job.id}/download`);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = job.filename || `${project.name || 'export'}-${job.mode}.mp4`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      notify('Export complete! Your video download has started.');
+      // The token is waited for rather than assumed: this fires the moment a
+      // render finishes, which can be long after the one minted when the project
+      // was opened, and a download URL without one is refused — which the browser
+      // shows as simply nothing happening.
+      void (async () => {
+        await ensureMediaToken(project.id);
+        const link = document.createElement('a');
+        link.href = mediaUrl(`/api/projects/${project.id}/exports/${job.id}/download`);
+        link.download = job.filename || `${project.name || 'export'}-${job.mode}.mp4`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        notify('Export complete! Your video download has started.');
+      })();
     } else if (job.status === 'error') {
       setActiveExportId(null);
       notify(job.message || 'Export failed. Please check the logs.');
@@ -2663,7 +2669,7 @@ function App() {
                   ref={media}
                   className={`${project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''} ${activeMediaAsset?.greenScreen?.enabled ? 'video-keyed' : ''}`}
                   key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}-${activeMediaAsset?.id || 'primary'}`}
-                  src={busy ? undefined : mediaUrl(activeMediaAsset ? (activeMediaAsset.url || '') : `/api/projects/${project.id}/media`)}
+                  src={busy ? undefined : (mediaUrl(activeMediaAsset ? (activeMediaAsset.url || '') : `/api/projects/${project.id}/media`) || undefined)}
                   playsInline
                   preload="metadata"
                   muted={muted}
