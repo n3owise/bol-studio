@@ -937,6 +937,15 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('signing up only promises an email when one is actually coming', () => {
+  const screen = readFileSync(new URL('../src/components/AuthScreen.tsx', import.meta.url), 'utf8');
+  assert.ok(/else if \(!data\.session\) go\('sent'\);/.test(screen),
+    'whether a confirmation email is sent is a Supabase setting the screen cannot assume. With '
+    + 'confirmation off, signUp returns a session and the account already works — showing '
+    + '"check your email" there promises something that never arrives. The session is the signal, '
+    + 'so the setting can be flipped without a code change');
+});
+
 test('no control writes a caption setting the renderer will ignore', () => {
   const panel = readFileSync(new URL('../src/components/TextPanel.tsx', import.meta.url), 'utf8');
 

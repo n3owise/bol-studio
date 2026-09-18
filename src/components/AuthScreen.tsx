@@ -57,13 +57,20 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
         if (error) setError(authErrorMessage(error));
         // Success needs no branch: onAuthStateChange swaps this screen for the app.
       } else if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: window.location.origin },
         });
         if (error) setError(authErrorMessage(error));
-        else go('sent');
+        // Whether a confirmation email is coming is a Supabase setting, not
+        // something this screen can assume. With confirmation required, signUp
+        // returns no session and the link is the next step; with it switched
+        // off, it returns one and the account is already usable — announcing an
+        // email then would promise something that never arrives. The session
+        // itself is the signal, so this reads correctly either way and the
+        // setting can be changed without touching the code.
+        else if (!data.session) go('sent');
       } else if (mode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: window.location.origin,
