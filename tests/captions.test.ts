@@ -939,18 +939,41 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
 
 test('a font that may not ship cannot reach a production build', () => {
   const list = readFileSync(new URL('../src/lib/caption-fonts.ts', import.meta.url), 'utf8');
+  const faces = readFileSync(new URL('../src/fonts/local-faces.ts', import.meta.url), 'utf8');
+  const renderer = readFileSync(new URL('../server/remotion-captions.ts', import.meta.url), 'utf8');
   const shipped = JSON.parse(readFileSync(new URL('../src/lib/caption-fonts.json', import.meta.url), 'utf8'));
 
   assert.ok(!shipped.some((f: { family: string }) => f.family === 'Satoshi'),
     'Satoshi is not in the shipped list: its licence permits the licensee’s own use but forbids '
     + 'offering it as a selectable face for third parties to caption their own videos with');
-  assert.ok(/import\.meta\.env\.DEV\n?\s*\? \[\.\.\.\(bundledFonts/.test(list)
-    || /import\.meta\.env\.DEV/.test(list),
-    'the dev-only additions are gated on a flag Vite replaces with a literal, so the branch and '
-    + 'the font files it pulls in are dropped from a production bundle rather than merely hidden');
-  assert.ok(/if \(import\.meta\.env\.DEV\) \{\n\s*void import\('\.\.\/fonts\/satoshi\.css'\);/.test(list),
-    'the @font-face sheet is behind the same gate — shipping the faces without listing them would '
-    + 'still be serving them');
+
+  // The renderer decides by being told, never by inferring from how it was
+  // built — a deployed Space builds its bundle the same way this machine does.
+  assert.ok(/if \(typeof process !== 'undefined'\) \{\n\s*return process\.env\?\.BOL_LOCAL_FONTS === '1';/.test(list),
+    'the export renderer consults only the environment variable, so a deployment that does not '
+    + 'set it renders without these faces however its bundle was produced');
+  assert.ok(/envVariables: process\.env\.BOL_LOCAL_FONTS === '1' \? \{ BOL_LOCAL_FONTS: '1' \} : \{\}/.test(renderer),
+    'and the server only passes it on when its own environment sets it');
+
+  assert.ok(/import\.meta as \{ env\?: \{ DEV\?: boolean \} \}/.test(list),
+    'the editor decides by DEV, which Vite replaces with a literal so the branch is dropped '
+    + 'from a production bundle rather than merely left unexecuted');
+
+  // A URL assembled at runtime, so neither bundler tries to resolve a file that
+  // is gitignored and absent from every clone.
+  assert.ok(/new FontFace\('Satoshi'/.test(faces) && !/\.css'/.test(faces),
+    'the faces are registered through the FontFace API rather than a stylesheet; a CSS url() '
+    + 'pointing at a gitignored file fails the webpack build outright');
+  // public/ is copied into dist wholesale, so the files that let the dev server
+  // and the renderer find these faces would otherwise ship with a build made here.
+  const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+  assert.ok(/apply: 'build'/.test(viteConfig) && /dist\/fonts\/satoshi/.test(viteConfig),
+    'a build plugin removes them from dist — a build on this machine has the files even though '
+    + 'a clone never does');
+
+  assert.ok(/staticFile\(`fonts\/satoshi\//.test(faces),
+    'through staticFile, because Vite serves public/ at the root and Remotion serves it under '
+    + '/public — hard-coding either one 404s in the other, and that 404 is silent');
 });
 
 test('every offerable caption font is bundled for the headless renderer', () => {

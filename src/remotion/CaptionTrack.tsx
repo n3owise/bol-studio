@@ -3,6 +3,7 @@ import { AbsoluteFill, Sequence, continueRender, delayRender, useVideoConfig } f
 import { buildPages } from '../lib/pages';
 import { CaptionPage } from './CaptionPage';
 import { defaults, type Settings, type Word } from '../lib/types';
+import { localFacesReady } from '../lib/caption-fonts';
 import { treatmentFor } from './treatments';
 
 import '@fontsource/dm-sans/400.css';
@@ -40,7 +41,12 @@ function useFontsReady() {
   const [handle] = React.useState(() => delayRender('Loading caption fonts'));
   React.useEffect(() => {
     let cancelled = false;
-    document.fonts.ready.then(() => { if (!cancelled) continueRender(handle); });
+    // Both, and in this order: document.fonts.ready settles against the faces
+    // registered at that moment, so a face still being added is not waited for
+    // by it. The local-only ones are added by a promise of their own.
+    localFacesReady
+      .then(() => document.fonts.ready)
+      .then(() => { if (!cancelled) continueRender(handle); });
     return () => { cancelled = true; };
   }, [handle]);
 }

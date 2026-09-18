@@ -15,6 +15,11 @@ let bundlePromise: Promise<string> | null = null;
 export function captionBundle(onProgress?: (percent: number) => void): Promise<string> {
   bundlePromise ??= bundle({
     entryPoint: ENTRY,
+    // Named explicitly. Remotion did not pick the project's own public/ up from
+    // the entry point's location, so files referenced by runtime URL — the
+    // local-only faces — 404ed inside the renderer and every frame came out in
+    // a fallback face, which looks like nothing at all going wrong.
+    publicDir: resolve(process.cwd(), 'public'),
     onProgress: percent => onProgress?.(percent),
   });
   return bundlePromise;
@@ -121,6 +126,10 @@ export async function streamCaptionFrames(options: {
     onStart: () => undefined,
     concurrency: options.concurrency ?? null,
     cancelSignal: options.signal as never,
+    // Faces licensed for this machine only, if this machine says so. The bundle
+    // reads nothing else to decide, so a deployment that does not set the
+    // variable renders without them however it was built.
+    envVariables: process.env.BOL_LOCAL_FONTS === '1' ? { BOL_LOCAL_FONTS: '1' } : {},
   });
 
   // Anything still held back means Remotion delivered fewer frames than the
