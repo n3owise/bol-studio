@@ -1954,13 +1954,16 @@ function App() {
     if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     seek(start);
     if (project && media.current) {
-      void media.current.play().catch(() => {});
-      setPlaying(true);
       const dur = Math.max(0.1, (end - start) * 1000);
-      pauseTimerRef.current = setTimeout(() => {
-        media.current?.pause();
-        setPlaying(false);
-      }, dur + 60);
+      // Only claim to be playing once the browser agrees. Setting it up front
+      // and swallowing the rejection is what left the state stuck true.
+      void media.current.play().then(() => {
+        setPlaying(true);
+        pauseTimerRef.current = setTimeout(() => {
+          media.current?.pause();
+          setPlaying(false);
+        }, dur + 60);
+      }).catch(() => setPlaying(false));
     } else {
       setPlaying(true);
       const dur = Math.max(0.1, (end - start) * 1000);
@@ -1994,7 +1997,13 @@ function App() {
   function seek(value: number) { if (!project) return; const t = Math.max(0,Math.min(duration,value)); setTime(t); if (media.current) media.current.currentTime=t; }
   const togglePlay = useCallback(() => {
     if (!project || !media.current) return;
-    if (playing) media.current.pause();
+    // The element decides, not the `playing` state. That state is set from
+    // events and, in one place, optimistically — so a play() that never started
+    // could leave it true while the element sat paused. This button then called
+    // pause() on something already paused, which does nothing and fires no
+    // event to correct the state, so playback was stuck for good with nothing
+    // shown. Reading `paused` cannot drift.
+    if (!media.current.paused) media.current.pause();
     else {
       if (media.current.currentTime >= duration-.02) media.current.currentTime=0;
       const element = media.current;
@@ -2017,7 +2026,7 @@ function App() {
         notify('Playback could not start. Press play again.');
       });
     }
-  }, [project, playing, duration, notify]);
+  }, [project, duration, notify]);
   useEffect(() => {
     if (!playing || !project) return;
     let frame = 0;

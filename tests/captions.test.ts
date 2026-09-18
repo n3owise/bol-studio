@@ -937,6 +937,18 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('the play button reads the player, not a state that can drift from it', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+
+  assert.ok(/if \(!media\.current\.paused\) media\.current\.pause\(\);/.test(editor),
+    'playback locked up silently: one path set `playing` optimistically and swallowed a failed '
+    + 'play(), so the state read true while the element sat paused — after which the button '
+    + 'called pause() on something already paused, which does nothing and fires no event to '
+    + 'correct it. The element’s own `paused` cannot drift');
+  assert.ok(/\.then\(\(\) => \{\n\s*setPlaying\(true\);/.test(editor),
+    'and previewing a line claims to be playing only once the browser agrees');
+});
+
 test('a play that was interrupted does not accuse the file of being broken', () => {
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
   assert.ok(/error\?\.name === 'AbortError'\) return;/.test(editor),
