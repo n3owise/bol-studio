@@ -1042,6 +1042,32 @@ def test_a_media_token_opens_one_clip_and_nothing_else(accounts):
                        headers={"Authorization": f"Bearer {sign(sub='bob')}"}).status_code == 404
 
 
+def test_a_transcript_with_no_speech_says_so_rather_than_reporting_success(client, monkeypatch, tmp_path):
+    """A recogniser that finds nothing must not look like one that succeeded.
+
+    "Transcript ready. Review spelling and suggested emphasis." over an empty
+    caption panel gives the creator nothing to act on and no reason to suspect
+    the clip — they would sooner doubt the editor. The wording is already
+    conditional; this pins it, because the branch had never been exercised.
+    """
+    project_id = client.post(
+        "/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")}
+    ).json()["id"]
+
+    monkeypatch.setattr(backend, "prepare_media", lambda project: None)
+    monkeypatch.setattr(backend, "transcribe", lambda *args, **kwargs: {"words": []})
+    backend.transcription_job(project_id)
+
+    finished = client.get(f"/api/projects/{project_id}").json()
+    assert finished["status"] == "ready", "it did finish — there was simply nothing in the audio"
+    assert finished["words"] == []
+    assert "No speech was detected" in finished["message"]
+
+    monkeypatch.setattr(backend, "transcribe", lambda *args, **kwargs: {"words": [word()]})
+    backend.transcription_job(project_id)
+    assert "Transcript ready" in client.get(f"/api/projects/{project_id}").json()["message"]
+
+
 def test_a_media_token_outlasts_an_editing_session(accounts):
     """The token is in the URL, so replacing one reloads the player.
 
