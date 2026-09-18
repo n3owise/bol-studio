@@ -1042,6 +1042,30 @@ def test_a_media_token_opens_one_clip_and_nothing_else(accounts):
                        headers={"Authorization": f"Bearer {sign(sub='bob')}"}).status_code == 404
 
 
+def test_a_media_token_outlasts_an_editing_session(accounts):
+    """The token is in the URL, so replacing one reloads the player.
+
+    At fifteen minutes the client rotated it while someone was still working,
+    which changed the <video> source mid-playback and rejected whatever play()
+    was pending — reported in the editor as media that could not be played. The
+    window is wide enough now that an ordinary session never reaches it, which
+    is affordable because of how little the token can do.
+    """
+    from server import auth as auth_module
+
+    assert auth_module.MEDIA_TOKEN_TTL_SECONDS >= 60 * 60, \
+        "shorter than an hour and a normal edit outlives it"
+
+    client, sign, _ = accounts
+    signed_in = {"Authorization": f"Bearer {sign(sub='alice')}"}
+    project_id = client.post(
+        "/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")}, headers=signed_in
+    ).json()["id"]
+    minted = client.post(f"/api/projects/{project_id}/media-token", headers=signed_in).json()
+    assert minted["expiresIn"] == auth_module.MEDIA_TOKEN_TTL_SECONDS, \
+        "the client plans its refresh around this number, so it has to be the real one"
+
+
 def test_an_expired_or_tampered_media_token_is_refused(accounts, monkeypatch):
     """The expiry and the signature both have to hold, not either one.
 

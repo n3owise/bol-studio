@@ -123,12 +123,17 @@ function projectIdIn(url: string): string {
 /**
  * Media tokens, minted per project and reused until they are nearly out.
  *
- * Re-minted with several minutes to spare rather than on expiry: a <video>
- * element that asks for a byte range mid-playback with a token that died a
- * second ago stalls with nothing to say. Concurrent callers share one request,
- * because the editor asks for the video, the thumbnail and the waveform at once.
+ * Re-minted with time to spare rather than on expiry: a <video> element that
+ * asks for a byte range mid-playback with a token that died a second ago stalls
+ * with nothing to say. Concurrent callers share one request, because the editor
+ * asks for the video, the thumbnail and the waveform at once.
+ *
+ * The token is part of the URL, so replacing one reloads the player and rejects
+ * any pending play(). The server's two-hour lifetime and this margin are chosen
+ * together so that an ordinary session never reaches the point of needing a new
+ * one.
  */
-const REMINT_WITHIN_MS = 8 * 60 * 1000;
+const REMINT_WITHIN_MS = 15 * 60 * 1000;
 const mediaTokens = new Map<string, { token: string; expiresAt: number }>();
 const mintingNow = new Map<string, Promise<string>>();
 

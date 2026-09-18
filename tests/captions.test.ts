@@ -937,6 +937,16 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('a play that was interrupted does not accuse the file of being broken', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(/error\?\.name === 'AbortError'\) return;/.test(editor),
+    'the browser rejects a pending play() whenever the source reloads or pause() is called, which '
+    + 'an edit elsewhere in the editor causes — reporting that as an unplayable file sent people '
+    + 'off to re-encode a video that was always fine');
+  assert.ok(/MediaError\.MEDIA_ERR_SRC_NOT_SUPPORTED/.test(editor),
+    'the unplayable-file message is kept for the case where the element actually says so');
+});
+
 test('a media element is given no source until an authorised one exists', () => {
   const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');

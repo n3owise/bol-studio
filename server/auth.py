@@ -197,7 +197,13 @@ async def user_id_from(token: str) -> str:
 # Someone who steals it gets that clip's bytes until it expires and cannot list,
 # modify, or discover anything else.
 
-MEDIA_TOKEN_TTL_SECONDS = 900
+# Long enough to cover an editing session without the URL ever changing under
+# the player. It used to be fifteen minutes, which meant the client rotated the
+# token while someone was still working — and because the token is part of the
+# URL, a new one reloads the <video> mid-playback and rejects whatever play()
+# was pending. The cost of the longer window is bounded by how little the token
+# can do: read one project's media, by GET, and nothing else.
+MEDIA_TOKEN_TTL_SECONDS = 2 * 60 * 60
 # Unset is fine for a single-process deployment: it means media URLs minted
 # before a restart stop working, and on an ephemeral Space the media they point
 # at did not survive the restart either. A multi-worker deployment would have to

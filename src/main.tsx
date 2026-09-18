@@ -596,7 +596,7 @@ function App() {
         .catch(() => { /* request() has already handled a dead session. */ });
     };
     mint();
-    const timer = setInterval(mint, 7 * 60 * 1000);
+    const timer = setInterval(mint, 10 * 60 * 1000);
     return () => { live = false; clearInterval(timer); };
   }, [project?.id]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(timer); }, [notice]);
@@ -1995,7 +1995,28 @@ function App() {
   const togglePlay = useCallback(() => {
     if (!project || !media.current) return;
     if (playing) media.current.pause();
-    else { if (media.current.currentTime >= duration-.02) media.current.currentTime=0; void media.current.play().catch(() => notify('This media could not play. Try re-uploading as MP4 or WAV.')); }
+    else {
+      if (media.current.currentTime >= duration-.02) media.current.currentTime=0;
+      const element = media.current;
+      void element.play().catch((error: DOMException) => {
+        // Not every rejection means the file is unplayable, and saying so when
+        // it is not sends people off to re-encode a video that was always fine.
+        //
+        // AbortError is the common one and is harmless: the browser rejects a
+        // pending play() whenever the source is reloaded or pause() is called,
+        // which an edit elsewhere in the editor can easily cause. There is
+        // nothing to report — the element is simply not playing yet.
+        if (error?.name === 'AbortError') return;
+        // A real problem leaves the element holding the reason.
+        if (element.error) {
+          notify(element.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+            ? 'This media could not play. Try re-uploading as MP4 or WAV.'
+            : 'The media could not be loaded. Check your connection and try again.');
+          return;
+        }
+        notify('Playback could not start. Press play again.');
+      });
+    }
   }, [project, playing, duration, notify]);
   useEffect(() => {
     if (!playing || !project) return;
