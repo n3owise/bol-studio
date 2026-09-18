@@ -342,6 +342,31 @@ function App() {
   const latestExport = project?.exports?.at(-1);
   const hasExportRunning = project?.exports?.some(e => ['queued','processing','rendering'].includes(e.status));
   const [timelineZoom, setTimelineZoom] = useState(1);
+  /**
+   * Open the timeline wide enough to read the words on it.
+   *
+   * Zoom was fixed at 1, meaning the whole clip was squeezed into the viewport
+   * however many words it held. A short clip with a lot of speech gave each word
+   * ten to twenty pixels, so twenty-one of twenty-two labels were clipped and
+   * several rendered nothing at all — a row of empty boxes you could click but
+   * not read.
+   *
+   * Fitting the words instead of the clip costs the whole-clip glance, which the
+   * viewport's own scrolling and the zoom control both give back. An empty box
+   * shows nothing at any zoom; a scrollbar is the smaller loss.
+   */
+  const fittedZoomFor = useCallback((words: Word[], duration: number) => {
+    const viewport = timelineViewportRef.current?.clientWidth ?? 0;
+    if (!viewport || !duration || words.length < 2) return 1;
+    // From the durations, not the word count: a cell is as wide as its word is
+    // long to say, and speech is uneven — counting words assumes they share the
+    // track equally and lands far short. The median keeps one drawn-out word
+    // from deciding the zoom for everything else.
+    const spans = words.map(w => Math.max(0.01, w.end - w.start)).sort((a, b) => a - b);
+    const median = spans[Math.floor(spans.length / 2)];
+    const READABLE_WORD_PX = 62;
+    return Math.min(8, Math.max(1, (READABLE_WORD_PX * duration) / (median * viewport)));
+  }, []);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const timelineViewportRef = useRef<HTMLDivElement>(null);
   const timelineTrackRef = useRef<HTMLDivElement>(null);
@@ -599,6 +624,18 @@ function App() {
     const timer = setInterval(mint, 10 * 60 * 1000);
     return () => { live = false; clearInterval(timer); };
   }, [project?.id]);
+  // Fit the timeline to its words the moment there are words to fit — on upload,
+  // when a transcript arrives, and when a project is opened. Keyed on that
+  // transition rather than on every render, so a zoom the creator sets by hand
+  // afterwards is left alone.
+  const fittedFor = useRef('');
+  useEffect(() => {
+    const count = project?.words.length ?? 0;
+    const key = `${project?.id ?? ''}:${count > 0}`;
+    if (!project || count === 0 || fittedFor.current === key) return;
+    fittedFor.current = key;
+    setTimelineZoom(fittedZoomFor(project.words, project.duration));
+  }, [project, fittedZoomFor]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { projectRef.current = project; }, [project]);
   useEffect(() => {

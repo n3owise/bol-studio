@@ -937,6 +937,34 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('no control writes a caption setting the renderer will ignore', () => {
+  const panel = readFileSync(new URL('../src/components/TextPanel.tsx', import.meta.url), 'utf8');
+
+  // The Capitalisation control writes both fields; the renderer prefers textCase.
+  assert.ok(/updateSettings\(\{ textCase: option\.id, uppercase: option\.id === 'upper' \}\)/.test(panel),
+    'the one capitalisation control keeps both fields in step');
+  assert.ok(!/updateSettings\(\{ uppercase: e\.target\.checked \}\)/.test(panel),
+    'and nothing writes `uppercase` alone. A second toggle did, and because the renderer gives '
+    + '`textCase` precedence it silently did nothing once Capitalisation had been touched — while '
+    + 'still drawing itself as checked');
+});
+
+test('nothing is badged for a tier that does not exist', () => {
+  const style = readFileSync(new URL('../src/components/StylePanel.tsx', import.meta.url), 'utf8');
+  assert.ok(!/pro-badge/.test(style),
+    'a PRO badge sat on a button that works and gates nothing, promising a paid tier there is no '
+    + 'way to buy');
+});
+
+test('caption text never takes its colour from the inverse token', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const onAccent = css.match(/color: var\(--color-text-inverse[^)]*\)/g) ?? [];
+  assert.equal(onAccent.length, 0,
+    '--color-text-inverse is white in the light theme, so using it for text on the green accent '
+    + 'produced 1.7:1 on the word being spoken and 1.08:1 on the badge marking the line. Both read '
+    + 'as absent rather than dim, and both had the right colour sitting unused as the fallback');
+});
+
 test('a processing project has no source attached to the player', () => {
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
   assert.ok(/const busy = .*\['queued','processing','transcribing','extracting'\]\.includes\(project\.status\)/.test(editor),

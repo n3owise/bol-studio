@@ -107,8 +107,10 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
                     <div className="template-create-scratch-row">
                       <button type="button" className="template-create-scratch-btn" onClick={onOpenTextPanel}>
                         <Plus size={15} />
-                        <span>Create from scratch</span>
-                        <span className="pro-badge">PRO</span>
+                        {/* A PRO badge used to sit here. There is no paid tier, so it
+                            gated nothing — and this button works: it opens the Text
+                            panel, where a look is built by hand. */}
+                        <span>Build your own</span>
                       </button>
                     </div>
                   </>

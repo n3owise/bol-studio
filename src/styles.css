@@ -40,7 +40,13 @@
   /* Typography */
   --color-text-primary: #09090b;
   --color-text-secondary: #52525b;
-  --color-text-muted: #71717a;
+  /* 4.4:1 on the palest panel ground before this. */
+  --color-text-muted: #63636b;
+  /* White here, near-black in the dark theme — so it is the wrong token for text
+     sitting on the green accent, which is the same colour in both. Ten rules used
+     it that way and rendered white on green at 1.7:1 in the light theme, each
+     with the correct ink already written as their unused fallback. Text on the
+     accent takes --color-accent-text. */
   --color-text-inverse: #ffffff;
 
   /* Borders & Separators */
@@ -55,6 +61,10 @@
   --color-accent-glow: rgba(46, 227, 104, 0.35);
   --color-accent-dim: rgba(46, 227, 104, 0.12);
   --color-accent-text: #052e16;
+  /* Green text on the faint green tint an auto-picked word wears in the
+     timeline. It has to flip with the theme; a single value reads at 3.5:1 on
+     one ground or the other. */
+  --color-emphasis-text: #15803d;
 
   /* Signature Dark Brand Ink / Primary Button in Light Mode */
   --color-brand-ink: #09090b;
@@ -157,7 +167,9 @@
   /* Typography */
   --color-text-primary: #f4f4f6;
   --color-text-secondary: #a1a1aa;
-  --color-text-muted: #71717a;
+  /* Was #71717a, the same value the light theme uses — 3.7:1 on a dark panel,
+     which is what drove most of the contrast failures on this side. */
+  --color-text-muted: #8b8b96;
   --color-text-inverse: #09090b;
 
   /* Micro Borders & Separators */
@@ -172,6 +184,7 @@
   --color-accent-glow: rgba(46, 227, 104, 0.45);
   --color-accent-dim: rgba(46, 227, 104, 0.16);
   --color-accent-text: #052e16;
+  --color-emphasis-text: #6ee89a;
 
   /* Primary Button / Highlight Ink in Dark Mode */
   --color-brand-ink: #2ee368;
@@ -592,6 +605,8 @@ h1, h2, h3, p {
 .icon-button.tiny {
   width: 24px;
   height: 24px;
+  min-width: 28px;
+  min-height: 28px;
 }
 
 /* Magic UI Animated Theme Toggler View Transitions */
@@ -2036,7 +2051,7 @@ progress::-moz-progress-bar {
   gap: 10px;
 }
 .section-label {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-muted);
   letter-spacing: 1.2px;
   font-weight: 700;
@@ -2549,7 +2564,7 @@ progress::-moz-progress-bar {
 }
 
 .timeline-ruler-tick .tick-label {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   color: #64748b;
   font-variant-numeric: tabular-nums;
@@ -2670,6 +2685,50 @@ progress::-moz-progress-bar {
   height: 40px;
 }
 
+/* ==========================================================================
+   Timeline word cells — making room for the word
+   ==========================================================================
+   A cell's width is proportional to how long the word is spoken, so a short
+   word gets a narrow box. The box then spent its width on decoration: 12px of
+   padding, a 4px gap and an 11px badge, which on an average cell left nothing
+   for the text. Twenty-one of twenty-two words came out truncated and several
+   rendered zero pixels — "do", two characters, showed nothing at all.
+
+   So the trimmings yield to the word, in that order, using the cell's own width
+   rather than the viewport's: the badge goes first, then the label, leaving a
+   plain empty chip that is honest about being a very short word. The tooltip
+   and the caption panel still name it, and the zoom control still exists. No
+   minimum width, because these cells are absolutely positioned siblings and a
+   floor would make them overlap each other. */
+
+.timeline-word-cell,
+.timeline-container.clean-white .timeline-word-cell.white-cell {
+  container-type: inline-size;
+  padding: 0 4px;
+}
+
+.timeline-word-cell-text {
+  min-width: 0;
+}
+
+/* Wide enough for the word but not for both: the badge is decoration, the word
+   is the content. */
+@container (max-width: 58px) {
+  .timeline-word-star,
+  .timeline-word-spotlight-badge {
+    display: none;
+  }
+}
+
+/* Below this a label is a fragment of a single letter rather than a word, and an
+   ellipsis on its own says less than an empty chip does. Note the query measures
+   the content box, so this sits about 10px below the cell's drawn width. */
+@container (max-width: 16px) {
+  .timeline-word-cell-text {
+    display: none;
+  }
+}
+
 .timeline-word-cell {
   position: absolute;
   top: 0;
@@ -2684,8 +2743,7 @@ progress::-moz-progress-bar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 6px;
+  gap: 3px;
   cursor: grab;
   user-select: none;
   overflow: hidden;
@@ -2742,8 +2800,8 @@ progress::-moz-progress-bar {
 }
 
 .timeline-word-star {
-  color: #22c55e;
-  opacity: 0.5;
+  color: #15803d;
+  opacity: 0.85;
   font-size: 11px;
   flex-shrink: 0;
 }
@@ -3201,7 +3259,7 @@ progress::-moz-progress-bar {
 }
 
 .timeline-container.clean-white .timeline-ruler-tick .tick-label {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -3340,8 +3398,7 @@ progress::-moz-progress-bar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 0 6px;
+  gap: 3px;
   cursor: grab;
   user-select: none;
   overflow: hidden;
@@ -3381,7 +3438,7 @@ progress::-moz-progress-bar {
   border-color: rgba(34, 197, 94, 0.5);
   border-style: dashed;
   background: rgba(34, 197, 94, 0.07);
-  color: #15803d;
+  color: var(--color-emphasis-text, #15803d);
 }
 
 .timeline-container.clean-white .timeline-word-cell.white-cell.is-emphasized.is-active {
@@ -3712,9 +3769,14 @@ progress::-moz-progress-bar {
   border-color: #09090b;
   box-shadow: 0 0 0 2px #09090b, 0 8px 20px rgba(0, 0, 0, 0.08);
 }
-.template-art > span:not(.template-tick) {
+.template-art > span:not(.template-tick),
+.template-art > strong {
   font-size: 12px;
-  color: #09090b;
+  /* Was hardcoded #09090b. The dark theme swaps the card's background for a dark
+     one and never touched this, so every word except the accent-coloured
+     highlight became near-black on near-black — which is why the cards looked
+     like they showed one word each. */
+  color: var(--color-text-primary);
   font-weight: 700;
   line-height: 1.5;
   letter-spacing: -0.4px;
@@ -6335,7 +6397,7 @@ kbd {
   font-size: 13px;
   font-weight: 700 !important;
   background: var(--color-accent, #2ee368) !important;
-  color: var(--color-text-inverse, #052e16) !important;
+  color: var(--color-accent-text, #052e16) !important;
   border-radius: 8px !important;
   display: inline-flex;
   align-items: center;
@@ -6481,7 +6543,7 @@ kbd {
 }
 
 .field-hint {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--color-text-muted, #94a3b8);
   font-style: italic;
 }
@@ -6650,7 +6712,7 @@ kbd {
 
 .choice-pill.active {
   background: var(--color-accent, #2ee368);
-  color: var(--color-text-inverse, #052e16);
+  color: var(--color-accent-text, #052e16);
   border-color: var(--color-accent-hover, #26cf5e);
   font-weight: 700;
 }
@@ -6667,7 +6729,7 @@ kbd {
   font-size: 13px;
   font-weight: 700 !important;
   background: var(--color-accent, #2ee368) !important;
-  color: var(--color-text-inverse, #052e16) !important;
+  color: var(--color-accent-text, #052e16) !important;
   border-radius: 7px !important;
   display: flex;
   align-items: center;
@@ -6854,6 +6916,11 @@ kbd {
 }
 
 .captions-filter-row {
+  /* The row scrolls once it outgrows the panel, but presented as a pill sliced
+     off at the edge, which reads as a rendering fault rather than as more
+     content. The fade says there is more this way. */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent 100%);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -6864,7 +6931,9 @@ kbd {
 .caption-filter-pill {
   font-size: 11px;
   font-weight: 600;
-  padding: 3px 8px;
+  /* 23px tall before — under the 28px a pointer wants, on the controls people
+     reach for most in this panel. */
+  padding: 6px 10px;
   border-radius: 9999px;
   background: var(--color-bg-card, #f1f5f9);
   color: var(--color-text-secondary, #64748b);
@@ -6962,8 +7031,9 @@ kbd {
 }
 
 .caption-line-play-btn {
-  width: 20px;
-  height: 20px;
+  /* 20px before, under the 28px a pointer wants. */
+  width: 28px;
+  height: 28px;
   border-radius: 4px;
   border: 1px solid var(--color-border-subtle, #e2e8f0);
   background: var(--color-bg-card, #f8fafc);
@@ -6980,13 +7050,13 @@ kbd {
 .caption-line-play-btn:hover {
   background: var(--color-accent, #2ee368);
   border-color: var(--color-accent-hover, #26cf5e);
-  color: var(--color-text-inverse, #052e16);
+  color: var(--color-accent-text, #052e16);
 }
 
 .caption-line-play-btn.is-playing {
   background: var(--color-accent, #2ee368);
   border-color: var(--color-accent-hover, #26cf5e);
-  color: var(--color-text-inverse, #052e16);
+  color: var(--color-accent-text, #052e16);
 }
 
 .caption-timecode {
@@ -6997,7 +7067,7 @@ kbd {
 }
 
 .caption-group-duration {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--color-text-muted, #94a3b8);
   font-weight: 500;
 }
@@ -7011,7 +7081,9 @@ kbd {
 .active-spoken-badge {
   font-size: 10px;
   font-weight: 700;
-  color: var(--color-text-inverse, #15803d);
+  /* Same trap as the chip above: inverse is white here, so the badge marking the
+     line being spoken measured 1.08 — it was not dim, it was absent. */
+  color: #12682f;
   background: var(--color-accent-subtle, rgba(46, 227, 104, 0.18));
   padding: 1px 6px;
   border-radius: 4px;
@@ -7030,7 +7102,11 @@ kbd {
 .caption-row-menu-btn {
   background: none;
   border: none;
-  padding: 3px;
+  /* 20x20 from a 3px pad around a 14px icon — under the 28px a pointer wants,
+     on a control that opens this line's whole menu. */
+  min-width: 28px;
+  min-height: 28px;
+  padding: 7px;
   border-radius: 4px;
   color: var(--color-text-muted, #94a3b8);
   cursor: pointer;
@@ -7070,6 +7146,8 @@ kbd {
   -webkit-user-drag: element;
   transition: transform 0.14s ease, background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   line-height: 1.25;
+  /* The most-clicked control in the editor, and 24px tall. */
+  min-height: 28px;
 }
 
 .caption-word-chip * {
@@ -7202,7 +7280,7 @@ kbd {
 .caption-word-chip.is-active {
   background: var(--color-accent, #2ee368) !important;
   border-color: var(--color-accent-hover, #26cf5e) !important;
-  color: var(--color-text-inverse, #052e16) !important;
+  color: var(--color-accent-text, #052e16) !important;
   font-weight: 700;
   box-shadow: 0 1px 4px rgba(46, 227, 104, 0.4);
 }
@@ -7210,7 +7288,7 @@ kbd {
 .caption-word-chip.is-selected-and-active {
   background: var(--color-accent, #2ee368) !important;
   border-color: var(--color-text-primary, #09090b) !important;
-  color: var(--color-text-inverse, #052e16) !important;
+  color: var(--color-accent-text, #052e16) !important;
   font-weight: 800;
   box-shadow: 0 0 0 2px var(--color-text-primary, #09090b), 0 2px 6px rgba(46, 227, 104, 0.5) !important;
 }
@@ -7231,7 +7309,10 @@ kbd {
 .caption-word-chip.is-spotlight.is-active {
   background: var(--color-accent, #2ee368);
   border-color: var(--color-accent-hover, #26cf5e);
-  color: var(--color-text-inverse, #052e16);
+  /* --color-text-inverse is white in the light theme, so this was white on the
+     accent: 1.7:1, on the word being spoken at that moment. The green ink meant
+     for the accent was sitting right there as the unused fallback. */
+  color: var(--color-accent-text, #052e16);
   font-weight: 800;
 }
 
@@ -7269,9 +7350,8 @@ kbd {
 }
 
 .caption-word-star-badge {
-  font-size: 10px;
-  color: #16a34a;
-  opacity: 0.5;
+  font-size: 11px;
+  color: #15803d;
   font-weight: 800;
   line-height: 1;
 }
@@ -7999,7 +8079,7 @@ kbd {
 
 .add-text-dropdown-btn.primary {
   background: var(--color-accent, #2ee368) !important;
-  color: var(--color-text-inverse, #052e16) !important;
+  color: var(--color-accent-text, #052e16) !important;
   border: 1px solid var(--color-accent-hover, #26cf5e) !important;
   font-weight: 700 !important;
 }
@@ -8106,7 +8186,7 @@ kbd {
   max-width: 220px;
   height: 40px;
   background: var(--color-accent, #2ee368) !important;
-  color: var(--color-text-inverse, #052e16) !important;
+  color: var(--color-accent-text, #052e16) !important;
   font-weight: 700 !important;
   font-size: 13px;
   border: 1px solid var(--color-accent-hover, #26cf5e) !important;
@@ -8448,7 +8528,7 @@ kbd {
 
 .pill-btn.active {
   background: var(--color-accent, #2ee368);
-  color: var(--color-text-inverse, #052e16);
+  color: var(--color-accent-text, #052e16);
   border-color: var(--color-accent-hover, #26cf5e);
   font-weight: 700;
 }
@@ -9887,7 +9967,7 @@ kbd {
   border: 1px solid rgba(34, 197, 94, 0.55);
   border-radius: 50%;
   background: var(--bg-surface, #fff);
-  color: #16a34a;
+  color: var(--color-emphasis-text, #15803d);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
@@ -10291,4 +10371,21 @@ kbd {
   font-size: 13.5px;
   font-weight: 600;
   word-break: break-all;
+}
+
+/* An invisible pad around the insert dot, so what you aim at is the size of a
+   target rather than the size of the mark. It was 10x10. */
+.caption-word-insert::after {
+  content: '';
+  position: absolute;
+  inset: -7px -5px;
+}
+
+/* A quiet label for a row of shortcuts sitting under the control they belong to. */
+.setting-sublabel {
+  display: block;
+  margin: 10px 0 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
 }

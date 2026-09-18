@@ -209,10 +209,46 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
     />
   </div>
   <div className="setting-field">
+    <label htmlFor="caption-position-x">Horizontal Position <span>{settings.positionX ?? 50}%</span></label>
+    <input
+      disabled={busy}
+      id="caption-position-x"
+      type="range"
+      min="15"
+      max="85"
+      value={settings.positionX ?? 50}
+      onChange={e => updateSettings({ positionX: Number(e.target.value) })}
+    />
+    {/* Five shortcuts, not an axis control. Read as a row they looked like one
+        group mixing vertical and horizontal; the label says what they are. */}
+    <span className="setting-sublabel">Jump to</span>
+    <div className="position-presets">
+      {[
+        { name: 'Top', x: 50, y: 22 },
+        { name: 'Center', x: 50, y: 50 },
+        { name: 'Left', x: 25, y: 50 },
+        { name: 'Right', x: 75, y: 50 },
+        { name: 'Bottom', x: 50, y: 72 },
+      ].map(p => (
+        <button
+          disabled={busy}
+          key={p.name}
+          type="button"
+          onClick={() => updateSettings({ position: p.y, positionX: p.x })}
+          className={(settings.position === p.y && (settings.positionX ?? 50) === p.x) ? 'active' : ''}
+        >
+          {p.name}
+        </button>
+      ))}
+    </div>
+  </div>
+  {/* Sat between Vertical and Horizontal Position, splitting one idea in two.
+      It belongs after them: you place the captions, then check what covers them. */}
+  <div className="setting-field">
     {/* This overlay existed and drew itself, but nothing anywhere
         could switch it on — so the one thing that catches a
         caption hidden behind the app's interface was unreachable. */}
-    <label htmlFor="safe-area">Show app interface</label>
+    <label htmlFor="safe-area">Check against Reels or Shorts</label>
     <div className="segmented-control">
       {([
         { id: 'none', label: 'Off' },
@@ -238,37 +274,6 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         on {safeArea?.name}. Move them out of that strip.
       </p>
     )}
-  </div>
-  <div className="setting-field">
-    <label htmlFor="caption-position-x">Horizontal Position <span>{settings.positionX ?? 50}%</span></label>
-    <input
-      disabled={busy}
-      id="caption-position-x"
-      type="range"
-      min="15"
-      max="85"
-      value={settings.positionX ?? 50}
-      onChange={e => updateSettings({ positionX: Number(e.target.value) })}
-    />
-    <div className="position-presets">
-      {[
-        { name: 'Top', x: 50, y: 22 },
-        { name: 'Center', x: 50, y: 50 },
-        { name: 'Left', x: 25, y: 50 },
-        { name: 'Right', x: 75, y: 50 },
-        { name: 'Bottom', x: 50, y: 72 },
-      ].map(p => (
-        <button
-          disabled={busy}
-          key={p.name}
-          type="button"
-          onClick={() => updateSettings({ position: p.y, positionX: p.x })}
-          className={(settings.position === p.y && (settings.positionX ?? 50) === p.x) ? 'active' : ''}
-        >
-          {p.name}
-        </button>
-      ))}
-    </div>
   </div>
   {/* Alignment, outline and backdrop were all read by the
       renderer and settable nowhere — the same gap the safe-area
@@ -444,7 +449,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
   </div>
 
   <div className="setting-field">
-    <label htmlFor="words-per-line">Words Per Line (Chunking) <span>{settings.wordsPerLine}</span></label>
+    <label htmlFor="words-per-line">Words per line <span>{settings.wordsPerLine}</span></label>
     <div className="slider-row">
       <input
         disabled={busy}
@@ -459,7 +464,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
     </div>
   </div>
   <div className="setting-field">
-    <label htmlFor="motion-strength">Motion Dynamics</label>
+    <label htmlFor="motion-strength">Motion</label>
     <div className="segmented-control">
       {[
         { label: 'Off', val: 0 },
@@ -479,23 +484,21 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
       ))}
     </div>
   </div>
-  <label className="toggle-row">
-    <span>ALL CAPS (Capitalize Every Word)</span>
-    <input
-      disabled={busy}
-      type="checkbox"
-      checked={settings.uppercase}
-      onChange={e => updateSettings({ uppercase: e.target.checked })}
-    />
-    <span className="toggle-track" />
-  </label>
+  {/*
+    There was an ALL CAPS toggle here. It wrote only `uppercase`, while the
+    Capitalisation control above writes both `uppercase` and `textCase` — and
+    the renderer gives `textCase` precedence. So once anyone had touched
+    Capitalisation even once, the toggle did nothing while still reporting
+    itself as checked. Its label was wrong too: "ALL CAPS" and "Capitalize
+    Every Word" are different transforms, and Capitalisation offers both.
+  */}
   {/*
     Three colours, three roles. These used to be two pickers that
     both wrote `accent`, while `textColor` had no control at all —
     which is why captions came out all one shade.
   */}
   <div className="accent-section">
-    <div className="section-label">TEXT COLOR <span>{(settings.textColor || '#ffffff').toUpperCase()}</span></div>
+    <div className="section-label">Text colour <span>{(settings.textColor || '#ffffff').toUpperCase()}</span></div>
     <div className="swatches">
       {['#ffffff', '#f4f4f5', '#bfa4ff', '#72e6ff', '#d4fa41', '#ff8bb5', '#ffd166', '#111318'].map(color => {
         const isSelected = (settings.textColor || '#ffffff').toLowerCase() === color.toLowerCase();
@@ -529,7 +532,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
   {isStackedTemplate && (
     <div className="accent-section">
       <div className="section-label">
-        THIRD LINE <span>{(settings.accentSecondary || 'MATCHES TEXT').toUpperCase()}</span>
+        Third line <span>{settings.accentSecondary ? settings.accentSecondary.toUpperCase() : 'Same as text'}</span>
       </div>
       <div className="swatches">
         {['#ffd166', '#ff8bb5', '#7ee7c7', '#c9a6ff', '#57c7ff', '#ff825c'].map(color => {
@@ -573,7 +576,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
     </div>
   )}
   <div className="accent-section">
-    <div className="section-label">HIGHLIGHT / ACCENT COLOR <span>{settings.accent.toUpperCase()}</span></div>
+    <div className="section-label">Highlight colour <span>{settings.accent.toUpperCase()}</span></div>
     <div className="swatches">
       {['#d4fa41', '#c2a1ff', '#ff8bb5', '#ff825c', '#72e6ff', '#ffffff', '#10b981', '#f59e0b'].map(color => (
         <button
