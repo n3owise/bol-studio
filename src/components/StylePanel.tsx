@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AlignCenter, AlignLeft, AlignRight, Bold, Check, Italic, Strikethrough, Underline, ChevronDown, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Star, Type, WandSparkles } from 'lucide-react';
-import captionFonts from '../lib/caption-fonts.json';
+import { captionFonts } from '../lib/caption-fonts';
 import { templates } from '../lib/captions';
 import { treatmentFor } from '../remotion/treatments';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';

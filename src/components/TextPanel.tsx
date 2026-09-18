@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlignCenter, AlignLeft, AlignRight, Bold, Check, ChevronDown, Italic, Link2, Plus, RotateCcw, SlidersHorizontal, Star, Strikethrough, Type, Underline, Unlink, WandSparkles } from 'lucide-react';
-import captionFonts from '../lib/caption-fonts.json';
+import { captionFonts } from '../lib/caption-fonts';
 import { templates } from '../lib/captions';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';
 import type { SafeAreaSpec, SafeAreaZone } from '../lib/safe-area';

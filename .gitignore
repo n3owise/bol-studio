@@ -19,3 +19,8 @@ out/
 # Bench output from scripts/compare-models.py — a local artefact, regenerated
 # on demand and specific to whichever clips were fed in.
 model-comparison.html
+
+# Satoshi is licensed for this machine's own use, not for shipping — see
+# src/lib/caption-fonts.ts. Keeping the faces out of the repo means a clone or a
+# deploy cannot serve them even if the dev-only gate were ever removed.
+src/fonts/satoshi/

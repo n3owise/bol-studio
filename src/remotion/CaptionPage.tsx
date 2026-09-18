@@ -5,7 +5,7 @@ import { treatmentFor, type FontRole } from './treatments';
 import { CaptionWord } from './CaptionWord';
 import { pickEmoji, heroRun, type CaptionPage as Page } from '../lib/pages';
 import type { Settings, Word } from '../lib/types';
-import captionFonts from '../lib/caption-fonts.json';
+import { captionFonts } from '../lib/caption-fonts';
 
 type Props = {
   page: Page;

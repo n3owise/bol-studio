@@ -20,7 +20,7 @@ import { Modal } from './components/Modal';
 import { StylePanel } from './components/StylePanel';
 import { TextPanel } from './components/TextPanel';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from './lib/safe-area';
-import captionFonts from './lib/caption-fonts.json';
+import { captionFonts } from './lib/caption-fonts';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
 import { treatmentFor } from './remotion/treatments';

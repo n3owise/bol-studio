@@ -937,6 +937,22 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
     'no promoted word means no stack to build, so the page falls through to flat rows');
 });
 
+test('a font that may not ship cannot reach a production build', () => {
+  const list = readFileSync(new URL('../src/lib/caption-fonts.ts', import.meta.url), 'utf8');
+  const shipped = JSON.parse(readFileSync(new URL('../src/lib/caption-fonts.json', import.meta.url), 'utf8'));
+
+  assert.ok(!shipped.some((f: { family: string }) => f.family === 'Satoshi'),
+    'Satoshi is not in the shipped list: its licence permits the licensee’s own use but forbids '
+    + 'offering it as a selectable face for third parties to caption their own videos with');
+  assert.ok(/import\.meta\.env\.DEV\n?\s*\? \[\.\.\.\(bundledFonts/.test(list)
+    || /import\.meta\.env\.DEV/.test(list),
+    'the dev-only additions are gated on a flag Vite replaces with a literal, so the branch and '
+    + 'the font files it pulls in are dropped from a production bundle rather than merely hidden');
+  assert.ok(/if \(import\.meta\.env\.DEV\) \{\n\s*void import\('\.\.\/fonts\/satoshi\.css'\);/.test(list),
+    'the @font-face sheet is behind the same gate — shipping the faces without listing them would '
+    + 'still be serving them');
+});
+
 test('every offerable caption font is bundled for the headless renderer', () => {
   const fonts = JSON.parse(readFileSync(new URL('../src/lib/caption-fonts.json', import.meta.url), 'utf8'));
   const track = readFileSync(new URL('../src/remotion/CaptionTrack.tsx', import.meta.url), 'utf8');
