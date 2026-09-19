@@ -10229,6 +10229,11 @@ kbd {
 
 /* ==========================================================================
    Sign in
+
+   Two columns on a wide screen: the form on the left, the ASCII artwork on the
+   right. The form is the column that survives — below 900px the artwork is
+   dropped rather than squeezed, because a waveform three characters wide is
+   noise, and the form still has to work on a phone.
    ========================================================================== */
 
 .auth-screen {
@@ -10237,118 +10242,273 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: var(--color-bg);
+  padding: 24px 16px;
+  background: var(--color-bg-app);
   overflow-y: auto;
 }
 
-.auth-card {
+.auth-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 20px;
+  background: var(--color-bg-panel);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+@media (min-width: 900px) {
+  .auth-shell {
+    grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+    max-width: 960px;
+  }
+}
+
+.auth-pane {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  width: 100%;
-  max-width: 380px;
-  padding: 30px 28px 26px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  background: var(--color-bg-panel);
-  box-shadow: var(--shadow-lg, 0 18px 50px rgba(0, 0, 0, 0.18));
+  gap: 18px;
+  padding: 34px 32px 30px;
+  min-width: 0;
 }
 
 .auth-brand {
-  font-size: 19px;
+  font-family: var(--font-display);
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin-bottom: 2px;
+  color: var(--color-text-primary);
 }
 
-.auth-brand span { color: var(--color-accent); font-style: italic; }
+.auth-brand span { color: var(--color-emphasis-text); font-style: italic; }
 
-.auth-card h1 {
+.auth-form,
+.auth-sent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.auth-pane h1 {
   margin: 0;
-  font-size: 21px;
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1.12;
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  color: var(--color-text-primary);
 }
 
 .auth-lede {
-  margin: -8px 0 4px;
-  font-size: 13px;
+  margin: -8px 0 2px;
+  font-size: 13.5px;
   line-height: 1.5;
-  color: var(--color-text-soft, rgba(128, 128, 128, 0.95));
+  color: var(--color-text-secondary);
 }
 
 .auth-field { display: flex; flex-direction: column; gap: 6px; }
 
-.auth-field > span { font-size: 12px; font-weight: 600; }
-
-.auth-field input {
-  padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--color-bg-input);
-  color: inherit;
-  font-size: 13.5px;
-  box-shadow: var(--shadow-sm);
+.auth-field > span {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
 }
 
-.auth-field input:focus { border-color: var(--color-accent); outline: none; }
+.auth-field input {
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 999px;
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.auth-field input::placeholder { color: var(--color-text-muted); }
+
+.auth-field input:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent-dim);
+  outline-offset: 1px;
+}
+
+/* The password field and its reveal share one pill, so the button sits inside
+   the border rather than beside it. The right padding on the input is what
+   stops a long password running underneath the eye. */
+.auth-secret { position: relative; display: flex; }
+
+.auth-secret input { padding-right: 46px; }
+
+.auth-reveal {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.auth-reveal:hover { background: var(--color-bg-surface-hover); color: var(--color-text-primary); }
+
+.auth-aside { display: flex; justify-content: flex-end; margin-top: -4px; }
+
+.auth-aside button,
+.auth-switch button {
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  color: var(--color-emphasis-text);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.auth-aside { font-size: 12.5px; }
+
+.auth-aside button:hover,
+.auth-switch button:hover { color: var(--color-text-primary); }
 
 /* Inline and persistent: a form error has to survive while the reader retypes
    the field it is about, which the six-second toast does not. */
 .auth-error {
   margin: 0;
-  padding: 9px 11px;
+  padding: 9px 13px;
   border: 1px solid var(--color-danger-border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--color-danger-dim);
   color: var(--color-danger);
   font-size: 12.5px;
   line-height: 1.45;
 }
 
-.auth-card .button.primary { margin-top: 4px; gap: 7px; }
+.auth-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 2px;
+  padding: 12px 18px;
+  border: 1px solid var(--color-brand-ink);
+  border-radius: 999px;
+  background: var(--color-brand-ink);
+  color: var(--color-brand-ink-text);
+  font-family: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--color-brand-ink-hover);
+  border-color: var(--color-brand-ink-hover);
+}
+
+.auth-submit:disabled { opacity: 0.7; cursor: default; }
+
+.auth-submit.ghost {
+  border-color: var(--color-border-medium);
+  background: transparent;
+  color: var(--color-text-primary);
+}
+
+.auth-submit.ghost:hover { background: var(--color-bg-surface-hover); border-color: var(--color-border-strong); }
 
 .auth-spinner { animation: auth-spin 900ms linear infinite; }
 
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 
 .auth-switch {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  align-items: center;
-  font-size: 12.5px;
-  color: var(--color-text-soft, rgba(128, 128, 128, 0.95));
+  font-size: 13px;
+  color: var(--color-text-secondary);
 }
-
-.auth-switch button {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--color-accent);
-  font-size: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.auth-switch button:hover { text-decoration: underline; }
 
 .auth-footnote {
-  margin: 4px 0 0;
-  padding-top: 13px;
-  border-top: 1px solid var(--border-subtle);
+  margin: 6px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border-subtle);
   font-size: 11.5px;
   line-height: 1.5;
-  text-align: center;
-  color: var(--color-text-soft, rgba(128, 128, 128, 0.9));
+  color: var(--color-text-muted);
 }
 
-.auth-card-sent { align-items: center; text-align: center; }
+.auth-sent { gap: 12px; }
 
-.auth-card-sent .auth-lede { text-align: center; }
+.auth-sent-icon { color: var(--color-emphasis-text); }
 
-.auth-sent-icon { color: var(--color-accent); }
+.auth-sent .auth-submit { margin-top: 6px; }
+
+/* ---- the artwork ---- */
+
+.auth-art {
+  container-type: inline-size;
+  position: relative;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px 24px;
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-stage);
+  overflow: hidden;
+  /* This panel is always the black stage, in both themes — so its own text
+     colour is a literal rather than a theme token. --color-text-muted is the
+     light-theme grey, and on black it falls to about 4:1, under the threshold
+     the rest of the interface was just brought above. */
+  --auth-art-ink: rgba(255, 255, 255, 0.66);
+}
+
+@media (min-width: 900px) { .auth-art { display: flex; } }
+
+.auth-art-canvas {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* Sized in ch/em so the grid stays square-ish whatever the monospace face
+     resolves to, and clamped so the picture scales with the panel. */
+  font-size: clamp(8px, 2.25cqw, 16px);
+  line-height: 1.0;
+  letter-spacing: 0.02em;
+  white-space: pre;
+  color: var(--color-accent);
+  text-shadow: 0 0 14px var(--color-accent-glow);
+  user-select: none;
+}
+
+.auth-art-caption {
+  margin: 0;
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--auth-art-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-submit { transition: none; }
+}
 
 /* The account button in the navbar: an initial, because there are no avatars
    to show and a generic person icon says less than the letter does. */

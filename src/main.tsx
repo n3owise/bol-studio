@@ -182,6 +182,9 @@ function App() {
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | null>(null);
   const [accountEmail, setAccountEmail] = useState('');
+  /** What sign-up asked for, when it was asked. Blank for accounts made before
+   *  the field existed, so every reader of it falls back to the email. */
+  const [accountName, setAccountName] = useState('');
   /**
    * Asked once, right after an upload, before any time is spent editing.
    *
@@ -614,7 +617,10 @@ function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getUser().then(({ data }) => setAccountEmail(data.user?.email ?? ''));
+    supabase.auth.getUser().then(({ data }) => {
+      setAccountEmail(data.user?.email ?? '');
+      setAccountName(String(data.user?.user_metadata?.full_name ?? '').trim());
+    });
   }, []);
 
   // Media URLs carry a token that expires, so one has to exist before the first
@@ -2522,11 +2528,11 @@ function App() {
         {AUTH_ENABLED && accountEmail && (
           <button
             className="nav-btn ghost"
-            aria-label={`Account — ${accountEmail}`}
-            title={accountEmail}
+            aria-label={`Account — ${accountName || accountEmail}`}
+            title={accountName ? `${accountName} — ${accountEmail}` : accountEmail}
             onClick={() => setActiveNavPanel('settings')}
           >
-            <span className="account-initial">{accountEmail[0]}</span>
+            <span className="account-initial">{(accountName || accountEmail)[0].toUpperCase()}</span>
           </button>
         )}
         {/* The projects list is out of the interface while how to present past
@@ -2728,6 +2734,7 @@ function App() {
             health={health}
             onRefreshLimits={refreshLimits}
             accountEmail={accountEmail}
+            accountName={accountName}
             authEnabled={AUTH_ENABLED}
             onSignOut={() => void signOut()}
             onDeleteProject={handleDeleteProject}

@@ -44,7 +44,7 @@ const timecode = (s: number) =>
  */
 export function SettingsPanel({
   project, settings, updateSettings, busy, limits, health, onRefreshLimits,
-  accountEmail, authEnabled, onSignOut, onDeleteProject, onOpenExports, notify,
+  accountEmail, accountName, authEnabled, onSignOut, onDeleteProject, onOpenExports, notify,
 }: {
   project: Project | null;
   settings: Settings;
@@ -57,6 +57,7 @@ export function SettingsPanel({
   /** Re-read the storage and limit figures. Bound to the Try again buttons. */
   onRefreshLimits: () => Promise<void>;
   accountEmail: string;
+  accountName: string;
   authEnabled: boolean;
   onSignOut: () => void;
   /** Deletes on the server and clears the editor. Throws so this can say why. */
@@ -195,6 +196,7 @@ export function SettingsPanel({
         {authEnabled && accountEmail && (
           <div className="settings-block">
             <div className="section-label"><LogOut size={13} /> Account</div>
+            {accountName && <p className="settings-figure">{accountName}</p>}
             <p className="settings-figure small">{accountEmail}</p>
             <p className="setting-note">
               Signed in. Your projects follow this account, on any browser. Changed your mind
