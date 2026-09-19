@@ -412,7 +412,26 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
 
       <div className="auth-stage">
         <div className="auth-brand">
-          <span className="auth-wordmark">bol<span>.studio</span></span>
+          {/* The real wordmark, in the same two-file light/dark pair the navbar
+              uses. This was hand-set type that only looked like the logo — the
+              letterforms were the app's display face, not the drawn mark. The
+              second copy carries no alt text: two images of one wordmark would
+              otherwise be announced twice, and only one of them is ever shown. */}
+          <img
+            src="/bol.studio.svg"
+            alt="bol.studio"
+            className="auth-logo logo-light-only"
+            width={145}
+            height={34}
+          />
+          <img
+            src="/bol.studio-white.svg"
+            alt=""
+            aria-hidden="true"
+            className="auth-logo logo-dark-only"
+            width={145}
+            height={34}
+          />
           <span className="auth-tagline">Motion captions for creators.</span>
         </div>
 
