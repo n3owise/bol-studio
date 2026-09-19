@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, LogOut, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -169,6 +169,16 @@ function App() {
   const [script, setScript] = useState('roman');
   const [language, setLanguage] = useState('auto');
   const [activeNavPanel, setActiveNavPanel] = useState<NavPanelId>('caption');
+  /**
+   * The account menu, anchored under the avatar in the navbar.
+   *
+   * The avatar used to swing the whole left panel over to Settings, which is a
+   * long way to travel for "who am I signed in as" and "sign me out" — and it
+   * threw away whatever panel was open to get there. Settings is still one item
+   * inside it, so nothing that was reachable stopped being reachable.
+   */
+  const [accountMenu, setAccountMenu] = useState<{ top: number; right: number } | null>(null);
+  const accountButtonRef = useRef<HTMLButtonElement | null>(null);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
   const [selectedWordIds, setSelectedWordIds] = useState<Set<string>>(new Set());
   const [draggingWordIds, setDraggingWordIds] = useState<string[]>([]);
@@ -2530,10 +2540,24 @@ function App() {
         />
         {AUTH_ENABLED && accountEmail && (
           <button
+            ref={accountButtonRef}
             className="nav-btn ghost"
             aria-label={`Account — ${accountName || accountEmail}`}
             title={accountName ? `${accountName} — ${accountEmail}` : accountEmail}
-            onClick={() => setActiveNavPanel('settings')}
+            aria-haspopup="menu"
+            aria-expanded={accountMenu !== null}
+            onClick={() => {
+              if (accountMenu) { setAccountMenu(null); return; }
+              const rect = accountButtonRef.current?.getBoundingClientRect();
+              if (!rect) return;
+              // Pinned to the button's right edge rather than its left, so the
+              // menu stays on screen without any measuring: it can only ever
+              // grow inwards from the corner it is already in.
+              setAccountMenu({
+                top: rect.bottom + 8,
+                right: Math.max(12, window.innerWidth - rect.right),
+              });
+            }}
           >
             <span className="account-initial">{(accountName || accountEmail)[0].toUpperCase()}</span>
           </button>
@@ -4249,6 +4273,54 @@ function App() {
                   : 'Remove this word'}
               </span>
             </div>
+          </button>
+        </div>
+      </>
+    )}
+    {accountMenu && (
+      <>
+        {/* The same transparent catcher the word inspector uses: a click
+            anywhere else closes the menu, and it sits under the menu so the
+            menu's own clicks never reach it. */}
+        <div className="timeline-popover-backdrop" onClick={() => setAccountMenu(null)} />
+        <div
+          className="account-menu"
+          role="menu"
+          aria-label="Account"
+          style={{ top: accountMenu.top, right: accountMenu.right }}
+          onKeyDown={e => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setAccountMenu(null);
+              accountButtonRef.current?.focus();
+            }
+          }}
+        >
+          <div className="account-menu-who">
+            <span className="account-initial lg">{(accountName || accountEmail)[0].toUpperCase()}</span>
+            <span className="account-menu-id">
+              {accountName && <strong>{accountName}</strong>}
+              <small>{accountEmail}</small>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            role="menuitem"
+            className="account-menu-item"
+            autoFocus
+            onClick={() => { setAccountMenu(null); setActiveNavPanel('settings'); }}
+          >
+            <SettingsIcon size={15} />Settings
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            className="account-menu-item danger"
+            onClick={() => { setAccountMenu(null); void signOut(); }}
+          >
+            <LogOut size={15} />Sign out
           </button>
         </div>
       </>

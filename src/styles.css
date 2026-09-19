@@ -10721,10 +10721,120 @@ kbd {
   height: 26px;
   border-radius: 50%;
   background: var(--color-accent);
-  color: var(--color-brand-ink, #04120a);
+  /* --color-brand-ink is near-black in the light theme and the accent green
+     itself in the dark one, so this was green on green — a 1:1 initial nobody
+     could read. Text on the accent takes --color-accent-text, which is the same
+     ink in both themes because the accent is. */
+  color: var(--color-accent-text);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
+  flex: 0 0 auto;
+}
+
+.account-initial.lg {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+}
+
+/* ==========================================================================
+   The account menu
+
+   Anchored under the avatar. It follows the word inspector's pattern — fixed
+   position from the anchor's rect, with a transparent full-screen catcher
+   underneath for the click that closes it — because that is the only popover
+   convention this codebase has, and a second one would be a second thing to
+   keep in step.
+   ========================================================================== */
+
+.account-menu {
+  position: fixed;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 232px;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 12px;
+  background: var(--color-bg-surface-raised);
+  box-shadow: var(--shadow-popover);
+  animation: account-menu-in 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes account-menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.account-menu-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 11px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.account-menu-id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.account-menu-id strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* The address is the long part and the part that must not be cut in the
+   middle of the domain, so it wraps rather than ellipsing. */
+.account-menu-id small {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.account-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-menu-item:hover { background: var(--color-bg-surface-hover); }
+
+.account-menu-item:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.account-menu-item svg { flex: 0 0 auto; color: var(--color-text-muted); }
+
+.account-menu-item.danger { color: var(--color-danger); }
+
+.account-menu-item.danger svg { color: var(--color-danger); }
+
+.account-menu-item.danger:hover { background: var(--color-danger-dim); }
+
+@media (prefers-reduced-motion: reduce) {
+  .account-menu { animation: none; }
 }
 
 .account-email {
