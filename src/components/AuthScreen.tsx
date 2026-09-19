@@ -131,11 +131,22 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
   // the form the user turned the card to. The reveal resets too — leaving a
   // password on screen because the other face was showing one is not a decision
   // the reader made.
-  const go = (next: Mode) => {
+  const go = (next: Mode, direction: 1 | -1 = 1) => {
     setMode(next);
     clearErrors();
     setReveal(false);
     setTouchedPassword(false);
+    // Draw the new state onto the hidden face, then turn to it. Both happen in
+    // one commit, so the face is never seen empty on its way round.
+    setTurn((current) => {
+      const nextSlot = Math.abs(current + direction) % 2;
+      setFaces((pair) => {
+        const updated: [Mode, Mode] = [...pair];
+        updated[nextSlot] = next;
+        return updated;
+      });
+      return current + direction;
+    });
   };
 
   // And clearing as they type stops an error hanging over the field they are
@@ -221,8 +232,32 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
   }
 
   const strength = strengthOf(password);
-  const flipped = mode === 'signup';
-  const onCard = mode === 'signin' || mode === 'signup';
+
+  /**
+   * Which way the card is facing, as a signed count of half-turns.
+   *
+   * The card started as two fixed faces — log in on the front, sign up on the
+   * back — which only ever described one transition. Every other state
+   * replaced the card outright, so asking for a password reset was a hard cut
+   * in the middle of a screen where everything else turned.
+   *
+   * Counting turns instead of naming faces generalises it: the face that comes
+   * forward is whichever one is hidden, and the new state is rendered onto it
+   * just before the turn starts. Parity decides which of the two is showing,
+   * so any sequence of states works with two elements.
+   *
+   * The sign is what keeps it coherent with the switch above the card: going
+   * further in turns the card one way, coming back turns it the other, so the
+   * card never rotates forwards to go backwards.
+   */
+  const [turn, setTurn] = useState(0);
+  const slot = Math.abs(turn) % 2;
+
+  // What each face holds. Only the showing one matters to a reader; the other
+  // is the next state, already drawn, waiting to come round.
+  const [faces, setFaces] = useState<[Mode, Mode]>([initialMode ?? 'signin', 'signup']);
+
+  const toggleShown = mode === 'signin' || mode === 'signup';
 
   /**
    * The turning card needs a height, because both faces are taken out of flow —
@@ -230,23 +265,20 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
    * fixing a number, is what lets an error message or the strength meter push
    * the card open instead of being clipped by it.
    */
-  const front = useRef<HTMLDivElement | null>(null);
-  const back = useRef<HTMLDivElement | null>(null);
+  const faceRefs = useRef<(HTMLDivElement | null)[]>([null, null]);
   const [cardHeight, setCardHeight] = useState<number>(0);
 
   useLayoutEffect(() => {
-    if (!onCard) return;
     const measure = () => {
-      const el = flipped ? back.current : front.current;
+      const el = faceRefs.current[slot];
       if (el) setCardHeight(el.offsetHeight);
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
-    if (front.current) observer.observe(front.current);
-    if (back.current) observer.observe(back.current);
+    faceRefs.current.forEach((el) => el && observer.observe(el));
     return () => observer.disconnect();
-  }, [onCard, flipped]);
+  }, [slot, faces]);
 
   /** Every form on this screen is the same handful of parts in a different order. */
   function renderForm(formMode: Mode) {
@@ -397,7 +429,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
         </button>
 
         {formMode === 'forgot' && (
-          <button type="button" className="auth-btn ghost" onClick={() => go('signin')}>
+          <button type="button" className="auth-btn ghost" onClick={() => go('signin', -1)}>
             Back to log in
           </button>
         )}
@@ -432,54 +464,63 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
           <span className="auth-tagline">Motion captions for creators.</span>
         </div>
 
-        {onCard && (
-          <div className="auth-switch">
-            <span className={mode === 'signin' ? 'is-on' : ''}>Log in</span>
-            <label className="auth-toggle">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={flipped}
-                aria-label="Sign up instead"
-                onChange={(e) => go(e.target.checked ? 'signup' : 'signin')}
-              />
-              <span className="auth-slider" aria-hidden="true" />
-            </label>
-            <span className={mode === 'signup' ? 'is-on' : ''}>Sign up</span>
-          </div>
-        )}
+        {/* Kept mounted on every state rather than dropped on the ones that
+            have no use for it. Unmounting it collapsed the row at the instant
+            the card began to turn, so everything above the card jumped while
+            the card was still moving. It fades and goes inert instead, and the
+            row keeps its height. */}
+        <div className={`auth-switch${toggleShown ? '' : ' is-away'}`} inert={!toggleShown || undefined}>
+          <span className={mode === 'signin' ? 'is-on' : ''}>Log in</span>
+          <label className="auth-toggle">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={mode === 'signup'}
+              aria-label="Sign up instead"
+              onChange={(e) => (e.target.checked ? go('signup', 1) : go('signin', -1))}
+            />
+            <span className="auth-slider" aria-hidden="true" />
+          </label>
+          <span className={mode === 'signup' ? 'is-on' : ''}>Sign up</span>
+        </div>
 
-        {onCard ? (
-          <div className="auth-flip" style={cardHeight ? { height: cardHeight } : undefined}>
-            <div className={`auth-flip-inner${flipped ? ' is-flipped' : ''}`}>
-              {/* The face that is turned away is still in the document, so it is
-                  still tabbable and still read aloud unless it is made inert.
-                  Without this, tabbing off the log-in password lands in a sign-up
-                  form nobody can see. */}
-              <div className="auth-face front" ref={front} inert={flipped || undefined}>
-                {renderForm('signin')}
+        <div className="auth-flip" style={cardHeight ? { height: cardHeight } : undefined}>
+          <div
+            className="auth-flip-inner"
+            style={{ transform: `rotateY(${turn * 180}deg)` }}
+          >
+            {/* The face that is turned away is still in the document, so it is
+                still tabbable and still read aloud unless it is made inert.
+                Without this, tabbing off the log-in password lands in a form
+                nobody can see. */}
+            {([0, 1] as const).map((index) => (
+              <div
+                key={index}
+                className={`auth-face${index === 1 ? ' is-reverse' : ''}`}
+                ref={(el) => { faceRefs.current[index] = el; }}
+                inert={index !== slot || undefined}
+              >
+                {faces[index] === 'sent' ? (
+                  <div className="auth-card auth-sent">
+                    <MailCheck size={26} className="auth-sent-icon" aria-hidden="true" />
+                    <h1 className="auth-title">{COPY.sent.title}</h1>
+                    <p className="auth-lede">
+                      If an account exists for <strong>{email.trim()}</strong>, we have sent it a
+                      link. Open it to finish, then come back here.
+                    </p>
+                    <p className="auth-hint">It can take a minute, and it sometimes lands in spam.</p>
+                    <button type="button" className="auth-btn ghost" onClick={() => go('signin', -1)}>
+                      Back to log in
+                    </button>
+                  </div>
+                ) : (
+                  renderForm(faces[index])
+                )}
               </div>
-              <div className="auth-face back" ref={back} inert={!flipped || undefined}>
-                {renderForm('signup')}
-              </div>
-            </div>
+            ))}
           </div>
-        ) : mode === 'sent' ? (
-          <div className="auth-card auth-sent">
-            <MailCheck size={26} className="auth-sent-icon" aria-hidden="true" />
-            <h1 className="auth-title">{COPY.sent.title}</h1>
-            <p className="auth-lede">
-              If an account exists for <strong>{email.trim()}</strong>, we have sent it a link.
-              Open it to finish, then come back here.
-            </p>
-            <p className="auth-hint">It can take a minute, and it sometimes lands in spam.</p>
-            <button type="button" className="auth-btn ghost" onClick={() => go('signin')}>
-              Back to log in
-            </button>
-          </div>
-        ) : (
-          <div className="auth-card">{renderForm(mode)}</div>
-        )}
+        </div>
+
       </div>
     </div>
   );

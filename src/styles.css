@@ -10320,7 +10320,16 @@ kbd {
 
 /* ---- the log in / sign up switch ---- */
 
+/* Faded rather than removed on the states that cannot use it: unmounting it
+   collapsed this row the moment the card started turning, and everything above
+   the card jumped while the card was still moving. */
+.auth-switch.is-away {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .auth-switch {
+  transition: opacity 240ms ease;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -10410,8 +10419,6 @@ kbd {
   transition: transform 640ms cubic-bezier(0.62, 0.01, 0.2, 1);
 }
 
-.auth-flip-inner.is-flipped { transform: rotateY(180deg); }
-
 .auth-face {
   position: absolute;
   top: 0;
@@ -10421,7 +10428,9 @@ kbd {
   -webkit-backface-visibility: hidden;
 }
 
-.auth-face.back { transform: rotateY(180deg); }
+/* The second face is pre-turned, so it faces the reader exactly when the card
+   has made an odd number of half-turns — whichever direction it went. */
+.auth-face.is-reverse { transform: rotateY(180deg); }
 
 .auth-card,
 .auth-face > .auth-form {
@@ -10691,6 +10700,7 @@ kbd {
      still changes face, it just does not travel to get there. */
   .auth-flip-inner,
   .auth-flip,
+  .auth-switch,
   .auth-slider,
   .auth-slider::before,
   .auth-btn,
