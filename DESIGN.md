@@ -252,13 +252,35 @@ A six-second toast is the wrong container for something you must act on.
 
 Real, measured, still open. Do not treat this section as decoration.
 
-**Three different greens exist in the product.** They should be one token set.
-
 **`patch_project` returns 409 on every save of an audio-only project.**
 
 **Verify by measuring the running app, not by reading the diff.** An edit script
 once printed its success line and died before writing the file; two token fixes
 looked applied and were not. Only re-measuring in the browser caught it.
+
+### Resolved: the foreign greens
+
+The product carried three green *families* beside its own: Tailwind `green`
+(300/400/500/600/900), Tailwind `emerald` (400/500), and a few one-offs —
+twenty distinct green hues in total where there should have been six. Every
+foreign one now resolves to a token, picked by the property it painted:
+
+| Property | Token |
+| --- | --- |
+| `background`, `border`, `outline`, `box-shadow` | `--color-accent` |
+| `color` on a normal ground | `--color-emphasis-text` |
+| `color` on a green ground | `--color-accent-text` |
+| a pale or deep green wash | `--color-accent-dim` |
+
+Bare `#2ee368` in a rule is gone too — 79 of them, each an exact no-op, since
+the token is that value in every scope it is declared in.
+
+**Alphas were left alone, deliberately.** A first pass folded twenty-two
+different `rgba()` alphas into `--color-accent-dim` and `--color-accent-glow`
+and was thrown away: a 0.8 ring is not a 0.45 glow, and collapsing them would
+have been a second bug dressed as a fix. Only the *hue* was ever wrong, so
+`rgba(34, 197, 94, 0.55)` became `rgba(46, 227, 104, 0.55)` — same alpha, right
+green. Six green hues remain and all six are declared tokens.
 
 ### Resolved: phantom tokens
 
