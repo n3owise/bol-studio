@@ -252,11 +252,18 @@ A six-second toast is the wrong container for something you must act on.
 
 Real, measured, still open. Do not treat this section as decoration.
 
-**`patch_project` returns 409 on every save of an audio-only project.**
-
 **Verify by measuring the running app, not by reading the diff.** An edit script
 once printed its success line and died before writing the file; two token fixes
 looked applied and were not. Only re-measuring in the browser caught it.
+
+### Resolved: audio projects could not be saved
+
+`patch_project` refused *any* `videoEnabled` on a non-video project, and the
+editor autosaves the whole project — words, settings, name, `videoEnabled` —
+on every change. So every save an audio creator made came back 409 and nothing
+reached the disk; the only symptom was the save badge turning amber. It now
+refuses only `videoEnabled: true`, which is the actual mistake. Pinned by
+`test_an_audio_project_saves_although_it_has_no_video_layer`.
 
 ### Resolved: the foreign greens
 
