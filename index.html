@@ -22,8 +22,13 @@
     <script>
       (function() {
         try {
+          // Light unless this browser has been told otherwise. The machine's
+          // preference is deliberately not consulted: the studio is a light
+          // product by default, and the sign-in screen it opens behind is light
+          // unconditionally, so following the OS here meant the page changed
+          // colour the moment somebody logged in.
           var saved = localStorage.getItem('bol_theme');
-          var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          var theme = saved === 'dark' ? 'dark' : 'light';
           document.documentElement.setAttribute('data-theme', theme);
           if (theme === 'dark') {
             document.documentElement.classList.add('theme-dark');

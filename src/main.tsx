@@ -84,11 +84,35 @@ const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
 ];
 
 function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('bol_theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  });
+  /**
+   * Light unless this browser has been told otherwise.
+   *
+   * The machine's preference used to decide it. It does not any more: the gate
+   * in front of this is light unconditionally, so a dark OS meant the page
+   * changed colour at the moment of signing in. The switch in the navbar still
+   * decides, and now sticks — see persistTheme.
+   *
+   * Mirrors the boot script in index.html, which has to make the same call
+   * before any of this is parsed. The two must agree or the first paint is the
+   * wrong theme.
+   */
+  const [theme, setTheme] = useState<'light' | 'dark'>(
+    () => (localStorage.getItem('bol_theme') === 'dark' ? 'dark' : 'light'),
+  );
+
+  /**
+   * What the navbar switch calls.
+   *
+   * It was `setTheme`, which is state and nothing else — so the switch changed
+   * the page and the choice was gone on the next load, because the boot script
+   * reads a key nobody was writing. The toggler handles the attribute, the
+   * class and the meta colour itself in controlled mode but deliberately leaves
+   * persistence to its parent, and this is the parent.
+   */
+  const persistTheme = useCallback((next: 'light' | 'dark') => {
+    setTheme(next);
+    try { localStorage.setItem('bol_theme', next); } catch { /* private window */ }
+  }, []);
 
   const toggleTheme = useCallback(() => {
     setTheme(prev => {
@@ -114,27 +138,6 @@ function App() {
       document.documentElement.classList.remove('theme-dark');
     }
   }, [theme]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      const saved = localStorage.getItem('bol_theme');
-      if (!saved) {
-        const nextTheme = e.matches ? 'dark' : 'light';
-        setTheme(nextTheme);
-        document.documentElement.setAttribute('data-theme', nextTheme);
-        if (nextTheme === 'dark') {
-          document.documentElement.classList.add('theme-dark');
-        } else {
-          document.documentElement.classList.remove('theme-dark');
-        }
-        const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', nextTheme === 'dark' ? '#111215' : '#ffffff');
-      }
-    };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
 
   useEffect(() => {
     const handleThemeKey = (e: KeyboardEvent) => {
@@ -2522,7 +2525,7 @@ function App() {
         <div className="nav-divider" />
         <AnimatedThemeToggler
           theme={theme}
-          onThemeChange={setTheme}
+          onThemeChange={persistTheme}
           className="theme-toggle-btn"
         />
         {AUTH_ENABLED && accountEmail && (
