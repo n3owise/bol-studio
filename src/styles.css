@@ -10636,17 +10636,13 @@ kbd {
 
 .demo-langs { color: var(--demo-ink-dim); }
 
-.demo-body { display: flex; gap: 12px; align-items: stretch; min-width: 0; }
-
 .demo-stage {
-  /* The caption size is set in cqw so it tracks the frame, not the viewport —
-     the same type has to work in the desktop panel and the phone strip. */
+  /* Caption size is set in cqw so it tracks the frame, not the viewport — the
+     same type has to work in the desktop panel and the phone strip. */
   container-type: inline-size;
   position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
+  width: 100%;
   aspect-ratio: 16 / 9;
-  max-width: 100%;
   border: 1px solid var(--demo-line);
   border-radius: 12px;
   overflow: hidden;
@@ -10656,103 +10652,91 @@ kbd {
 }
 
 /* Stands in for footage: a dusk-lit frame, drawn rather than photographed. No
-   asset to ship and nobody's likeness on a sign-in screen. */
+   asset to ship and nobody's likeness on a sign-in screen. The drift is slow
+   enough to read as a camera that is not quite locked off, rather than as an
+   animation — a still frame behind moving captions looks like a mistake. */
 .demo-backdrop {
   position: absolute;
-  inset: 0;
+  inset: -6%;
   background:
     radial-gradient(90% 70% at 74% 26%, rgba(255, 176, 92, 0.34), transparent 62%),
     radial-gradient(70% 60% at 22% 78%, rgba(64, 92, 140, 0.38), transparent 66%),
     linear-gradient(168deg, #1b1d27 0%, #14161d 46%, #0c0d11 100%);
+  animation: demo-drift 26s ease-in-out infinite alternate;
+}
+
+@keyframes demo-drift {
+  from { transform: scale(1) translate3d(0, 0, 0); }
+  to { transform: scale(1.06) translate3d(-1.5%, -1%, 0); }
 }
 
 .demo-backdrop::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.72) 0%, rgba(0, 0, 0, 0.18) 46%, transparent 72%);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.74) 0%, rgba(0, 0, 0, 0.2) 46%, transparent 72%);
 }
+
+/* ---- the caption lockup: mogrt-rise ---- */
 
 .demo-captions {
   position: relative;
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   align-content: flex-end;
-  gap: 4px 8px;
-  padding: 0 16px 42px;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(17px, 4.4cqw, 34px);
-  line-height: 1.24;
-  letter-spacing: -0.015em;
+  /* Centred, because the lockup is centred in the frame the renderer draws —
+     and because a caption pinned to the left edge reads as a subtitle track,
+     which is the thing this product is trying not to be. */
+  justify-content: center;
+  text-align: center;
+  gap: 10px 13px;
+  /* Clear of the transport by more than the hero's overshoot: the emphasised
+     word is 1.45x and sits on the same baseline, so it descends further than
+     the line box suggests. */
+  padding: 0 20px 58px;
+  /* theme.type.montserrat and theme.type.heroTracking / heroLineHeight. */
+  font-family: 'Montserrat', 'Noto Sans Devanagari', var(--font-display), sans-serif;
+  font-weight: 800;
+  font-size: clamp(15px, 4.3cqw, 38px);
+  line-height: 0.94;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
 }
 
 .demo-word {
+  /* Transform, opacity and blur all come from the component, off the playhead.
+     A CSS transition here would fight a value that changes every frame and turn
+     a 420ms entrance into a smear. */
+  transform-origin: 50% 100%;
   color: var(--demo-ink);
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
-  transition: color 140ms ease, opacity 140ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  text-shadow: 0 calc(var(--demo-sub-size) * 0.03) calc(var(--demo-sub-size) * 0.08) rgba(0, 0, 0, 0.45);
+  --demo-sub-size: clamp(15px, 4.3cqw, 38px);
+  --demo-blur: 0px;
+  filter: blur(var(--demo-blur));
 }
 
-/* Ahead of the playhead but still readable: the point of a caption page is
-   that you can see the line, and what the timing does is move the emphasis
-   through it, not reveal it a word at a time. */
-.demo-word.is-ahead { opacity: 0.42; }
-
-.demo-word.is-spoken { opacity: 0.92; }
-
-/* ---- karaoke: the highlight follows the voice ---- */
-
-.demo-karaoke .demo-word.is-active {
-  padding: 0 7px;
-  margin: 0 -3px;
-  border-radius: 6px;
-  background: var(--color-accent);
-  color: var(--color-accent-text);
-  text-shadow: none;
-  transform: translateY(-1px);
-}
-
-/* ---- kinetic: one word, full frame ---- */
-
-.demo-kinetic {
-  align-content: center;
-  justify-content: center;
-  padding-bottom: 42px;
-  font-size: clamp(26px, 7cqw, 62px);
+/* The emphasised word: Montserrat Black, a gradient ramp from white into the
+   accent, and a glow — the three effects every .mogrt carries. */
+.demo-word.is-hero {
   font-weight: 900;
-  text-transform: uppercase;
   letter-spacing: -0.035em;
+  --demo-hero-size: clamp(22px, 6.2cqw, 55px);
+  /* background-clip: text needs a transparent fill, so the glow cannot be a
+     text-shadow here. Two drop-shadows on the box instead — the same
+     substitution CaptionWord makes, for exactly this reason. */
+  background: linear-gradient(180deg, #ffffff 15%, var(--color-accent) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+  filter:
+    blur(var(--demo-blur))
+    drop-shadow(0 0 calc(var(--demo-hero-size) * 0.11) var(--color-accent))
+    drop-shadow(0 0 calc(var(--demo-hero-size) * 0.3) var(--color-accent-glow));
 }
 
-.demo-kinetic .demo-word {
-  color: var(--color-accent);
-  text-shadow: 0 0 34px var(--color-accent-glow);
-  /* Opacity and scale come from the component, off the playhead — see the note
-     on `entrance` in CaptionDemo. Nothing to animate here. */
-  transition: none;
-}
-
-/* ---- mumbai: stacked and condensed ---- */
-
-.demo-mumbai {
-  gap: 2px 7px;
-  font-size: clamp(16px, 4.1cqw, 31px);
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.005em;
-  /* The hard drop shadow is what the real treatment does — it is how a caption
-     stays legible over footage without a box behind it. */
-  text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.85);
-}
-
-.demo-mumbai .demo-word { text-shadow: inherit; }
-
-.demo-mumbai .demo-word.is-active {
-  color: var(--color-accent);
-  transform: translateY(-2px);
-}
-
-/* ---- transport ---- */
+/* ---- the word track ---- */
 
 .demo-transport {
   position: absolute;
@@ -10761,19 +10745,43 @@ kbd {
   bottom: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 11px;
+  padding: 11px 14px;
 }
 
 .demo-track {
+  position: relative;
   flex: 1 1 auto;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(242, 242, 243, 0.2);
-  overflow: hidden;
+  height: 10px;
 }
 
-.demo-fill { height: 100%; border-radius: 999px; background: var(--color-accent); }
+/* One segment per word, at its real width. The gaps between them are the
+   silences, which is the part a progress bar cannot show. */
+.demo-tick {
+  position: absolute;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 999px;
+  background: rgba(242, 242, 243, 0.32);
+  transition: background 160ms ease, height 160ms ease, margin-top 160ms ease;
+}
+
+.demo-tick.is-past { background: rgba(46, 227, 104, 0.55); }
+
+.demo-tick.is-now {
+  height: 7px;
+  margin-top: -3.5px;
+  background: var(--color-accent);
+}
+
+.demo-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(242, 242, 243, 0.85);
+}
 
 .demo-time {
   flex: 0 0 auto;
@@ -10782,57 +10790,23 @@ kbd {
   color: var(--demo-ink-dim);
 }
 
-/* ---- style chips ---- */
-
-.demo-presets {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  justify-content: center;
-}
-
-.demo-preset {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 38px;
-  padding: 8px 13px 8px 9px;
-  border: 1px solid var(--demo-line);
-  border-radius: 10px;
-  background: rgba(242, 242, 243, 0.04);
-  color: var(--demo-ink-dim);
-  font-family: inherit;
-  font-size: 12.5px;
+/* Names the treatment on screen. The panel is showing one preset out of nine,
+   and saying which keeps it from reading as the only thing the product does. */
+.demo-badge {
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  padding: 4px 9px;
+  border: 1px solid rgba(242, 242, 243, 0.16);
+  border-radius: 999px;
+  background: rgba(10, 11, 12, 0.55);
+  backdrop-filter: blur(6px);
+  font-size: 10.5px;
   font-weight: 600;
-  cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--demo-ink-dim);
 }
-
-.demo-preset:hover { border-color: rgba(242, 242, 243, 0.3); color: var(--demo-ink); }
-
-.demo-preset:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-
-.demo-preset.is-on {
-  border-color: var(--color-accent);
-  color: var(--demo-ink);
-  background: var(--color-accent-dim);
-}
-
-.demo-preset-aa {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 22px;
-  border-radius: 6px;
-  background: rgba(242, 242, 243, 0.08);
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.demo-preset.is-on .demo-preset-aa { background: var(--color-accent); color: var(--color-accent-text); }
 
 /* ---- claim and points ---- */
 
@@ -10925,13 +10899,13 @@ kbd {
   white-space: nowrap;
 }
 
-.demo-compact .demo-presets { display: none; }
-
 /* A frame tall enough to read a caption in and no taller. Below this the
    captions stop being legible; above it the form starts falling off screen. */
 .demo-compact .demo-stage { max-height: 138px; }
 
 .demo-compact .demo-captions { padding-bottom: 36px; }
+
+.demo-compact .demo-badge { top: 8px; right: 8px; padding: 3px 7px; font-size: 10px; }
 
 .demo-compact .demo-claim {
   font-size: 11.5px;
@@ -10939,9 +10913,10 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-submit,
-  .demo-word { transition: none; }
+  .auth-submit { transition: none; }
+  .demo-tick { transition: none; }
   .demo-live-dot,
+  .demo-backdrop,
   .auth-ellipsis,
   .auth-spinner { animation: none; }
 }
