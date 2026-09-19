@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, MailCheck } from 'lucide-react';
 import { authErrorMessage, MIN_PASSWORD_LENGTH, passwordProblem, supabase } from '../lib/auth';
-import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'sent' | 'recover';
 
@@ -106,6 +105,23 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
   const submitting = useRef(false);
 
   useEffect(() => { if (initialMode) setMode(initialMode); }, [initialMode]);
+
+  /**
+   * The browser chrome, for as long as this screen is up.
+   *
+   * The boot script in index.html sets theme-color from the saved theme, so a
+   * reader who chose dark inside the app gets a near-black status bar over this
+   * white card — visible on a phone as a dark strip above the page. Restored on
+   * unmount, which is the moment the editor takes over and the saved theme is
+   * correct again.
+   */
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    const previous = meta.getAttribute('content');
+    meta.setAttribute('content', '#fcfcfd');
+    return () => { if (previous !== null) meta.setAttribute('content', previous); };
+  }, []);
 
   const clearErrors = () => {
     setNameError(''); setEmailError(''); setPasswordError(''); setFormError('');
@@ -400,35 +416,16 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
 
   return (
     <div className="auth-screen">
-      {/* The same control the navbar uses, left uncontrolled: in that mode it
-          owns the whole switch — the data-theme attribute, both classes, the
-          meta colour and the bol_theme key the boot script in index.html reads
-          back on the next load. Nothing here reimplements any of that.
-
-          It lives on this screen because the navbar's copy is inside App, which
-          only mounts after sign-in: until now, somebody whose machine is set to
-          dark had no way to reach light mode without signing in first. */}
-      <AnimatedThemeToggler className="auth-theme-toggle" />
-
       <div className="auth-stage">
         <div className="auth-brand">
-          {/* The real wordmark, in the same two-file light/dark pair the navbar
-              uses. This was hand-set type that only looked like the logo — the
-              letterforms were the app's display face, not the drawn mark. The
-              second copy carries no alt text: two images of one wordmark would
-              otherwise be announced twice, and only one of them is ever shown. */}
+          {/* One file, not the navbar's light/dark pair: this screen is always
+              light, so only the dark-ink mark is ever correct here. Keeping the
+              pair meant the white wordmark won on a white card whenever a dark
+              theme was saved — present, sized and invisible. */}
           <img
             src="/bol.studio.svg"
             alt="bol.studio"
-            className="auth-logo logo-light-only"
-            width={145}
-            height={34}
-          />
-          <img
-            src="/bol.studio-white.svg"
-            alt=""
-            aria-hidden="true"
-            className="auth-logo logo-dark-only"
+            className="auth-logo"
             width={145}
             height={34}
           />

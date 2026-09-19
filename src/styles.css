@@ -10250,22 +10250,43 @@ kbd {
   background: var(--color-bg-app);
   overflow-y: auto;
 
-  /* The ink the borders and the hard shadows are drawn in. It has to be the
-     opposite end of the scale from the page, or the shadow disappears: a black
-     shadow on a near-black app is not a shadow, it is nothing. */
+  /* This screen is light, always.
+
+     Not "light by default" in the sense of following the machine and being
+     switchable — there is no switch here, and the app's own theme is not
+     touched: sign in and the editor still opens in whatever the reader chose.
+     Only the gate is pinned. So the tokens it reads are redeclared here at
+     their light values rather than inherited, and a dark document cannot
+     reach in and half-repaint it.
+
+     Anything added to this screen later must take its colour from one of
+     these, or from a literal that works on a light ground. A token picked up
+     from the document will be the dark theme's value on a white card. */
+  --color-bg-app: #fcfcfd;
+  --color-bg-panel: #ffffff;
+  --color-bg-surface-hover: #ebecee;
+  --color-bg-input: #ffffff;
+  --color-text-primary: #09090b;
+  --color-text-secondary: #52525b;
+  --color-text-muted: #63636b;
+  --color-border-subtle: #e5e7eb;
+  --color-border-medium: #d1d5db;
+  --color-emphasis-text: #15803d;
+  --color-accent: #2ee368;
+  --color-accent-hover: #26cf5e;
+  --color-accent-dim: rgba(46, 227, 104, 0.12);
+  --color-accent-text: #052e16;
+  --color-danger: #ef4444;
+  --color-danger-dim: rgba(239, 68, 68, 0.08);
+
+  /* The ink the borders and the hard shadows are drawn in. */
   --auth-ink: #09090b;
   --auth-shadow: 4px 4px 0 var(--auth-ink);
   --auth-shadow-sm: 3px 3px 0 var(--auth-ink);
   --auth-surface: #ffffff;
   --auth-card-bg: #f4f5f7;
-}
 
-:root:not([data-theme="light"]) .auth-screen,
-[data-theme="dark"] .auth-screen,
-.theme-dark .auth-screen {
-  --auth-ink: #f2f2f3;
-  --auth-surface: #0e0f12;
-  --auth-card-bg: #16181c;
+  color-scheme: light;
 }
 
 .auth-stage {
@@ -10277,37 +10298,6 @@ kbd {
   max-width: 400px;
   margin: auto;
 }
-
-/* The theme switch, in the corner rather than in the card: it is about the
-   screen, not about the account, and putting it in the card would make it the
-   fourth thing in a form that has three. */
-.auth-theme-toggle {
-  position: absolute;
-  top: max(20px, env(safe-area-inset-top, 0px));
-  right: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border: 2px solid var(--auth-ink);
-  border-radius: 6px;
-  background: var(--auth-surface);
-  box-shadow: var(--auth-shadow-sm);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: background 120ms ease, box-shadow 90ms ease, transform 90ms ease;
-}
-
-.auth-theme-toggle:hover { background: var(--color-bg-surface-hover); }
-
-.auth-theme-toggle:active {
-  box-shadow: 0 0 0 var(--auth-ink);
-  transform: translate(3px, 3px);
-}
-
-.auth-theme-toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 
 /* ---- brand ---- */
 
@@ -10709,7 +10699,6 @@ kbd {
   .auth-ellipsis,
   .auth-spinner { animation: none; }
 
-  .auth-theme-toggle { transition: none; }
 }
 
 /* The account button in the navbar: an initial, because there are no avatars
