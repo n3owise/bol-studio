@@ -1,6 +1,11 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "bol-dev", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 }
+    {
+      "//": "Attaches to the dev server rather than starting one. `npm run dev` (scripts/dev.mjs) spawns two processes — uvicorn on 8765 and vite on 5173 — and both ports are pinned: 8765 in the spawn args, 5173 in vite.config.ts, which also proxies /api to the backend. So a second copy is not a matter of picking a free port; autoPort would move vite and leave uvicorn colliding on 8765. Start it yourself with `npm run dev` and this previews it.",
+      "name": "bol-dev",
+      "port": 5173,
+      "url": "http://localhost:5173"
+    }
   ]
 }
