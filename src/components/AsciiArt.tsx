@@ -19,15 +19,15 @@ import React, { useEffect, useRef, useState } from 'react';
 // it is what gives the picture its empty space.
 const RAMP = ' .:-=+*#%@';
 
-const COLS = 58;
-const ROWS = 30;
+const DEFAULT_COLS = 58;
+const DEFAULT_ROWS = 30;
 
 /** Twelve frames a second. Fast enough to read as motion, slow enough to be cheap. */
 const FRAME_MS = 1000 / 12;
 
-function field(col: number, row: number, t: number): number {
-  const x = col / (COLS - 1);
-  const y = row / (ROWS - 1);
+function field(col: number, row: number, t: number, cols: number, rows: number): number {
+  const x = col / (cols - 1);
+  const y = row / (rows - 1);
 
   // The amplitude of this column, as a waveform bar. Four incommensurable
   // components, so the shape never visibly loops, plus a syllable-rate pulse —
@@ -54,12 +54,12 @@ function field(col: number, row: number, t: number): number {
   return Math.min(1, 0.35 + (amplitude - reach) * 1.8);
 }
 
-function frame(t: number): string {
+function frame(t: number, cols: number, rows: number): string {
   const lines: string[] = [];
-  for (let row = 0; row < ROWS; row++) {
+  for (let row = 0; row < rows; row++) {
     let line = '';
-    for (let col = 0; col < COLS; col++) {
-      const value = field(col, row, t);
+    for (let col = 0; col < cols; col++) {
+      const value = field(col, row, t, cols, rows);
       const index = Math.min(RAMP.length - 1, Math.max(0, Math.round(value * (RAMP.length - 1))));
       line += RAMP[index];
     }
@@ -68,11 +68,14 @@ function frame(t: number): string {
   return lines.join('\n');
 }
 
-export const AsciiArt: React.FC = () => {
+export const AsciiArt: React.FC<{ cols?: number; rows?: number }> = ({
+  cols = DEFAULT_COLS,
+  rows = DEFAULT_ROWS,
+}) => {
   // The still frame is the one a reader sees if motion is off, if the tab is in
   // the background, or in the instant before the first tick — so it is composed,
   // not blank.
-  const [art, setArt] = useState(() => frame(0));
+  const [art, setArt] = useState(() => frame(0, cols, rows));
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -82,11 +85,11 @@ export const AsciiArt: React.FC = () => {
     let t = 0;
     const tick = () => {
       t += 0.055;
-      setArt(frame(t));
+      setArt(frame(t, cols, rows));
     };
     timer.current = window.setInterval(tick, FRAME_MS);
     return () => { if (timer.current !== null) window.clearInterval(timer.current); };
-  }, []);
+  }, [cols, rows]);
 
   // aria-hidden: read aloud it is several hundred punctuation marks. It carries
   // no information the form does not already state.
