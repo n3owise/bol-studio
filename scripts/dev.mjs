@@ -27,7 +27,18 @@ function dotenv() {
 // accounts off for one run without editing the file.
 const env = { ...process.env, ...dotenv(), ...process.env };
 const children = [
-  spawn('.venv/bin/python', ['-m', 'uvicorn', 'server.app:app', '--host', '::', '--port', '8765'], { stdio: 'inherit', env }),
+  // --reload, scoped to server/. Without it the web half hot-reloads and the
+  // Python half does not, so an endpoint added mid-session is simply not there
+  // and the symptom lands in the browser: the delete button returned 405
+  // "Method Not Allowed" against a backend that had been up since before the
+  // route existed, which reads as a frontend bug and is not one.
+  //
+  // Scoped rather than watching everything because the repo root holds
+  // node_modules and data/, and the recogniser model inside data/ is over a
+  // gigabyte — handing that to the reloader's watcher is how the dev server
+  // starts pinning a core.
+  spawn('.venv/bin/python', ['-m', 'uvicorn', 'server.app:app', '--host', '::', '--port', '8765',
+                             '--reload', '--reload-dir', 'server'], { stdio: 'inherit', env }),
   spawn('npm', ['run', 'dev:web'], { stdio: 'inherit' }),
 ];
 let stopping = false;
