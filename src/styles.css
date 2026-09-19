@@ -10230,11 +10230,14 @@ kbd {
 /* ==========================================================================
    Sign in
 
-   Two columns on a desktop: the form on the left, a running demonstration of
-   the product on the right. Below 980px it becomes one column — the form, with
-   a compact strip of the demo above it, because a phone screen belongs to the
-   task the person came to do and half of it is too much to spend introducing
-   ourselves.
+   One card, centred. The flat-bordered style with hard offset shadows is after
+   uiverse.io/andrew-demchenk0/afraid-cougar-9 (MIT) — rebuilt on our own tokens
+   rather than its greys, so it reads as bol.studio in both themes rather than
+   as a pasted component.
+
+   The whole look rests on three things: a 2px border, a shadow with no blur
+   offset down and to the right, and a press that moves the element into its own
+   shadow. Everything else is ordinary.
    ========================================================================== */
 
 .auth-screen {
@@ -10243,50 +10246,51 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px 16px;
+  padding: 28px 16px;
   background: var(--color-bg-app);
   overflow-y: auto;
+
+  /* The ink the borders and the hard shadows are drawn in. It has to be the
+     opposite end of the scale from the page, or the shadow disappears: a black
+     shadow on a near-black app is not a shadow, it is nothing. */
+  --auth-ink: #09090b;
+  --auth-shadow: 4px 4px 0 var(--auth-ink);
+  --auth-shadow-sm: 3px 3px 0 var(--auth-ink);
+  --auth-surface: #ffffff;
+  --auth-card-bg: #f4f5f7;
 }
 
-.auth-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  width: 100%;
-  max-width: 440px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 20px;
-  background: var(--color-bg-panel);
-  box-shadow: var(--shadow-lg);
-  overflow: hidden;
+:root:not([data-theme="light"]) .auth-screen,
+[data-theme="dark"] .auth-screen,
+.theme-dark .auth-screen {
+  --auth-ink: #f2f2f3;
+  --auth-surface: #0e0f12;
+  --auth-card-bg: #16181c;
 }
 
-.auth-pane {
+.auth-stage {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 32px 28px 28px;
-  min-width: 0;
-}
-
-.auth-demo-panel { display: none; }
-
-@media (min-width: 980px) {
-  .auth-shell {
-    grid-template-columns: minmax(0, 430px) minmax(0, 1fr);
-    max-width: 1140px;
-  }
-  .auth-pane { padding: 36px 34px 30px; gap: 20px; }
-  .auth-demo-panel { display: block; }
-  .auth-demo-compact { display: none; }
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 400px;
+  margin: auto;
 }
 
 /* ---- brand ---- */
 
-.auth-brand { display: flex; flex-direction: column; gap: 3px; }
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-align: center;
+}
 
 .auth-wordmark {
   font-family: var(--font-display);
-  font-size: 19px;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.025em;
   color: var(--color-text-primary);
@@ -10294,126 +10298,206 @@ kbd {
 
 .auth-wordmark span { color: var(--color-emphasis-text); }
 
-.auth-tagline {
-  font-size: 12.5px;
+.auth-tagline { font-size: 12.5px; color: var(--color-text-secondary); }
+
+/* ---- the log in / sign up switch ---- */
+
+.auth-switch {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--color-text-secondary);
 }
 
-/* ---- form ---- */
+.auth-switch > span.is-on {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
 
-.auth-form,
-.auth-sent {
+.auth-toggle {
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 26px;
+  cursor: pointer;
+}
+
+/* Visually replaced, not removed: the checkbox is still the thing that takes
+   focus, carries the state and answers to the keyboard.
+
+   Its box is grown past the drawn switch rather than matching it — 26px is a
+   fine height for a thing to look at and a poor one for a thumb, and the target
+   is the part nobody sees. */
+.auth-toggle input {
+  position: absolute;
+  inset: -9px -6px;
+  opacity: 0;
+  width: auto;
+  height: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.auth-slider {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--auth-ink);
+  border-radius: 6px;
+  background: var(--auth-surface);
+  box-shadow: var(--auth-shadow-sm);
+  transition: background 200ms ease;
+}
+
+.auth-slider::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--auth-ink);
+  border-radius: 4px;
+  background: var(--auth-surface);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-toggle input:checked + .auth-slider { background: var(--color-accent); }
+
+.auth-toggle input:checked + .auth-slider::before { transform: translateX(26px); }
+
+.auth-toggle input:focus-visible + .auth-slider {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+/* ---- the card, and the two faces that turn ---- */
+
+.auth-flip {
+  width: 100%;
+  perspective: 1400px;
+  /* Animated because the two faces are different heights, and a card that
+     snapped from one to the other would jump under the reader's hands while it
+     was still turning. */
+  transition: height 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 640ms cubic-bezier(0.62, 0.01, 0.2, 1);
+}
+
+.auth-flip-inner.is-flipped { transform: rotateY(180deg); }
+
+.auth-face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.auth-face.back { transform: rotateY(180deg); }
+
+.auth-card,
+.auth-face > .auth-form {
   display: flex;
   flex-direction: column;
   gap: 15px;
-  min-width: 0;
+  width: 100%;
+  padding: 26px 24px 24px;
+  border: 2px solid var(--auth-ink);
+  border-radius: 10px;
+  background: var(--auth-card-bg);
+  box-shadow: var(--auth-shadow);
 }
 
-.auth-pane h1 {
+.auth-form { display: flex; flex-direction: column; gap: 15px; }
+
+.auth-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 30px;
-  line-height: 1.12;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 900;
   letter-spacing: -0.03em;
-  text-wrap: balance;
+  text-align: center;
   color: var(--color-text-primary);
 }
 
 .auth-lede {
   margin: -9px 0 2px;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
+  text-align: center;
+  text-wrap: balance;
   color: var(--color-text-secondary);
 }
 
-.auth-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+/* ---- fields ---- */
+
+.auth-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
 .auth-field > label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--color-text-secondary);
 }
 
-.auth-optional {
-  letter-spacing: 0.02em;
-  text-transform: none;
-  font-weight: 500;
-  font-size: 11.5px;
-  color: var(--color-text-muted);
-}
-
-/* One pill holds the leading icon, the input and the reveal, so the whole
-   control lights up together on hover and focus instead of the input alone
-   moving inside a static frame. */
-.auth-control {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 14px;
-  min-height: 46px;
-  border: 1px solid var(--color-border-medium);
-  border-radius: 999px;
-  background: var(--color-bg-input);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-
-.auth-control:hover { border-color: var(--color-border-strong); }
-
-/* :focus-within, not :focus — the ring belongs to the pill, and the thing that
-   actually takes focus is the input inside it. */
-.auth-control:focus-within {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-dim);
-}
-
-.auth-control.has-error { border-color: var(--color-danger); }
-
-.auth-control.has-error:focus-within {
-  box-shadow: 0 0 0 3px var(--color-danger-dim);
-}
-
-.auth-control-icon { flex: 0 0 auto; color: var(--color-text-muted); }
-
-.auth-control:focus-within .auth-control-icon { color: var(--color-emphasis-text); }
-
-.auth-control input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 0;
-  padding: 11px 0;
-  background: none;
+.auth-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 13px;
+  border: 2px solid var(--auth-ink);
+  border-radius: 6px;
+  background: var(--auth-surface);
+  box-shadow: var(--auth-shadow-sm);
   color: var(--color-text-primary);
   font-family: inherit;
   font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 90ms ease;
 }
 
-.auth-control input:focus { outline: none; }
+.auth-input::placeholder { font-weight: 500; color: var(--color-text-muted); }
 
-.auth-control input::placeholder { color: var(--color-text-muted); }
+/* The press: the control moves into its own shadow. Focus is the accent, so it
+   never reads as the same signal as an error. */
+.auth-input:focus { border-color: var(--color-accent); }
+
+.auth-input.has-error { border-color: var(--color-danger); }
+
+.auth-secret { position: relative; display: flex; }
+
+.auth-secret .auth-input { padding-right: 44px; }
 
 .auth-reveal {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
   width: 30px;
   height: 30px;
-  margin-right: -6px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: 5px;
   background: none;
   color: var(--color-text-muted);
   cursor: pointer;
 }
 
-.auth-reveal:hover { background: var(--color-bg-surface-hover); color: var(--color-text-primary); }
+.auth-reveal:hover { color: var(--color-text-primary); }
 
 .auth-reveal:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -10433,6 +10517,7 @@ kbd {
   margin: 0;
   color: var(--color-danger);
   font-size: 12.5px;
+  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -10440,10 +10525,11 @@ kbd {
 .auth-error svg { flex: 0 0 auto; margin-top: 1px; }
 
 .auth-error {
-  padding: 10px 13px;
-  border: 1px solid var(--color-danger-border);
-  border-radius: 12px;
+  padding: 9px 12px;
+  border: 2px solid var(--color-danger);
+  border-radius: 6px;
   background: var(--color-danger-dim);
+  box-shadow: var(--auth-shadow-sm);
 }
 
 .auth-strength {
@@ -10452,6 +10538,7 @@ kbd {
   gap: 9px;
   margin: 0;
   font-size: 11.5px;
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
@@ -10459,9 +10546,10 @@ kbd {
 
 .auth-strength-bars span {
   width: 20px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--color-border-medium);
+  height: 5px;
+  border: 1.5px solid var(--auth-ink);
+  border-radius: 2px;
+  background: transparent;
 }
 
 /* Not the accent green. Focus and success reading as the same colour is how a
@@ -10473,450 +10561,123 @@ kbd {
 .auth-aside { display: flex; justify-content: flex-end; margin-top: -6px; font-size: 12.5px; }
 
 .auth-aside button,
-.auth-switch button {
+.auth-legal a {
   border: 0;
   background: none;
   padding: 2px 0;
   color: var(--color-emphasis-text);
   font-family: inherit;
   font-size: inherit;
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;
 }
 
 .auth-aside button:hover,
-.auth-switch button:hover { color: var(--color-text-primary); }
+.auth-legal a:hover { color: var(--color-text-primary); }
 
 .auth-aside button:focus-visible,
-.auth-switch button:focus-visible,
 .auth-legal a:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
-.auth-submit {
+.auth-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
-  min-height: 48px;
-  margin-top: 2px;
-  padding: 12px 18px;
-  border: 1px solid var(--color-brand-ink);
-  border-radius: 999px;
-  background: var(--color-brand-ink);
-  color: var(--color-brand-ink-text);
+  min-height: 46px;
+  margin-top: 3px;
+  padding: 11px 18px;
+  border: 2px solid var(--auth-ink);
+  border-radius: 6px;
+  background: var(--color-accent);
+  box-shadow: var(--auth-shadow);
+  color: var(--color-accent-text);
   font-family: inherit;
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 120ms ease, transform 90ms ease;
+  transition: background 120ms ease, box-shadow 90ms ease, transform 90ms ease;
 }
 
-.auth-submit:hover:not(:disabled) {
-  background: var(--color-brand-ink-hover);
-  border-color: var(--color-brand-ink-hover);
+.auth-btn:hover:not(:disabled) { background: var(--color-accent-hover); }
+
+/* The press this style is built around: the control travels the length of its
+   own shadow and the shadow goes, so it reads as the thing physically moving
+   down rather than as a colour change. */
+.auth-btn:active:not(:disabled),
+.auth-input:active:not(:focus) {
+  box-shadow: 0 0 0 var(--auth-ink);
+  transform: translate(3px, 3px);
 }
 
-.auth-submit:active:not(:disabled) { transform: translateY(1px); }
-
-.auth-submit:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.auth-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
 
 /* Muted, but still legible: a disabled control the reader cannot read is a
    control they cannot understand either. */
-.auth-submit:disabled { opacity: 0.72; cursor: progress; }
+.auth-btn:disabled { opacity: 0.72; cursor: progress; }
 
-.auth-submit.ghost {
-  border-color: var(--color-border-medium);
-  background: transparent;
+.auth-btn.ghost {
+  background: var(--auth-surface);
   color: var(--color-text-primary);
 }
 
-.auth-submit.ghost:hover { background: var(--color-bg-surface-hover); border-color: var(--color-border-strong); }
+.auth-btn.ghost:hover { background: var(--color-bg-surface-hover); }
 
 .auth-spinner { animation: auth-spin 900ms linear infinite; }
 
 @keyframes auth-spin { to { transform: rotate(360deg); } }
 
-.auth-ellipsis { animation: auth-ellipsis 1.4s steps(4) infinite; }
+.auth-ellipsis { animation: auth-ellipsis 1.4s ease-in-out infinite; }
 
-@keyframes auth-ellipsis { 0% { opacity: 0.35; } 50% { opacity: 1; } 100% { opacity: 0.35; } }
-
-.auth-switch { font-size: 13px; color: var(--color-text-secondary); }
+@keyframes auth-ellipsis { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 
 .auth-hint {
   margin: -6px 0 0;
   font-size: 12.5px;
   line-height: 1.5;
+  text-align: center;
   color: var(--color-text-muted);
 }
 
 .auth-legal {
-  margin: 6px 0 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--color-border-subtle);
+  margin: 4px 0 0;
+  padding-top: 13px;
+  border-top: 2px solid var(--color-border-subtle);
   font-size: 11.5px;
   line-height: 1.55;
+  text-align: center;
   color: var(--color-text-muted);
 }
 
-.auth-legal a {
-  color: var(--color-text-secondary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.auth-legal a:hover { color: var(--color-text-primary); }
-
-.auth-sent { gap: 13px; }
+.auth-sent { align-items: center; text-align: center; }
 
 .auth-sent-icon { color: var(--color-emphasis-text); }
 
-.auth-sent .auth-submit { margin-top: 6px; }
+/* ---- narrow screens ---- */
 
-/* ==========================================================================
-   The caption demo
+@media (max-width: 420px) {
+  .auth-card,
+  .auth-face > .auth-form { padding: 22px 18px 20px; }
 
-   Shown at two sizes: full, in the right-hand panel on a desktop, and compact,
-   above the form on anything narrower. Both run the same clock.
-   ========================================================================== */
-
-.auth-demo-panel {
-  padding: 30px 28px;
-  border-left: 1px solid var(--color-border-subtle);
-  /* Always the dark stage, in both themes — footage does not have a light mode,
-     and a caption preview on a white card would be showing the wrong thing.
-     Text inside therefore takes these literals rather than theme tokens. */
-  background: #0a0b0c;
-  --demo-ink: #f2f2f3;
-  --demo-ink-dim: rgba(242, 242, 243, 0.62);
-  --demo-line: rgba(242, 242, 243, 0.12);
-}
-
-.auth-demo-compact {
-  margin: 0 -4px;
-  padding: 14px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 16px;
-  background: #0a0b0c;
-  --demo-ink: #f2f2f3;
-  --demo-ink-dim: rgba(242, 242, 243, 0.62);
-  --demo-line: rgba(242, 242, 243, 0.12);
-}
-
-.demo { display: flex; flex-direction: column; gap: 16px; }
-
-.demo-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 11.5px;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--demo-ink-dim);
-}
-
-.demo-live { display: flex; align-items: center; gap: 8px; }
-
-.demo-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--color-accent);
-  animation: demo-pulse 2.4s ease-in-out infinite;
-}
-
-@keyframes demo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-.demo-langs { color: var(--demo-ink-dim); }
-
-.demo-stage {
-  /* Caption size is set in cqw so it tracks the frame, not the viewport — the
-     same type has to work in the desktop panel and the phone strip. */
-  container-type: inline-size;
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border: 1px solid var(--demo-line);
-  border-radius: 12px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-}
-
-/* Stands in for footage: a dusk-lit frame, drawn rather than photographed. No
-   asset to ship and nobody's likeness on a sign-in screen. The drift is slow
-   enough to read as a camera that is not quite locked off, rather than as an
-   animation — a still frame behind moving captions looks like a mistake. */
-.demo-backdrop {
-  position: absolute;
-  inset: -6%;
-  background:
-    radial-gradient(90% 70% at 74% 26%, rgba(255, 176, 92, 0.34), transparent 62%),
-    radial-gradient(70% 60% at 22% 78%, rgba(64, 92, 140, 0.38), transparent 66%),
-    linear-gradient(168deg, #1b1d27 0%, #14161d 46%, #0c0d11 100%);
-  animation: demo-drift 26s ease-in-out infinite alternate;
-}
-
-@keyframes demo-drift {
-  from { transform: scale(1) translate3d(0, 0, 0); }
-  to { transform: scale(1.06) translate3d(-1.5%, -1%, 0); }
-}
-
-.demo-backdrop::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.74) 0%, rgba(0, 0, 0, 0.2) 46%, transparent 72%);
-}
-
-/* ---- the caption lockup: mogrt-rise ---- */
-
-.demo-captions {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  align-content: flex-end;
-  /* Centred, because the lockup is centred in the frame the renderer draws —
-     and because a caption pinned to the left edge reads as a subtitle track,
-     which is the thing this product is trying not to be. */
-  justify-content: center;
-  text-align: center;
-  gap: 10px 13px;
-  /* Clear of the transport by more than the hero's overshoot: the emphasised
-     word is 1.45x and sits on the same baseline, so it descends further than
-     the line box suggests. */
-  padding: 0 20px 58px;
-  /* theme.type.montserrat and theme.type.heroTracking / heroLineHeight. */
-  font-family: 'Montserrat', 'Noto Sans Devanagari', var(--font-display), sans-serif;
-  font-weight: 800;
-  font-size: clamp(15px, 4.3cqw, 38px);
-  line-height: 0.94;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
-}
-
-.demo-word {
-  /* Transform, opacity and blur all come from the component, off the playhead.
-     A CSS transition here would fight a value that changes every frame and turn
-     a 420ms entrance into a smear. */
-  transform-origin: 50% 100%;
-  color: var(--demo-ink);
-  text-shadow: 0 calc(var(--demo-sub-size) * 0.03) calc(var(--demo-sub-size) * 0.08) rgba(0, 0, 0, 0.45);
-  --demo-sub-size: clamp(15px, 4.3cqw, 38px);
-  --demo-blur: 0px;
-  filter: blur(var(--demo-blur));
-}
-
-/* The emphasised word: Montserrat Black, a gradient ramp from white into the
-   accent, and a glow — the three effects every .mogrt carries. */
-.demo-word.is-hero {
-  font-weight: 900;
-  letter-spacing: -0.035em;
-  --demo-hero-size: clamp(22px, 6.2cqw, 55px);
-  /* background-clip: text needs a transparent fill, so the glow cannot be a
-     text-shadow here. Two drop-shadows on the box instead — the same
-     substitution CaptionWord makes, for exactly this reason. */
-  background: linear-gradient(180deg, #ffffff 15%, var(--color-accent) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  text-shadow: none;
-  filter:
-    blur(var(--demo-blur))
-    drop-shadow(0 0 calc(var(--demo-hero-size) * 0.11) var(--color-accent))
-    drop-shadow(0 0 calc(var(--demo-hero-size) * 0.3) var(--color-accent-glow));
-}
-
-/* ---- the word track ---- */
-
-.demo-transport {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 11px 14px;
-}
-
-.demo-track {
-  position: relative;
-  flex: 1 1 auto;
-  height: 10px;
-}
-
-/* One segment per word, at its real width. The gaps between them are the
-   silences, which is the part a progress bar cannot show. */
-.demo-tick {
-  position: absolute;
-  top: 50%;
-  height: 3px;
-  margin-top: -1.5px;
-  border-radius: 999px;
-  background: rgba(242, 242, 243, 0.32);
-  transition: background 160ms ease, height 160ms ease, margin-top 160ms ease;
-}
-
-.demo-tick.is-past { background: rgba(46, 227, 104, 0.55); }
-
-.demo-tick.is-now {
-  height: 7px;
-  margin-top: -3.5px;
-  background: var(--color-accent);
-}
-
-.demo-playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: rgba(242, 242, 243, 0.85);
-}
-
-.demo-time {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--demo-ink-dim);
-}
-
-/* Names the treatment on screen. The panel is showing one preset out of nine,
-   and saying which keeps it from reading as the only thing the product does. */
-.demo-badge {
-  position: absolute;
-  top: 11px;
-  right: 12px;
-  padding: 4px 9px;
-  border: 1px solid rgba(242, 242, 243, 0.16);
-  border-radius: 999px;
-  background: rgba(10, 11, 12, 0.55);
-  backdrop-filter: blur(6px);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--demo-ink-dim);
-}
-
-/* ---- claim and points ---- */
-
-.demo-claim {
-  margin: 2px 0 0;
-  font-family: var(--font-display);
-  font-size: 14.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  text-align: center;
-  color: var(--demo-ink);
-}
-
-.demo-claim em { color: var(--color-accent); font-style: normal; }
-
-.demo-points {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin: 0;
-  padding: 16px 0 0;
-  border-top: 1px solid var(--demo-line);
-  list-style: none;
-}
-
-.demo-points li {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 11.5px;
-  line-height: 1.45;
-  color: var(--demo-ink-dim);
-}
-
-.demo-points strong {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--demo-ink);
-}
-
-.demo-strip {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding-top: 4px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--demo-ink-dim);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.demo-strip .auth-art-canvas { flex: 1 1 0; min-width: 0; overflow: hidden; }
-
-.auth-art-canvas {
-  margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 7px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  white-space: pre;
-  color: var(--color-accent);
-  opacity: 0.55;
-  user-select: none;
-}
-
-/* ---- compact: the strip above the form on a phone ----
-
-   Trimmed to the two things that have to survive: the caption moving through a
-   frame, and the sentence that says what that is. The style chips are a desktop
-   affordance — on a phone they are three more rows between somebody and the
-   password field they came to fill in. */
-
-.demo-compact { gap: 10px; }
-
-.demo-compact .demo-head {
-  flex-wrap: nowrap;
-  gap: 8px;
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-}
-
-.demo-compact .demo-live { white-space: nowrap; }
-
-.demo-compact .demo-langs {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* A frame tall enough to read a caption in and no taller. Below this the
-   captions stop being legible; above it the form starts falling off screen. */
-.demo-compact .demo-stage { max-height: 138px; }
-
-.demo-compact .demo-captions { padding-bottom: 36px; }
-
-.demo-compact .demo-badge { top: 8px; right: 8px; padding: 3px 7px; font-size: 10px; }
-
-.demo-compact .demo-claim {
-  font-size: 11.5px;
-  letter-spacing: 0.05em;
+  .auth-title { font-size: 23px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .auth-submit { transition: none; }
-  .demo-tick { transition: none; }
-  .demo-live-dot,
-  .demo-backdrop,
+  /* The turn is the one piece of this that is decoration. Without it the card
+     still changes face, it just does not travel to get there. */
+  .auth-flip-inner,
+  .auth-flip,
+  .auth-slider,
+  .auth-slider::before,
+  .auth-btn,
+  .auth-input { transition: none; }
+
   .auth-ellipsis,
   .auth-spinner { animation: none; }
 }
