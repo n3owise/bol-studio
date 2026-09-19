@@ -24,3 +24,10 @@ model-comparison.html
 # src/lib/caption-fonts.ts. Keeping the faces out of the repo means a clone or a
 # deploy cannot serve them even if the dev-only gate were ever removed.
 public/fonts/satoshi/
+
+# Agent skills installed with `npx skills add` / `npx getdesign`. The lockfile
+# is committed so the set is reproducible; the installed content is not, for
+# the same reason node_modules is not — it is fetched, not authored here, and
+# it is a per-developer choice which agents get symlinks.
+.agents/skills/
+.claude/skills/
