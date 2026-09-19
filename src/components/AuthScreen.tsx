@@ -83,6 +83,7 @@ const COPY: Record<Mode, { title: string; lede: string; action: string; working:
  */
 export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) => {
   const [mode, setMode] = useState<Mode>(initialMode ?? 'signin');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
@@ -91,6 +92,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
   // problems. A field error belongs beside the field; a form error belongs
   // above the button; and they must not overwrite each other, or fixing the
   // email silently erases "we could not reach the server".
+  const [nameError, setNameError] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [formError, setFormError] = useState('');
@@ -104,7 +106,9 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
 
   useEffect(() => { if (initialMode) setMode(initialMode); }, [initialMode]);
 
-  const clearErrors = () => { setEmailError(''); setPasswordError(''); setFormError(''); };
+  const clearErrors = () => {
+    setNameError(''); setEmailError(''); setPasswordError(''); setFormError('');
+  };
 
   // Clearing on a mode change stops "that password is too short" hanging over
   // the form the user turned the card to. The reveal resets too — leaving a
@@ -137,6 +141,10 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
 
     // Validated here rather than left to the browser so the message is ours and
     // sits in the same place as every other error on this form.
+    if (formMode === 'signup' && !name.trim()) {
+      setNameError('Please tell us what to call you.');
+      return;
+    }
     if (wantsEmail && !LOOKS_LIKE_EMAIL.test(email.trim())) {
       setEmailError('Please enter a valid email address.');
       return;
@@ -157,7 +165,14 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { emailRedirectTo: window.location.origin },
+          // The name rides along in user metadata, which is where Supabase
+          // puts anything the app asks for beyond the credentials. The account
+          // button and the settings panel read it, falling back to the email
+          // for accounts made before this field existed.
+          options: {
+            emailRedirectTo: window.location.origin,
+            data: { full_name: name.trim() },
+          },
         });
         if (error) setFormError(authErrorMessage(error));
         // Whether a confirmation email is coming is a Supabase setting, not
@@ -229,6 +244,29 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
       <form className="auth-form" onSubmit={(e) => submit(e, formMode)} noValidate>
         <h1 className="auth-title">{copy.title}</h1>
         <p className="auth-lede">{copy.lede}</p>
+
+        {formMode === 'signup' && (
+          <div className="auth-field">
+            <label htmlFor={id('name')}>Your name</label>
+            <input
+              id={id('name')}
+              className={`auth-input${nameError ? ' has-error' : ''}`}
+              type="text"
+              value={name}
+              autoComplete="name"
+              required
+              placeholder="Aman Verma"
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? id('name-error') : undefined}
+              onChange={edit(setName, setNameError)}
+            />
+            {nameError && (
+              <p className="auth-field-error" id={id('name-error')}>
+                <AlertCircle size={13} aria-hidden="true" />{nameError}
+              </p>
+            )}
+          </div>
+        )}
 
         {wantsEmail && (
           <div className="auth-field">
