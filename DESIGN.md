@@ -252,20 +252,6 @@ A six-second toast is the wrong container for something you must act on.
 
 Real, measured, still open. Do not treat this section as decoration.
 
-**Three tokens are used and never declared, with no fallback.** The property
-resolves to nothing:
-
-| Token | Uses without a fallback | Used for |
-| --- | --- | --- |
-| `--card-accent` | 24 | `background` and `color` on template cards |
-| `--color-brand-primary` | 6 | `border-color`, `box-shadow`, `background` |
-| `--color-border-active` | 3 | `border` / `border-color` |
-
-Five more (`--bg-surface-elevated`, `--color-bg-timeline`, `--pill-text`,
-`--rule`, `--shadow-xl`) are also undeclared but always carry a fallback, so
-they render — they are still lies about the system and should be declared or
-removed.
-
 **Three different greens exist in the product.** They should be one token set.
 
 **`patch_project` returns 409 on every save of an audio-only project.**
@@ -273,3 +259,36 @@ removed.
 **Verify by measuring the running app, not by reading the diff.** An edit script
 once printed its success line and died before writing the file; two token fixes
 looked applied and were not. Only re-measuring in the browser caught it.
+
+### Resolved: phantom tokens
+
+Six tokens were referenced and never declared. Three had no fallback, so the
+property resolved to nothing; three were guarded but still described a system
+that did not exist. All now point at real tokens:
+
+| Was | Now | Why |
+| --- | --- | --- |
+| `--color-brand-primary` | `--color-accent` | It meant the brand primary, which is the accent |
+| `--color-border-active` | `--color-border-hover` | Already carried the exact value the one guarded site spelled out |
+| `--shadow-xl` | `--shadow-popover` | Every site was a popover, and the fallbacks were light-theme shadows that stayed light on a dark ground |
+| `--bg-surface-elevated` | `--color-bg-surface` | Theme-aware instead of three different hardcoded washes |
+| `--color-bg-timeline` | `--color-bg-panel` | Same value in light; stops being a phantom |
+| `--rule` | `--color-border-medium` | A hairline is a border |
+
+`--color-brand-primary` also painted `.template-tick`, whose ink was the literal
+`#09090b` on an accent ground — the exact trap in section 1. It takes
+`--color-accent-text` now.
+
+**A caution about how this was found.** A first pass at this list also accused
+`--card-accent` (24 uses) and `--pill-text` (4) of being undeclared. They are
+not: `TemplateCard.tsx` sets both inline, per card, from the template's own
+accent. They are **instance values, not system tokens**, which is why they do
+not sit with the palette. A scan of the stylesheet alone cannot tell the two
+apart — check for inline `style={{ '--x': … }}` before calling a token broken.
+Both now also carry a floor on `.template-art` so a template arriving without an
+accent degrades to the brand green rather than to nothing.
+
+The only names left undeclared in CSS are
+`--magicui-theme-toggle-vt-duration` and `--magicui-theme-vt-clip-from`, which
+`animated-theme-toggler.tsx` sets on the root with `style.setProperty` for the
+duration of a theme transition and removes afterwards.
