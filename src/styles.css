@@ -10389,3 +10389,189 @@ kbd {
   font-weight: 600;
   color: var(--color-text-muted);
 }
+
+/* ==========================================================================
+   Settings panel
+   Project-level things that had no home: framing, storage, deployment limits,
+   the worker's state, the account, and deleting a project.
+   ========================================================================== */
+
+.settings-block {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+/* .section-label is plain text elsewhere; here each one leads with an icon,
+   so the baseline has to be made rather than inherited. */
+.settings-block > .section-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.settings-block > .section-label > svg {
+  color: var(--text-secondary);
+}
+
+.settings-figure {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.settings-figure > span {
+  display: block;
+  margin-top: 3px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+/* An email is a figure in position but not in size: at 22px a long address
+   wraps across three lines and pushes the sign-out button off the fold. */
+.settings-figure.small {
+  font-size: 13.5px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.settings-facts {
+  margin: 0;
+  display: grid;
+  gap: 1px;
+  background: var(--border-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.settings-facts > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--color-bg-card);
+}
+/* The label is what gives way when the column is narrow. This panel is 230px
+   on a laptop, and "3.9 GB of 228.3 GB" wrapping after "228.3" reads as two
+   separate figures — so the value stays on one line and the label truncates. */
+.settings-facts dt {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-facts dd {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Whatever is wrong is the reason the panel was opened, so it is coloured
+   rather than left to be found by reading every row. */
+.settings-facts dd.settings-bad {
+  color: var(--color-danger);
+}
+
+/* The shared .setting-warning carries the colour; this only has to make the
+   command inside one legible. A .settings-warning, one letter apart from the
+   class every other panel uses, is a trap for whoever edits this next. */
+.setting-warning code {
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+}
+
+.settings-id-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.settings-id-row > span {
+  flex-shrink: 0;
+}
+.settings-id-row code {
+  flex: 1;
+  min-width: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.2px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+  /* One click selects the whole id. This is the part that always works when the
+     clipboard refuses, so it has to be easy to grab by hand. */
+  user-select: all;
+}
+
+.settings-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.settings-copy-btn:hover {
+  background: var(--bg-surface-hover);
+}
+
+.settings-block.danger {
+  margin-top: 26px;
+  padding: 14px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: 10px;
+  background: var(--color-danger-dim);
+}
+.settings-block.danger > .section-label {
+  color: var(--color-danger);
+}
+.settings-block.danger > .section-label > svg {
+  color: var(--color-danger);
+}
+.settings-danger-arm {
+  margin-top: 12px;
+}
+
+/* Two buttons rather than one that changes its own label in place. A label
+   swapped under a stationary pointer is a second click away from deleting
+   something; splitting the row means the confirm lands somewhere the first
+   click was not, and puts "Keep it" first so the reflexive answer is the safe
+   one. */
+.settings-confirm-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.settings-confirm-row > .button {
+  flex: 1;
+}
+.settings-danger-btn {
+  background: var(--color-danger);
+  color: #ffffff;
+  border-color: transparent;
+}
+.settings-danger-btn:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+.settings-danger-btn:disabled {
+  opacity: 0.7;
+}

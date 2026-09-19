@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, LogOut, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -11,12 +11,13 @@ import '@fontsource/noto-sans-devanagari/700.css';
 import '@fontsource/montserrat/800.css';
 import '@fontsource/montserrat/900.css';
 import './styles.css';
-import { API, fetchMediaAssets, request, upload, mediaUrl } from './lib/api';
+import { API, deleteProject, fetchLimits, fetchMediaAssets, request, upload, mediaUrl, type Limits } from './lib/api';
 import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
 import { appendWord, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
-import { UNSAVED, type NavPanelId } from './lib/shell';
+import { UNSAVED, type Health, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
+import { SettingsPanel } from './components/SettingsPanel';
 import { StylePanel } from './components/StylePanel';
 import { TextPanel } from './components/TextPanel';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from './lib/safe-area';
@@ -36,7 +37,6 @@ import type { Session } from '@supabase/supabase-js';
 import { ensureMediaToken, forgetMediaTokens } from './lib/api';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
-type Health = { status?: string; engine?: string; model?: string; [key: string]: unknown };
 type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> & {
   canvasElements?: CanvasVisualElement[];
 };
@@ -180,7 +180,7 @@ function App() {
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notice, setNotice] = useState('');
-  const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | 'account' | null>(null);
+  const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | null>(null);
   const [accountEmail, setAccountEmail] = useState('');
   /**
    * Asked once, right after an upload, before any time is spent editing.
@@ -199,10 +199,20 @@ function App() {
   const [lastDownloadedExportId, setLastDownloadedExportId] = useState<string | null>(null);
   const downloadedExportIdsRef = useRef<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
-  // What this deployment will render. Null means no limit, which is the local
-  // default; a hosted instance caps it so a long clip fails now rather than an
-  // hour into a render that its shared CPU was never going to finish.
-  const [maxExportSeconds, setMaxExportSeconds] = useState<number | null>(null);
+  /**
+   * Everything /api/limits reports, rather than the one field this used to keep.
+   *
+   * The same request already carried the upload ceiling, the clip-length
+   * ceiling and the disk figures, and all of them were parsed and dropped on
+   * the floor — so the only way to learn any of them was to breach one. The
+   * Settings panel shows the lot.
+   *
+   * maxExportSeconds still means what it meant: null is no limit, which is the
+   * local default, while a hosted instance caps it so a long clip fails now
+   * rather than an hour into a render its shared CPU was never going to finish.
+   */
+  const [limits, setLimits] = useState<Limits | null>(null);
+  const maxExportSeconds = limits?.maxExportSeconds ?? null;
   const [saveStatus, setSaveStatus] = useState(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
   const [dirty, setDirty] = useState(0);
   const [history, setHistory] = useState<EditState[]>([]);
@@ -601,6 +611,7 @@ function App() {
   useEffect(() => () => { if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current); }, []);
 
   const notify = useCallback((message: string) => setNotice(message), []);
+
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getUser().then(({ data }) => setAccountEmail(data.user?.email ?? ''));
@@ -638,11 +649,20 @@ function App() {
   }, [project, fittedZoomFor]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { projectRef.current = project; }, [project]);
-  useEffect(() => {
-    void request<{ maxExportSeconds: number | null }>('/limits')
-      .then(l => setMaxExportSeconds(l.maxExportSeconds ?? null))
-      .catch(() => setMaxExportSeconds(null));
-  }, []);
+  // Re-read rather than polled: the storage figure only moves when this browser
+  // uploads or deletes something, and walking every project directory to answer
+  // it is not work to repeat every seven seconds beside the health check.
+  const refreshLimits = useCallback(
+    () => fetchLimits().then(setLimits).catch(() => setLimits(null)),
+    [],
+  );
+  useEffect(() => { void refreshLimits(); }, [refreshLimits]);
+  // Read again whenever Settings is opened. A figure fetched on mount is stale
+  // by the time anybody goes looking for it — an upload or a delete in another
+  // tab, or an export finishing, all move it — and a storage panel that quotes
+  // a number from half an hour ago is worse than one that admits it cannot read
+  // it, because nothing on screen says which it is showing.
+  useEffect(() => { if (activeNavPanel === 'settings') void refreshLimits(); }, [activeNavPanel, refreshLimits]);
   useEffect(() => {
     let closed = false;
     async function check() {
@@ -734,6 +754,31 @@ function App() {
   }, [notify]);
   useEffect(() => { if (dirty <= savedDirty.current) return; const timer = setTimeout(() => void flushSave().catch(() => {}), 650); return () => clearTimeout(timer); }, [dirty, flushSave]);
   useEffect(() => { const handler = (e: BeforeUnloadEvent) => { if (dirtyRef.current > savedDirty.current) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload',handler); return () => window.removeEventListener('beforeunload',handler); }, []);
+
+  /**
+   * End the session, dropping every media token before the token that minted
+   * them goes. They outlive a sign-out otherwise: a media token is good for two
+   * hours on its own signature, so the next person at this browser would still
+   * be able to play the last one's video.
+   *
+   * The pending save goes out first. Saves are debounced by 650ms, and signing
+   * out tends to be the thing done right after a last edit, so the edit sitting
+   * inside that window was the one most likely to be lost — and lost in silence,
+   * with the gate already on screen and no amber badge left to show it on.
+   * Failures are swallowed: the session is ending either way, and refusing to
+   * sign out because a save could not land would strand someone at a shared
+   * browser.
+   *
+   * Declared below flushSave rather than beside the other session code: it
+   * names flushSave in its dependency array, which is evaluated where this
+   * line sits, so higher up it would read a const that is not initialised yet
+   * and throw on the first render.
+   */
+  const signOut = useCallback(async () => {
+    await flushSave().catch(() => {});
+    forgetMediaTokens();
+    await supabase?.auth.signOut();
+  }, [flushSave]);
 
   function markEdit(next: Project, record = true) {
     const previous = projectRef.current;
@@ -2241,6 +2286,7 @@ function App() {
       setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
            setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
       setLanguagePrompt('open');
+      void refreshLimits();
     } catch(e) { notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
   }
@@ -2312,6 +2358,47 @@ function App() {
          }
     catch(e) { notify((e as Error).message); }
   }
+
+  /**
+   * Delete the open project on the server, then empty the editor of it.
+   *
+   * The pending save is flushed first, the way opening and exporting already
+   * do. Saves are debounced by 650ms, so a delete issued inside that window
+   * left a PATCH queued against a project that no longer existed, and the
+   * creator — already looking at an empty editor — was told "Project not
+   * found." about work they had just deliberately thrown away. Emptying the
+   * queue before the request goes out closes that window rather than narrowing
+   * it, and it means a refused delete has not silently dropped their last edit.
+   *
+   * Throws on to the panel rather than notifying here. The server refuses while
+   * a transcript or an export is still running, and that refusal has to reach
+   * the button that asked, so it can stay armed and let them try again.
+   */
+  const handleDeleteProject = useCallback(async () => {
+    const target = projectRef.current;
+    if (!target) return;
+    await flushSave().catch(() => {});
+    await deleteProject(target.id);
+    // Anything the flush did not cover — a keystroke landing during the request
+    // — must not become a save aimed at a project that is now gone.
+    savedDirty.current = dirtyRef.current;
+    setProjects(list => list.filter(p => p.id !== target.id));
+    setProject(null); projectRef.current = null;
+    setSettings(defaults);
+    setPlaying(false); setTime(0);
+    setSelectedWord(null); setSelectedWordIds(new Set());
+    setHistory([]); setFuture([]);
+    setProjectAssets([]); setActiveMediaAsset(null);
+    setCanvasElements([]); setSelectedCanvasElementId(null);
+    setActiveExportId(null);
+    // The media token for a deleted project opens nothing, and keeping it would
+    // have the next project's URLs built against a stale entry.
+    forgetMediaTokens();
+    setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
+    void refreshLimits();
+    notify(`Deleted “${target.name || target.filename}”.`);
+    setActiveNavPanel('caption');
+  }, [flushSave, notify, refreshLimits]);
   async function startExport() {
     if (!project) return;
     const currentProject = project;
@@ -2437,7 +2524,7 @@ function App() {
             className="nav-btn ghost"
             aria-label={`Account — ${accountEmail}`}
             title={accountEmail}
-            onClick={() => setModal('account')}
+            onClick={() => setActiveNavPanel('settings')}
           >
             <span className="account-initial">{accountEmail[0]}</span>
           </button>
@@ -2630,6 +2717,22 @@ function App() {
             updateSettings={updateSettings}
             busy={busy}
             onOpenTextPanel={() => setActiveNavPanel('text')}
+          />
+        ) : activeNavPanel === 'settings' ? (
+          <SettingsPanel
+            project={project}
+            settings={settings}
+            updateSettings={updateSettings}
+            busy={busy}
+            limits={limits}
+            health={health}
+            onRefreshLimits={refreshLimits}
+            accountEmail={accountEmail}
+            authEnabled={AUTH_ENABLED}
+            onSignOut={() => void signOut()}
+            onDeleteProject={handleDeleteProject}
+            onOpenExports={() => setModal('export')}
+            notify={notify}
           />
       ) : (
         <section className="style-panel panel placeholder-panel">
@@ -3473,16 +3576,6 @@ function App() {
 
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
     {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
-    {modal==='account'&&<Modal title="Your account" onClose={()=>setModal(null)}>
-      <p className="account-email">{accountEmail}</p>
-      <p className="modal-description">Signed in. Your projects follow this account, on any browser.</p>
-      <button className="button secondary full" onClick={async()=>{
-        setModal(null);
-        forgetMediaTokens();
-        await supabase?.auth.signOut();
-      }}><LogOut size={15}/>Sign out</button>
-      <p className="modal-footnote">Changed your mind about your password? Sign out and use “Forgot your password?”.</p>
-    </Modal>}
     {modal==='projects'&&<Modal title="Your workspace" onClose={()=>setModal(null)}><p className="modal-description">{AUTH_ENABLED?'Projects are saved to your account. Cloud storage is temporary for now — export anything you want to keep.':'Projects are saved on this computer, ready whenever you are.'}</p><button className="button primary full" onClick={()=>{setModal(null);input.current?.click();}}><Plus size={16}/>New upload</button><div className="project-list">{projects.length?projects.map(p=><button key={p.id} onClick={()=>void openProject(p)}><span className="project-list-icon">{p.mediaType==='audio'?<FileAudio size={21}/>:<Film size={21}/>}</span><span><strong>{p.name}</strong><small>{timecode(p.duration)} · {p.status==='ready'?`${p.words?.length??0} words`:p.status}</small></span><ChevronRight size={17}/></button>):<div className="empty-projects"><FolderOpen size={32}/><p>Your first story is one upload away.</p></div>}</div></Modal>}
     {modal === 'export' && (
       <Modal title="Export Video" onClose={() => setModal(null)} wide>

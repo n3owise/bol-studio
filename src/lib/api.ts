@@ -185,6 +185,12 @@ export async function request<T>(path: string, options?: RequestInit, retried = 
     try { const error = await response.json(); message = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail ?? error); } catch { /* Preserve status when the worker is offline. */ }
     throw new Error(message);
   }
+  // 204 means the server did the thing and has nothing to say about it, which
+  // is the honest shape for a delete. It also means an empty body, and
+  // res.json() on an empty body throws a SyntaxError — so a successful delete
+  // would have surfaced as "Unexpected end of JSON input" and the caller would
+  // have cleared nothing. Read as void instead of inventing a body to parse.
+  if (response.status === 204) return undefined as T;
   return response.json();
 }
 /**
@@ -210,6 +216,46 @@ export function upload(file: File, script: string, language: string, onProgress:
     };
     xhr.send(body);
   });
+}
+
+/**
+ * What this deployment will accept, and what the caller's work already costs.
+ *
+ * The editor read `maxExportSeconds` out of this and dropped the rest on the
+ * floor, so the upload size and clip length ceilings were only ever discovered
+ * by hitting them, and the disk figures — which nothing else on the machine can
+ * see — were fetched and thrown away. The Settings panel shows all of it.
+ */
+export type Limits = {
+  maxExportSeconds: number | null;
+  maxUploadBytes: number;
+  maxDurationSeconds: number;
+  diskTotalBytes: number;
+  diskFreeBytes: number;
+  /** Projects belonging to this account or workspace, not to the machine. */
+  projectCount: number;
+  diskUsedByProjectsBytes: number;
+};
+
+export function fetchLimits(): Promise<Limits> {
+  return request<Limits>('/limits');
+}
+
+/**
+ * Delete a project and everything on disk beneath it. There is no undo, here or
+ * on the server.
+ *
+ * Resolves on 204 and nothing else. It is deliberately not typed as returning a
+ * body: the endpoint sends none, and a caller that believed it did would be
+ * reading `undefined.status` on every success.
+ *
+ * Rejects with the server's own sentence on 404 and on 409 — the worker refuses
+ * while it is still inside the project, and that refusal says which job to wait
+ * for, which is the whole of what the person needs. Swallowing it here would
+ * leave the panel with nothing to show but a generic failure.
+ */
+export function deleteProject(projectId: string): Promise<void> {
+  return request<void>(`/projects/${projectId}`, { method: 'DELETE' });
 }
 
 export function fetchMediaAssets(projectId: string): Promise<MediaAsset[]> {

@@ -11,6 +11,7 @@ import { MAX_WORDS_PER_PAGE, buildPages, heroRun, pickEmoji } from '../src/lib/p
 import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.ts';
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type Word } from '../src/lib/types.ts';
+import { formatBytes, formatMinutes } from '../src/lib/utils.ts';
 import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
 import { createOrderedDispatcher } from '../server/remotion-captions.ts';
 
@@ -1446,4 +1447,125 @@ test('turning highlighting off actually leaves every word even', () => {
   const chosen = words.map(w => (w.text === 'yahi' ? { ...w, spotlight: true } : w));
   const kept = buildPages(chosen, 5, { alwaysPromote: true, autoHighlight: false });
   assert.deepEqual(kept[0].heroIndices.map(i => kept[0].words[i].text), ['yahi']);
+});
+
+test('storage and limit figures read as a person would say them, and a cap is never rounded up', () => {
+  // The Settings panel is the first place these numbers have ever been shown.
+  // /api/limits returned the upload ceiling, the clip ceiling and the disk
+  // figures all along and the editor parsed out maxExportSeconds and dropped
+  // the rest, so raw byte counts had never had to be readable before.
+  assert.equal(formatBytes(1024 * 1024 * 1024), '1.0 GB');
+  assert.equal(formatBytes(1536 * 1024 * 1024), '1.5 GB');
+  // Whole units below MB: "512.0 KB" claims a precision the figure does not
+  // have while a save is still in flight behind it.
+  assert.equal(formatBytes(512 * 1024), '512 KB');
+  assert.equal(formatBytes(2 * 1024 * 1024), '2.0 MB');
+  // A workspace with nothing in it says so, rather than showing NaN or "-1 B"
+  // when the request failed and the field came back missing.
+  assert.equal(formatBytes(0), '0 B');
+  assert.equal(formatBytes(Number.NaN), '0 B');
+
+  // A ceiling is floored, never rounded. Rounding a 90-second cap up to "2
+  // minutes" tells someone holding a 100-second clip they are inside a limit
+  // that is about to refuse them.
+  assert.equal(formatMinutes(90), '1m 30s');
+  assert.equal(formatMinutes(20 * 60), '20 minutes');
+  assert.equal(formatMinutes(60), '1 minute');
+  assert.equal(formatMinutes(45), '45 seconds');
+});
+
+test('the Settings panel offers every frame shape, and writes the one setting the preview toolbar writes', () => {
+  // The panel and the unlabelled select above the preview are two views of
+  // settings.aspect on purpose — reframing is something you do while looking at
+  // the frame, and understanding the choice is something you do in Settings. Two
+  // views are only safe while both go through updateSettings; the moment one
+  // writes its own field it becomes the ALL CAPS toggle again, drawn as active
+  // and changing nothing.
+  const panel = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /updateSettings\(\{ aspect: option\.id \}\)/);
+  assert.match(editor, /updateSettings\(\{aspect:e\.target\.value as Settings\['aspect'\]\}\)/,
+    'the toolbar select still writes the same field');
+
+  // Every shape the renderer can frame is offered, and each produces its own
+  // size — an option that framed the same pixels as another would be a button
+  // that appears to do something.
+  // 4:3 source, so "Original" is not secretly one of the other three — on a
+  // 16:9 clip it is the same crop as 16:9, which is correct and would hide a
+  // duplicate option behind it.
+  const shapes = ['original', '9:16', '1:1', '16:9'] as const;
+  const framed = new Set<string>();
+  for (const aspect of shapes) {
+    assert.ok(panel.includes(`id: '${aspect}'`), `${aspect} is offered in the panel`);
+    const { width, height } = dimensions({ ...defaults, aspect }, 1280, 960, 1080);
+    framed.add(`${width}x${height}`);
+  }
+  assert.equal(framed.size, shapes.length, 'no two shapes frame the same pixels');
+
+  // And the panel is what the Settings nav item actually renders. It used to
+  // render a placeholder reading "ready for customization".
+  assert.match(editor, /activeNavPanel === 'settings' \? \(\s*<SettingsPanel/);
+});
+
+test('the project ID is readable without the clipboard working', () => {
+  // navigator.clipboard.writeText rejects whenever the document is not focused,
+  // and it throws rather than returning false — the first real click this panel
+  // got failed exactly that way. The id is what someone needs when reporting a
+  // problem, so it is rendered in full as selectable text and the button is an
+  // convenience on top, not the only way in.
+  const panel = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /<code title="Select to copy">\{project\.id\}<\/code>/,
+    'the whole id is on screen, not an abbreviation of it');
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.settings-id-row code \{[^}]*user-select: all/s,
+    'and one click selects all of it');
+});
+
+test('deleting the open project cannot leave a save queued against it', () => {
+  // Saves are debounced by 650ms. A delete inside that window left a PATCH in
+  // flight for a project that no longer existed, and the creator — already
+  // looking at an empty editor — was told "Project not found." about work they
+  // had just deliberately thrown away.
+  //
+  // Clearing the guard after the server confirms is not enough on its own: the
+  // debounce timer can fire at any point during the DELETE round trip, which on
+  // a hosted backend is most of the elapsed time and exactly when it is most
+  // likely. The queue is emptied before the request goes out, which closes the
+  // window instead of narrowing it, and a refused delete has then not silently
+  // dropped the creator's last edit either.
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const start = editor.indexOf('const handleDeleteProject');
+  assert.ok(start > 0, 'the handler exists');
+  // Ended on the useCallback's closing line rather than on its dependency list:
+  // a slice that misses its terminator silently becomes the rest of the file,
+  // and every ordering assertion below it passes on unrelated code.
+  const body = editor.slice(start, editor.indexOf('\n  }, [', start));
+  assert.ok(body.length > 0 && body.length < 2000, 'and the slice is the handler, not the file');
+  assert.ok(body.includes('await deleteProject(target.id);'), 'the server is asked');
+  assert.ok(
+    body.indexOf('await flushSave(') >= 0
+      && body.indexOf('await flushSave(') < body.indexOf('await deleteProject(target.id);'),
+    'the pending save is flushed before the request, so the debounce window is shut '
+    + 'for the whole round trip rather than only after it',
+  );
+  assert.ok(
+    body.indexOf('savedDirty.current = dirtyRef.current;') > body.indexOf('await deleteProject(target.id);'),
+    'the pending save is satisfied only once the delete has actually happened',
+  );
+  assert.ok(
+    body.indexOf('savedDirty.current = dirtyRef.current;') < body.indexOf('setProject(null)'),
+    'and before the project is dropped, so nothing in between can schedule another',
+  );
+  // The panel is handed the throwing version on purpose: the server refuses
+  // while the worker still has the project, and that refusal has to reach the
+  // button that asked so it can stay armed.
+  assert.ok(!/\btry\s*\{/.test(body), 'the refusal is not caught here — the panel needs it');
+
+  // And the button is not withheld at the moment it is most wanted. `busy`
+  // covers queued, and an upload is queued the instant it lands — so gating on
+  // it would refuse "I picked the wrong file" for the length of a transcript of
+  // that wrong file, which the server would have allowed.
+  const panel = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
+  assert.ok(panel.includes('disabled={workerHasIt}'), 'the delete button is gated on the running job');
+  assert.ok(!panel.includes("['queued', 'processing'"), 'and queued is not treated as running');
 });

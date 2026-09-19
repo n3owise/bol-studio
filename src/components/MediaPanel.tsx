@@ -31,6 +31,9 @@ import {
 import { API, deleteMediaAsset, duplicateMediaAsset, fetchMediaAssets, updateMediaAsset, uploadMediaAsset, mediaUrl, ensureMediaToken } from '../lib/api';
 import { applyChromaKey, drawKeyedMedia, hexToRgb, samplePixelColor } from '../lib/chromakey';
 import { defaultGreenScreen, type CanvasVisualElement, type GreenScreenSettings, type MediaAsset, type Project } from '../lib/types';
+// One formatter, shared with the Settings panel's storage figure. Two copies
+// meant the same file could be reported as a different size in two places.
+import { formatBytes } from '../lib/utils';
 
 const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1 GB
 const SUPPORTED_EXTENSIONS = new Set([
@@ -47,14 +50,6 @@ function getExtension(filename: string): string {
 function getBaseName(filename: string): string {
   const lastDot = filename.lastIndexOf('.');
   return lastDot > 0 ? filename.substring(0, lastDot) : filename;
-}
-
-function formatBytes(bytes?: number): string {
-  if (!bytes || bytes <= 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(i > 1 ? 1 : 0))} ${sizes[i]}`;
 }
 
 function formatDuration(s?: number): string {

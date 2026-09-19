@@ -1413,3 +1413,175 @@ def test_upload_only_starts_recognition_when_asked(client):
     assert response.status_code == 200
     assert response.json()["language"] == "en"
     assert len(backend.EXECUTOR.jobs) == 2
+
+
+def test_deleting_a_project_removes_its_files_and_frees_the_space_they_took(client):
+    """Nothing could delete a project, so every upload lived on the disk forever.
+
+    The only delete this API had was for one media asset. A creator who uploaded
+    a clip by mistake, or finished with one, had no way to be rid of it, and a
+    hosted deployment filled up with work nobody wanted — the source file, the
+    playback copy derived from it and every export, all still there.
+
+    So this checks the whole cost goes, not just the listing: the directory
+    itself, and the storage figure the Settings panel reports.
+    """
+    created = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                          headers={"X-Bol-Owner": "alice"})
+    project_id = created.json()["id"]
+    directory = backend.DATA_DIR / project_id
+    (directory / "export-old.mp4").write_bytes(b"x" * 4096)
+
+    before = client.get("/api/limits", headers={"X-Bol-Owner": "alice"}).json()
+    assert before["projectCount"] == 1
+    assert before["diskUsedByProjectsBytes"] > 4096
+
+    assert client.delete(f"/api/projects/{project_id}", headers={"X-Bol-Owner": "alice"}).status_code == 204
+    assert not directory.exists(), "the files went with it, not only the listing"
+    assert client.get(f"/api/projects/{project_id}", headers={"X-Bol-Owner": "alice"}).status_code == 404
+    assert client.get("/api/projects", headers={"X-Bol-Owner": "alice"}).json() == []
+
+    after = client.get("/api/limits", headers={"X-Bol-Owner": "alice"}).json()
+    assert after["projectCount"] == 0
+    assert after["diskUsedByProjectsBytes"] == 0, "the space is reported as reclaimed, not just unlisted"
+
+
+def test_a_project_the_worker_is_still_writing_to_refuses_to_be_deleted(client, project):
+    """Deleting mid-job would resurrect the project as a broken one.
+
+    Transcription and export both write the project back through
+    update_project, and write_project recreates the directory it is handed. A
+    delete that landed between two of those writes removed the media and left a
+    project.json behind for a clip whose files were gone — a project that opens,
+    lists, and cannot play or export anything.
+
+    Refused rather than queued, and the two states are refused separately
+    because the person waiting needs to know which thing to wait for.
+    """
+    url = f"/api/projects/{project['id']}"
+
+    backend.update_project(project["id"], lambda p: p.update(status="processing"))
+    busy = client.delete(url)
+    assert busy.status_code == 409
+    assert "transcribed" in busy.json()["detail"]
+    assert (backend.DATA_DIR / project["id"]).exists(), "refusing must not half-delete it"
+
+    backend.update_project(project["id"], lambda p: p.update(status="ready"))
+    backend.update_project(project["id"], lambda p: p["exports"].append(
+        {"id": str(uuid.uuid4()), "mode": "burned", "status": "processing", "progress": 40, "message": "Rendering."}))
+    rendering = client.delete(url)
+    assert rendering.status_code == 409
+    assert "export" in rendering.json()["detail"].lower()
+
+    # A finished export is not a reason to keep the project alive.
+    backend.update_project(project["id"], lambda p: p["exports"][0].update(status="ready"))
+    assert client.delete(url).status_code == 204
+
+
+def test_a_clip_can_be_deleted_the_moment_it_is_uploaded(client):
+    """Picking the wrong file must not commit you to transcribing it first.
+
+    An upload queues recognition, and there is one worker with no way to reach a
+    job it has not started — so refusing to delete anything queued meant a
+    mis-picked file cost a full transcript of itself, behind whatever else was
+    in the queue. Only a job actually in progress refuses now; a queued one is
+    allowed to run and find nothing.
+    """
+    created = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")})
+    project_id = created.json()["id"]
+    assert created.json()["status"] == "queued", "the upload really is queued, not ready"
+    assert client.delete(f"/api/projects/{project_id}").status_code == 204
+
+    # And the job left behind writes nothing. This is the assertion with teeth:
+    # update_project recreates the directory it is handed, so a job that
+    # recorded its own failure would bring the project back as an empty one that
+    # lists, opens, and plays nothing.
+    job, args = backend.EXECUTOR.jobs[0]
+    job(*args)
+    assert not (backend.DATA_DIR / project_id).exists(), "a cancelled job must not resurrect it"
+    assert client.get("/api/projects").json() == []
+
+
+def test_another_workspace_cannot_delete_your_project(client):
+    """The newest route under /api/projects/{id} is covered by the same guard.
+
+    Ownership is enforced in middleware precisely so that adding a route does
+    not mean remembering to add a check to it — and a destructive route is the
+    one where forgetting costs the most. This pins that the guard reaches
+    DELETE, and that the refusal leaves the project untouched rather than
+    merely unlisted.
+    """
+    mine = client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                       headers={"X-Bol-Owner": "alice"}).json()["id"]
+
+    refused = client.delete(f"/api/projects/{mine}", headers={"X-Bol-Owner": "bob"})
+    assert refused.status_code == 404, "and 404, because whether it exists is not bob's business"
+    assert (backend.DATA_DIR / mine).exists()
+    assert client.get(f"/api/projects/{mine}", headers={"X-Bol-Owner": "alice"}).status_code == 200
+
+
+def test_storage_usage_counts_your_own_projects_and_not_the_speech_model(client):
+    """The reported figure was everything under DATA_DIR, which is not your work.
+
+    It was summed with DATA_DIR.rglob("*"), so it counted the ~1.1 GB ASR model
+    in data/models and the test fixtures beside it as though a creator had
+    uploaded them: someone with one short clip was told they were using over a
+    gigabyte. It was also the whole machine's total on a shared deployment,
+    which is not a number any one person can act on.
+
+    A directory with no project.json is not a project, and somebody else's
+    project is not yours.
+    """
+    model = backend.DATA_DIR / "models"
+    model.mkdir(parents=True, exist_ok=True)
+    (model / "encoder.int8.onnx").write_bytes(b"m" * 50_000)
+
+    client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                headers={"X-Bol-Owner": "alice"})
+    client.post("/api/projects", files={"file": ("clip.wav", audio_bytes(), "audio/wav")},
+                headers={"X-Bol-Owner": "bob"})
+
+    alice = client.get("/api/limits", headers={"X-Bol-Owner": "alice"}).json()
+    assert alice["projectCount"] == 1, "bob's clip is not on alice's tab"
+    assert 0 < alice["diskUsedByProjectsBytes"] < 50_000, "the model is not somebody's upload"
+
+    # And a workspace with nothing is told it has nothing, rather than the model's
+    # size. Compared key by key because the free-space figures are live.
+    carol = client.get("/api/limits", headers={"X-Bol-Owner": "carol"}).json()
+    assert carol["projectCount"] == 0
+    assert carol["diskUsedByProjectsBytes"] == 0
+
+
+def test_an_audio_project_saves_although_it_has_no_video_layer(client, project):
+    """Every save an audio creator made was refused, and nothing said so plainly.
+
+    An audio upload is stored with videoEnabled False, and the editor autosaves
+    the whole project — words, settings, name, videoEnabled — on every change.
+    The guard here refused any videoEnabled on a non-video project, so that
+    autosave came back 409 "Audio projects do not have a video layer" every
+    single time: no caption edit, rename or setting ever reached the disk, and
+    the only symptom was the save badge turning amber.
+
+    Asking for a video layer on an audio clip is still a mistake and still
+    refused. Stating that it has none is not.
+    """
+    url = f"/api/projects/{project['id']}"
+    assert project["mediaType"] == "audio"
+
+    saved = client.patch(url, json={"name": "Podcast ep 4", "videoEnabled": False,
+                                    "settings": {**project["settings"], "aspect": "1:1"}})
+    assert saved.status_code == 200, saved.text
+    stored = backend.load_project(project["id"])
+    assert stored["name"] == "Podcast ep 4", "the rest of the save is not lost with it"
+    assert stored["settings"]["aspect"] == "1:1"
+
+    # Turning one on is the thing that was worth refusing, and still is.
+    refused = client.patch(url, json={"videoEnabled": True})
+    assert refused.status_code == 409
+    assert "video layer" in refused.json()["detail"]
+
+    # A video project is unaffected either way.
+    video = client.post("/api/projects", files={"file": ("clip.mp4", audio_bytes(), "audio/wav")}).json()
+    backend.update_project(video["id"], lambda p: p.update(mediaType="video"))
+    assert client.patch(f"/api/projects/{video['id']}", json={"videoEnabled": False}).status_code == 200
+    assert backend.load_project(video["id"])["videoEnabled"] is False

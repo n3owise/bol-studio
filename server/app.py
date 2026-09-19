@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -282,6 +282,20 @@ def prepare_media(project: dict) -> None:
         (directory / "preview.tmp.m4a").replace(directory / "preview.m4a")
 
 
+def _was_deleted(project_id: str) -> bool:
+    """Whether this job's project has been deleted out from under it.
+
+    A queued job is not cancellable — there is one worker and no way to reach
+    into it — so deleting a project lets its job run and fail on the first
+    update_project, which can no longer find the file. That is a cancellation,
+    not a fault: logging it as an exception buries real failures in noise, and
+    recording an "error" status for it means writing the project back, which
+    recreates the directory the delete just removed.
+    """
+    with LOCK:
+        return not (DATA_DIR / project_id / "project.json").is_file()
+
+
 def transcription_job(project_id: str) -> None:
     try:
         project = update_project(project_id, lambda p: p.update(status="processing", progress=5, message="Extracting the audio track."))
@@ -301,6 +315,8 @@ def transcription_job(project_id: str) -> None:
         # source in seconds if the clip is ever transcribed again.
         (project_dir(project_id) / "audio.wav").unlink(missing_ok=True)
     except Exception as exc:
+        if _was_deleted(project_id):
+            return
         LOGGER.exception("Transcription failed for %s", project_id)
         message = str(exc) if isinstance(exc, ValueError) else "Transcription failed. Check the local model installation or connection for its first download, then retry."
         update_project(project_id, lambda p: p.update(status="error", progress=0, message=message))
@@ -356,6 +372,8 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
         res_label = "4k" if resolution == 2160 else f"{resolution}p"
         mark_export(project_id, export_id, status="ready", progress=100, message="Your video is ready.", filename=f"{name}-{mode}-{res_label}-{fps}fps.mp4")
     except Exception:
+        if _was_deleted(project_id):
+            return
         LOGGER.exception("Export failed for %s", project_id)
         output_path.unlink(missing_ok=True)
         mark_export(project_id, export_id, status="error", progress=0, message="Export failed. Check the local rendering dependencies and try again.")
@@ -831,24 +849,66 @@ def install_middleware(target: FastAPI) -> FastAPI:
 install_middleware(app)
 
 
+def owned_project_usage(owner: str) -> tuple[int, int]:
+    """How many projects `owner` has, and what they weigh on disk.
+
+    Walked one project directory at a time rather than summed over DATA_DIR as
+    a whole. That sum counted whatever else lives beside the projects — the
+    speech model is 1.1 GB of it, the test fixtures more — so someone with a
+    single short clip was told they were using well over a gigabyte, and the
+    figure was everyone's total on a shared deployment rather than theirs.
+
+    A directory with no project.json is not a project, which is exactly what
+    keeps data/models and data/test-fixtures out of the count.
+    """
+    count = 0
+    total = 0
+    with LOCK:
+        for path in DATA_DIR.glob("*/project.json"):
+            try:
+                project = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if not owns(project, owner):
+                continue
+            count += 1
+            for entry in path.parent.rglob("*"):
+                try:
+                    if entry.is_file():
+                        total += entry.stat().st_size
+                except OSError:
+                    # write_project saves through a temporary file and replaces
+                    # it, so a name walked a moment ago can already be gone. A
+                    # usage figure is not worth failing the request over.
+                    continue
+    return count, total
+
+
 @app.get("/api/limits")
-def limits():
+def limits(request: Request):
     """What this deployment will accept, so the editor can say so up front.
 
     The disk figures are reported because nothing else can see them. A hosted
-    deployment's disk size is not published by its host, projects are never
-    deleted — there is no endpoint for it — and each upload keeps the original
-    alongside two derived copies, so a clip costs roughly three times its own
-    size. Without this the first sign of a full disk is uploads failing.
+    deployment's disk size is not published by its host, and each upload keeps
+    the original alongside its derived copies. Without this the first sign of a
+    full disk is uploads failing.
     """
     usage = shutil.disk_usage(DATA_DIR)
-    projects = sum(f.stat().st_size for f in DATA_DIR.rglob("*") if f.is_file())
+    count, used = owned_project_usage(owner_of(request))
     return {"maxExportSeconds": MAX_EXPORT_SECONDS or None,
             "maxUploadBytes": MAX_BYTES,
             "maxDurationSeconds": MAX_DURATION,
             "diskTotalBytes": usage.total,
             "diskFreeBytes": usage.free,
-            "diskUsedByProjectsBytes": projects}
+            "projectCount": count,
+            # One figure under two names while the editor crosses over. The old
+            # name claimed to be "the projects" and was the whole of DATA_DIR,
+            # the 1.1 GB speech model included, so it is left pointing at the
+            # honest number rather than at a total nobody can act on. Anything
+            # new should read diskUsedByAccountBytes, which says whose bytes
+            # these are — the answer differs per caller on a shared deployment.
+            "diskUsedByAccountBytes": used,
+            "diskUsedByProjectsBytes": used}
 
 
 @app.get("/api/health")
@@ -949,9 +1009,22 @@ def patch_project(project_id: str, request: ProjectPatch):
                 raise HTTPException(422, "Project name cannot be blank.")
             project["name"] = request.name.strip()
         if request.videoEnabled is not None:
+            # Asking an audio project for a video layer is a real mistake. Being
+            # told it has none is not — and only the first was ever meant to be
+            # refused.
+            #
+            # An audio upload is stored with videoEnabled False, and the editor
+            # autosaves the whole project on every change with that field
+            # included. So every save an audio creator made came back 409
+            # "Audio projects do not have a video layer": not one caption edit,
+            # rename or setting was ever written to disk, and the only sign was
+            # the save badge going amber. Found because the Settings panel's
+            # frame-shape control would not stick on an audio clip.
             if project["mediaType"] != "video":
-                raise HTTPException(409, "Audio projects do not have a video layer.")
-            project["videoEnabled"] = request.videoEnabled
+                if request.videoEnabled:
+                    raise HTTPException(409, "Audio projects do not have a video layer.")
+            else:
+                project["videoEnabled"] = request.videoEnabled
         if request.isolateVocals is not None:
             project["isolateVocals"] = bool(request.isolateVocals)
         if request.glossary is not None:
@@ -959,6 +1032,55 @@ def patch_project(project_id: str, request: ProjectPatch):
         if request.canvasElements is not None:
             project["canvasElements"] = request.canvasElements
     return update_project(project_id, mutate)
+
+
+@app.delete("/api/projects/{project_id}", status_code=204)
+def delete_project(project_id: str) -> Response:
+    """Remove a project and every file that belongs to it.
+
+    Nothing could, until now. The only delete on this API was for one media
+    asset, so every clip anyone ever uploaded stayed on the deployment's disk
+    for good — the source, the playback copy derived from it, its thumbnail and
+    every export beside them — and the only remedy was reaching the machine.
+
+    Refused only while the worker is actually inside the project. Transcription
+    and export both write it back through update_project, and write_project
+    recreates the directory it is handed — so a delete landing between two of
+    those writes removes the media and leaves a project.json for a clip whose
+    files are gone: a project that lists, opens, and can neither play nor
+    export. The two running states are refused separately because the person
+    waiting needs to know which one to wait for.
+
+    Queued work is not a reason to refuse, and this is the case that matters
+    most: an upload starts recognition by default, so "I picked the wrong file"
+    would have meant waiting out a transcript of it — possibly behind somebody
+    else's, since there is one worker. The queued job is allowed to run and find
+    nothing, which both jobs now treat as a cancellation. The check and the
+    removal share one lock with every update_project, so the job is either
+    already processing, and this refuses, or it is not, and it never starts.
+
+    Nothing checks ownership here on purpose: scope_to_owner has already refused
+    another workspace's project before this function is reached, and repeating
+    the check per endpoint is how one of them ends up missing it.
+    """
+    with LOCK:
+        project = load_project(project_id)
+        if project["status"] == "processing":
+            raise HTTPException(409, "This clip is being transcribed right now. Wait for it to finish, then delete it.")
+        if any(job["status"] == "processing" for job in project.get("exports", [])):
+            raise HTTPException(409, "An export is still rendering. Wait for it to finish, then delete this project.")
+        directory = project_dir(project_id)
+        shutil.rmtree(directory, ignore_errors=True)
+        if directory.exists():
+            # Said out loud rather than swallowed: the editor drops the project
+            # from its list the moment this returns ok, so a quiet failure looks
+            # like a delete that worked until the next poll brings it back.
+            raise HTTPException(500, "Some of this project's files could not be removed. Please try again.")
+    # 204 and no body. There is nothing left to describe once the directory is
+    # gone, and a {"status": "ok"} body invites a caller to test a field that
+    # only repeats the status line — the kind of check that keeps passing after
+    # the meaning behind it has changed.
+    return Response(status_code=204)
 
 
 @app.post("/api/projects/{project_id}/transcribe")
