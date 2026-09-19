@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, MailCheck } from 'lucide-react';
 import { authErrorMessage, MIN_PASSWORD_LENGTH, passwordProblem, supabase } from '../lib/auth';
+import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'sent' | 'recover';
 
@@ -399,6 +400,16 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
 
   return (
     <div className="auth-screen">
+      {/* The same control the navbar uses, left uncontrolled: in that mode it
+          owns the whole switch — the data-theme attribute, both classes, the
+          meta colour and the bol_theme key the boot script in index.html reads
+          back on the next load. Nothing here reimplements any of that.
+
+          It lives on this screen because the navbar's copy is inside App, which
+          only mounts after sign-in: until now, somebody whose machine is set to
+          dark had no way to reach light mode without signing in first. */}
+      <AnimatedThemeToggler className="auth-theme-toggle" />
+
       <div className="auth-stage">
         <div className="auth-brand">
           <span className="auth-wordmark">bol<span>.studio</span></span>

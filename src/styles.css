@@ -10278,6 +10278,37 @@ kbd {
   margin: auto;
 }
 
+/* The theme switch, in the corner rather than in the card: it is about the
+   screen, not about the account, and putting it in the card would make it the
+   fourth thing in a form that has three. */
+.auth-theme-toggle {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top, 0px));
+  right: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 2px solid var(--auth-ink);
+  border-radius: 6px;
+  background: var(--auth-surface);
+  box-shadow: var(--auth-shadow-sm);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 90ms ease, transform 90ms ease;
+}
+
+.auth-theme-toggle:hover { background: var(--color-bg-surface-hover); }
+
+.auth-theme-toggle:active {
+  box-shadow: 0 0 0 var(--auth-ink);
+  transform: translate(3px, 3px);
+}
+
+.auth-theme-toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 3px; }
+
 /* ---- brand ---- */
 
 .auth-brand {
@@ -10680,6 +10711,8 @@ kbd {
 
   .auth-ellipsis,
   .auth-spinner { animation: none; }
+
+  .auth-theme-toggle { transition: none; }
 }
 
 /* The account button in the navbar: an initial, because there are no avatars
