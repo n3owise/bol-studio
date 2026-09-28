@@ -28,6 +28,11 @@ DEFAULT_HINGLISH_MODEL = PROJECT_ROOT / "data" / "models" / "hinglish-swift" / "
 DEFAULT_HINGLISH_APEX_MODEL = PROJECT_ROOT / "data" / "models" / "hinglish-apex" / "hi-hinglish-apex"
 EMPHASIS_METHOD = "Acoustic suggestion from relative loudness, pitch and word duration; review and edit."
 
+
+class TranscriptionCancelled(Exception):
+    """Raised when a transcription job is aborted by user request."""
+    pass
+
 # Familiar spellings for function words; all other Hindi words use uroman.
 # These are transliterations, not a language-model rewrite of what was spoken.
 COMMON_HINDI = {
@@ -601,7 +606,8 @@ def _sherpa_tokens_to_words(result, duration: float) -> list[dict]:
             if word["end"] > word["start"]]
 
 
-def _sherpa_decode(audio: np.ndarray, rate: int, duration: float, model: str, progress: Callable[[int, str], None]) -> tuple[list[dict], str]:
+def _sherpa_decode(audio: np.ndarray, rate: int, duration: float, model: str, progress: Callable[[int, str], None],
+                   is_cancelled: Callable[[], bool] | None = None) -> tuple[list[dict], str]:
     recognizer = _hinglish_model(model)
     # The sherpa Whisper wrapper has a hard limit below 30 seconds per stream.
     # Decode overlapping windows so a longer reel is not silently truncated at
@@ -617,6 +623,8 @@ def _sherpa_decode(audio: np.ndarray, rate: int, duration: float, model: str, pr
     chunk_count = max(1, math.ceil(max(duration, .001) / (window - overlap)))
     chunk_index = 0
     while offset < duration - .001:
+        if is_cancelled and is_cancelled():
+            raise TranscriptionCancelled("Transcription was cancelled.")
         chunk_start = offset
         chunk_end = min(duration, offset + window)
         chunk_audio = audio[int(chunk_start * rate):int(chunk_end * rate)]
@@ -710,12 +718,17 @@ def decode_plan(backend: str, model: str, script: str, translate: bool) -> tuple
 def transcribe(audio_path: Path, duration: float, script: str, language: str,
                progress: Callable[[int, str], None], glossary: list[str] | None = None,
                isolateVocals: bool = False, source_path: Path | None = None,
-               emoji: bool = False, translate: bool = False) -> dict:
+               emoji: bool = False, translate: bool = False,
+               is_cancelled: Callable[[], bool] | None = None) -> dict:
+    if is_cancelled and is_cancelled():
+        raise TranscriptionCancelled("Transcription was cancelled.")
     backend, model, script = decode_plan(*model_config(), script, translate)
     audio, rate = read_audio(audio_path)
     waveform = waveform_samples(audio)
     if not len(audio) or float(np.sqrt(np.mean(audio*audio))) < .0003:
         return {"words": [], "waveform": waveform, "model": model, "detectedLanguage": None, "emphasisMethod": EMPHASIS_METHOD}
+    if is_cancelled and is_cancelled():
+        raise TranscriptionCancelled("Transcription was cancelled.")
     # Opt-in: strip music and room noise from the copy the recogniser hears. The
     # original audio is untouched, so the exported video keeps its full mix. On
     # a clean voiceover there is nothing to remove, which is why this is a choice
@@ -725,6 +738,8 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
         separated = isolate_vocals_from_source(source_path, rate, len(audio))
         if separated is not None:
             audio = separated
+    if is_cancelled and is_cancelled():
+        raise TranscriptionCancelled("Transcription was cancelled.")
     progress(28, "Loading the local speech model. First use downloads the model weights.")
     # Whisper translates to English natively, from the audio, as a different
     # decoding task — not as a second pass over the transcript. So it costs no
@@ -738,7 +753,7 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
                    else "Transcribe exactly as spoken. This is code-mixed Hindi-English. Keep English words in Latin letters and Hindi words in Devanagari. Example: Come on, lets start aaj ki video.",
                "no_speech_threshold": .6}
     if backend == "sherpa-hinglish":
-        segments, detected_language = _sherpa_decode(audio, rate, duration, model, progress)
+        segments, detected_language = _sherpa_decode(audio, rate, duration, model, progress, is_cancelled=is_cancelled)
     elif backend == "mlx":
         import mlx_whisper
         progress(34, "Transcribing locally and aligning spoken words. This may take a few minutes.")
@@ -752,11 +767,15 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
         stream, info = local_model.transcribe(str(audio_path), vad_filter=True, **options)
         segments = []
         for segment in stream:
+            if is_cancelled and is_cancelled():
+                raise TranscriptionCancelled("Transcription was cancelled.")
             segments.append({"words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]})
             progress(min(84, 34 + int(50*segment.end/max(duration,.01))), "Transcribing and aligning spoken words.")
         detected_language = info.language
     else:
         raise ValueError("BOL_ENGINE must be sherpa-hinglish, mlx, or faster-whisper.")
+    if is_cancelled and is_cancelled():
+        raise TranscriptionCancelled("Transcription was cancelled.")
     progress(68, "Preparing Hinglish spelling and measuring spoken emphasis.")
     words = normalize_words(segments, duration, script)
     if script == "roman" and backend == "sherpa-hinglish":
@@ -772,8 +791,12 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
     if glossary:
         progress(76, "Applying your brand words.")
         words = apply_glossary(words, glossary)
+    if is_cancelled and is_cancelled():
+        raise TranscriptionCancelled("Transcription was cancelled.")
     progress(80, "Refining speech pauses and word timing with acoustic energy analysis.")
     words = refine_word_boundaries_with_vad(words, audio, rate, duration)
+    if is_cancelled and is_cancelled():
+        raise TranscriptionCancelled("Transcription was cancelled.")
     progress(88, "Preparing Hinglish spelling and measuring spoken emphasis.")
     suggest_emphasis(words, audio, rate)
     # English only, and only when asked. The encoder behind this is trained on

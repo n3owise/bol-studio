@@ -336,6 +336,15 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     });
   }, [groups, time]);
 
+  // Active spoken word ID during playback
+  const activeWordId = useMemo(() => {
+    if (activeGroupIdx === -1) return null;
+    const g = groups[activeGroupIdx];
+    if (!g) return null;
+    const w = g.find(word => time >= word.start && time < word.end);
+    return w ? w.id : null;
+  }, [groups, activeGroupIdx, time]);
+
   const panelRef = useRef<HTMLElement | null>(null);
 
   // Keep outer panel pegged at scroll top 0 so inner flexbox governs scrolling
@@ -343,7 +352,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     if (panelRef.current && panelRef.current.scrollTop > 0) {
       panelRef.current.scrollTop = 0;
     }
-  });
+  }, []);
 
   // Handle user manual scroll
   const handleContainerScroll = () => {
@@ -1760,7 +1769,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                             return (
                               <>
                                 {group.map((w, wIdx) => {
-                                  const isWordActive = time >= w.start && time < w.end;
+                                  const isWordActive = activeWordId === w.id;
                                   const isWordSelected = selectedWordIds.has(w.id);
                                   const isWordEditing = editingWordId === w.id;
                                   const isWordDragging = movingIds.includes(w.id);

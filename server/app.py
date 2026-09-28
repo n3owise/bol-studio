@@ -27,14 +27,18 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_
 
 from server.auth import (AUTH_ENABLED, AuthError, MEDIA_TOKEN_TTL_SECONDS, mint_media_token,
                          owner_from_media_token, user_id_from)
-from server.transcription import model_status, transcribe
+from server.transcription import TranscriptionCancelled, model_status, transcribe
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(ROOT / "data"))).resolve()
 MAX_BYTES = 1024 * 1024 * 1024
 MAX_DURATION = 20 * 60
 LOCK = threading.RLock()
-EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bol-worker")
+CANCELLATIONS: set[str] = set()
+MAX_WORKERS = max(1, int(os.getenv("BOL_MAX_WORKERS", "2" if (os.cpu_count() or 1) >= 4 else "1")))
+EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="bol-worker")
+TRANSCRIPTION_EXECUTOR = EXECUTOR
+EXPORT_EXECUTOR = EXECUTOR
 LOGGER = logging.getLogger("bol")
 # Shared with the browser: src/lib/types.ts imports this same file. Keeping two
 # hand-written copies meant a project created here opened with a different
@@ -298,15 +302,25 @@ def _was_deleted(project_id: str) -> bool:
 
 def transcription_job(project_id: str) -> None:
     try:
+        with LOCK:
+            if project_id in CANCELLATIONS or _was_deleted(project_id):
+                CANCELLATIONS.discard(project_id)
+                return
         project = update_project(project_id, lambda p: p.update(status="processing", progress=5, message="Extracting the audio track."))
         prepare_media(project)
+        is_cancelled = lambda: project_id in CANCELLATIONS or _was_deleted(project_id)
+        if is_cancelled():
+            raise TranscriptionCancelled("Transcription was cancelled.")
         result = transcribe(project_dir(project_id) / "audio.wav", project["duration"], project["script"], project.get("language", "hi"),
                             lambda percent, message: set_progress(project_id, percent, message),
                             glossary=project.get("glossary") or [],
                             isolateVocals=bool(project.get("isolateVocals")),
                             source_path=project_dir(project_id) / "source.bin",
                             emoji=bool(project.get("emoji")),
-                            translate=bool(project.get("translate")))
+                            translate=bool(project.get("translate")),
+                            is_cancelled=is_cancelled)
+        if is_cancelled():
+            raise TranscriptionCancelled("Transcription was cancelled.")
         # The current project is reread under the lock: concurrent name/style edits survive.
         update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
                       message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
@@ -314,12 +328,18 @@ def transcription_job(project_id: str) -> None:
         # again — a third of the stored size for a file regenerated from the
         # source in seconds if the clip is ever transcribed again.
         (project_dir(project_id) / "audio.wav").unlink(missing_ok=True)
+    except TranscriptionCancelled:
+        LOGGER.info("Transcription cancelled for %s", project_id)
+        (project_dir(project_id) / "audio.wav").unlink(missing_ok=True)
     except Exception as exc:
         if _was_deleted(project_id):
             return
         LOGGER.exception("Transcription failed for %s", project_id)
         message = str(exc) if isinstance(exc, ValueError) else "Transcription failed. Check the local model installation or connection for its first download, then retry."
         update_project(project_id, lambda p: p.update(status="error", progress=0, message=message))
+    finally:
+        with LOCK:
+            CANCELLATIONS.discard(project_id)
 
 
 def mark_export(project_id: str, export_id: str, **changes) -> None:
@@ -915,7 +935,7 @@ def limits(request: Request):
 def health():
     speech = model_status()
     return {"status": "ok", **speech, "ffmpeg": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
-            "maxUploadBytes": MAX_BYTES, "maxDuration": MAX_DURATION}
+            "maxUploadBytes": MAX_BYTES, "maxDuration": MAX_DURATION, "workers": MAX_WORKERS}
 
 
 @app.get("/api/projects")
@@ -1085,6 +1105,8 @@ def delete_project(project_id: str) -> Response:
 
 @app.post("/api/projects/{project_id}/transcribe")
 def retry_transcription(project_id: str, request: TranscribeRequest | None = None):
+    with LOCK:
+        CANCELLATIONS.discard(project_id)
     def mutate(project):
         if project["status"] in {"queued", "processing"}:
             raise HTTPException(409, "This clip is already queued for transcription.")
@@ -1094,6 +1116,17 @@ def retry_transcription(project_id: str, request: TranscribeRequest | None = Non
     result = update_project(project_id, mutate)
     EXECUTOR.submit(transcription_job, project_id)
     return result
+
+
+@app.post("/api/projects/{project_id}/cancel")
+def cancel_transcription(project_id: str):
+    load_project(project_id)
+    with LOCK:
+        CANCELLATIONS.add(project_id)
+        def mutate(p):
+            if p["status"] in {"queued", "processing"}:
+                p.update(status="ready", progress=0, message="Transcription cancelled.")
+        return update_project(project_id, mutate)
 
 
 @app.post("/api/projects/{project_id}/media-token")

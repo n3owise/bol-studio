@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Accessibility, AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, LogOut, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Music, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, LogOut, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/500.css';
 import '@fontsource/dm-sans/600.css';
@@ -13,7 +13,7 @@ import '@fontsource/montserrat/900.css';
 import './styles.css';
 import { API, deleteProject, fetchLimits, fetchMediaAssets, request, upload, mediaUrl, type Limits } from './lib/api';
 import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
-import { appendWord, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { appendWord, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, plainTranscript, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
 import { UNSAVED, type Health, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
@@ -31,6 +31,10 @@ import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
 import { CaptionsPanel } from './components/CaptionsPanel';
 import { WordInspector, recase, type WordCase } from './components/WordInspector';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
+import { StudioNavbar } from './components/StudioNavbar';
+import { StudioModals } from './components/StudioModals';
+import { LiveAnnouncer } from './components/LiveAnnouncer';
+import { TimelineRuler } from './components/TimelineRuler';
 import { AuthScreen } from './components/AuthScreen';
 import { AUTH_ENABLED, rememberSession, supabase } from './lib/auth';
 import type { Session } from '@supabase/supabase-js';
@@ -79,7 +83,6 @@ const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
   { id: 'media', label: 'Media', icon: <Camera size={20} strokeWidth={1.75} /> },
   { id: 'text', label: 'Text', icon: <Type size={20} strokeWidth={1.75} /> },
   { id: 'style', label: 'Style', icon: <Clock size={20} strokeWidth={1.75} /> },
-  { id: 'audio', label: 'Audio', icon: <Music size={20} strokeWidth={1.75} /> },
   { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} strokeWidth={1.75} /> },
 ];
 
@@ -166,6 +169,8 @@ function App() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef(0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1);
+  const [timelineHover, setTimelineHover] = useState<{ xPct: number; time: number } | null>(null);
   const [script, setScript] = useState('roman');
   const [language, setLanguage] = useState('auto');
   const [activeNavPanel, setActiveNavPanel] = useState<NavPanelId>('caption');
@@ -183,7 +188,6 @@ function App() {
   const [selectedWordIds, setSelectedWordIds] = useState<Set<string>>(new Set());
   const [draggingWordIds, setDraggingWordIds] = useState<string[]>([]);
   const lastSelectedWordIdRef = useRef<string | null>(null);
-  const [wordMenu, setWordMenu] = useState<{ word: Word; position: { top: number; left: number } } | null>(null);
   const [editingWordId, setEditingWordId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
@@ -193,7 +197,7 @@ function App() {
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notice, setNotice] = useState('');
-  const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | null>(null);
+  const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | 'shortcuts' | null>(null);
   const [accountEmail, setAccountEmail] = useState('');
   /** What sign-up asked for, when it was asked. Blank for accounts made before
    *  the field existed, so every reader of it falls back to the email. */
@@ -461,17 +465,32 @@ function App() {
 
   useEffect(() => {
     if (!isScrubbing) return;
+    let rafId: number | null = null;
+    let latestEvent: MouseEvent | null = null;
+
     const onMouseMove = (e: MouseEvent) => {
-      if (!timelineTrackRef.current || !duration) return;
-      const rect = timelineTrackRef.current.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const pct = Math.max(0, Math.min(1, clickX / rect.width));
-      seek(pct * duration);
+      latestEvent = e;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!latestEvent || !timelineTrackRef.current || !duration) return;
+        const rect = timelineTrackRef.current.getBoundingClientRect();
+        const clickX = latestEvent.clientX - rect.left;
+        const pct = Math.max(0, Math.min(1, clickX / rect.width));
+        seek(pct * duration);
+      });
     };
-    const onMouseUp = () => setIsScrubbing(false);
+    const onMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      setIsScrubbing(false);
+    };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
@@ -917,34 +936,47 @@ function App() {
     let currentX = origX;
     let currentY = origY;
 
+    let rafId: number | null = null;
+    let latestEvent: MouseEvent | null = null;
+
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      let newX = origX + (dx / frameRect.width) * 100;
-      let newY = origY + (dy / frameRect.height) * 100;
+      latestEvent = moveEvent;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!latestEvent) return;
+        const dx = latestEvent.clientX - startX;
+        const dy = latestEvent.clientY - startY;
+        let newX = origX + (dx / frameRect.width) * 100;
+        let newY = origY + (dy / frameRect.height) * 100;
 
-      let snappedX = false;
-      let snappedY = false;
-      if (Math.abs(newX - 50) < 2) {
-        newX = 50;
-        snappedX = true;
-      }
-      if (Math.abs(newY - 50) < 2) {
-        newY = 50;
-        snappedY = true;
-      }
-      setSnapGuideX(snappedX);
-      setSnapGuideY(snappedY);
+        let snappedX = false;
+        let snappedY = false;
+        if (Math.abs(newX - 50) < 2) {
+          newX = 50;
+          snappedX = true;
+        }
+        if (Math.abs(newY - 50) < 2) {
+          newY = 50;
+          snappedY = true;
+        }
+        setSnapGuideX(snappedX);
+        setSnapGuideY(snappedY);
 
-      newX = Math.max(5, Math.min(95, newX));
-      newY = Math.max(5, Math.min(95, newY));
-      currentX = newX;
-      currentY = newY;
+        newX = Math.max(5, Math.min(95, newX));
+        newY = Math.max(5, Math.min(95, newY));
+        currentX = newX;
+        currentY = newY;
 
-      setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, x: newX, y: newY } : item));
+        setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, x: newX, y: newY } : item));
+      });
     };
 
     const onMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       setSnapGuideX(false);
@@ -967,16 +999,29 @@ function App() {
     const origScale = el.scale || 1.0;
     let currentScale = origScale;
 
+    let rafId: number | null = null;
+    let latestEvent: MouseEvent | null = null;
+
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      const delta = (handle.includes('e') || handle.includes('s')) ? (dx + dy) : (-dx - dy);
-      const newScale = Math.max(0.15, Math.min(3.5, Number((origScale + delta * 0.005).toFixed(2))));
-      currentScale = newScale;
-      setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, scale: newScale } : item));
+      latestEvent = moveEvent;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!latestEvent) return;
+        const dx = latestEvent.clientX - startX;
+        const dy = latestEvent.clientY - startY;
+        const delta = (handle.includes('e') || handle.includes('s')) ? (dx + dy) : (-dx - dy);
+        const newScale = Math.max(0.15, Math.min(3.5, Number((origScale + delta * 0.005).toFixed(2))));
+        currentScale = newScale;
+        setCanvasElements(prev => prev.map(item => item.id === id ? { ...item, scale: newScale } : item));
+      });
     };
 
     const onMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       handleUpdateCanvasElement(id, { scale: currentScale });
@@ -1089,7 +1134,7 @@ function App() {
     const p = projectRef.current;
     if (!p || !wordIds.length) return;
     const effectivePerLine = isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine;
-    const updated = moveWordsToNewLine(p.words, wordIds, afterGroupIdx, effectivePerLine);
+    const updated = moveWordsToNewLine(p.words, wordIds, afterGroupIdx, effectivePerLine, p.duration || 60);
     if (updated === p.words) return;
     markEdit({ ...p, words: updated }, true);
     setSelectedWordIds(new Set(wordIds));
@@ -1219,9 +1264,34 @@ function App() {
       };
     });
 
-    const prefix = p.words.filter(w => !oldGroupIds.has(w.id) && w.end <= newStart);
-    const suffix = p.words.filter(w => !oldGroupIds.has(w.id) && w.start >= newEnd);
-    const updatedWords = [...prefix, ...newWordsForGroup, ...suffix];
+    const otherWords = p.words
+      .filter(w => !oldGroupIds.has(w.id))
+      .map(w => {
+        if (w.end <= newStart || w.start >= newEnd) {
+          return { ...w };
+        }
+        if (w.start < newStart) {
+          const clampedEnd = Number(Math.max(w.start + 0.03, newStart - 0.005).toFixed(3));
+          return { ...w, end: clampedEnd };
+        }
+        if (w.end > newEnd) {
+          const clampedStart = Number((newEnd + 0.005).toFixed(3));
+          const clampedEnd = Number(Math.max(clampedStart + 0.03, w.end).toFixed(3));
+          return { ...w, start: clampedStart, end: clampedEnd };
+        }
+        const mid = (newStart + newEnd) / 2;
+        if (w.start < mid) {
+          const clampedEnd = Number(Math.max(0.04, newStart - 0.005).toFixed(3));
+          const clampedStart = Number(Math.max(0, clampedEnd - (w.end - w.start)).toFixed(3));
+          return { ...w, start: clampedStart, end: clampedEnd };
+        } else {
+          const clampedStart = Number((newEnd + 0.005).toFixed(3));
+          const clampedEnd = Number((clampedStart + Math.max(0.03, w.end - w.start)).toFixed(3));
+          return { ...w, start: clampedStart, end: clampedEnd };
+        }
+      });
+
+    const updatedWords = [...otherWords, ...newWordsForGroup];
     updatedWords.sort((a, b) => a.start - b.start);
     ensureValidIntervals(updatedWords, p.duration || 60);
 
@@ -1260,24 +1330,31 @@ function App() {
     const startTime = Number(Math.max(0, Math.min(dur - 0.5, atTime)).toFixed(3));
     const endTime = Number(Math.min(dur, startTime + 2.0).toFixed(3));
 
-    const newWord: Word = {
-      id: `w-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      text: 'New caption',
-      original: 'New caption',
-      start: startTime,
-      end: Math.max(startTime + 0.3, endTime),
-      confidence: 1,
-      emphasis: false,
-      emphasisScore: 0.5,
-    };
+    const totalDuration = Math.max(0.4, endTime - startTime);
+    const tokens = ['New', 'caption'];
+    const durPerWord = totalDuration / tokens.length;
+    const newWords: Word[] = tokens.map((token, i) => {
+      const wStart = Number((startTime + i * durPerWord).toFixed(3));
+      const wEnd = Number((startTime + (i + 1) * durPerWord - (i < tokens.length - 1 ? 0.005 : 0)).toFixed(3));
+      return {
+        id: `w-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 7)}`,
+        text: token,
+        original: token,
+        start: wStart,
+        end: Math.max(wStart + 0.05, wEnd),
+        confidence: 1,
+        emphasis: false,
+        emphasisScore: 0.5,
+      };
+    });
 
-    const updatedWords = [...p.words, newWord];
+    const updatedWords = [...p.words, ...newWords];
     updatedWords.sort((a, b) => a.start - b.start);
     ensureValidIntervals(updatedWords, dur);
 
     markEdit({ ...p, words: updatedWords }, true);
-    setSelectedWord(newWord.id);
-    setSelectedWordIds(new Set([newWord.id]));
+    setSelectedWord(newWords[0].id);
+    setSelectedWordIds(new Set(newWords.map(w => w.id)));
     notify('Added new caption');
   }, [notify]);
 
@@ -1328,7 +1405,7 @@ function App() {
       ? 1
       : Math.min(MAX_WORDS_PER_PAGE, Math.max(targetLineWordCount, settings.wordsPerLine));
 
-    const updatedWords = moveWordsToLine(p.words, validMovingIds, targetGroupIdx, targetPosition, neededMax);
+    const updatedWords = moveWordsToLine(p.words, validMovingIds, targetGroupIdx, targetPosition, neededMax, p.duration || 60);
 
     const nextSettings = neededMax > settings.wordsPerLine && !isSingleWordTemplate(settings.template)
       ? { ...settings, wordsPerLine: neededMax }
@@ -1369,27 +1446,20 @@ function App() {
     e.preventDefault();
     e.stopPropagation();
 
+    setSelectedWord(word.id);
     if (!selectedWordIds.has(word.id)) {
       setSelectedWordIds(new Set([word.id]));
-      setSelectedWord(word.id);
       lastSelectedWordIdRef.current = word.id;
     }
-
-    const menuWidth = 280;
-    const menuHeight = 440;
-    let top = e.clientY + 4;
-    let left = e.clientX;
-
-    if (top + menuHeight > window.innerHeight - 10) {
-      top = Math.max(10, e.clientY - menuHeight - 4);
-    }
-    if (left + menuWidth > window.innerWidth - 10) {
-      left = Math.max(10, window.innerWidth - menuWidth - 10);
-    }
-
-    setWordMenu({
+    seek(word.start);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTimelinePopover({
       word,
-      position: { top, left },
+      rect,
+      draftText: word.text,
+      emphasis: !!word.emphasis,
+      spotlight: !!word.spotlight,
+      behind: !!word.behind,
     });
   }
   function handleTimelineWordClick(e: React.MouseEvent<HTMLElement>, word: Word) {
@@ -1608,22 +1678,35 @@ function App() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      const dt = (deltaX / scrollWidth) * duration;
-      const targetSplit = Number((origSplit + dt).toFixed(3));
-      currentSplit = Math.max(minSplit, Math.min(maxSplit, targetSplit));
+    let rafId: number | null = null;
+    let latestEvent: MouseEvent | null = null;
 
-      const updatedWords = p.words.map(w => {
-        if (w.id === wordA.id) return { ...w, end: currentSplit };
-        if (w.id === wordB.id) return { ...w, start: currentSplit };
-        return w;
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      latestEvent = moveEvent;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!latestEvent) return;
+        const deltaX = latestEvent.clientX - startX;
+        const dt = (deltaX / scrollWidth) * duration;
+        const targetSplit = Number((origSplit + dt).toFixed(3));
+        currentSplit = Math.max(minSplit, Math.min(maxSplit, targetSplit));
+
+        const updatedWords = p.words.map(w => {
+          if (w.id === wordA.id) return { ...w, end: currentSplit };
+          if (w.id === wordB.id) return { ...w, start: currentSplit };
+          return w;
+        });
+        markEdit({ ...p, words: updatedWords }, false);
+        seek(currentSplit);
       });
-      markEdit({ ...p, words: updatedWords }, false);
-      seek(currentSplit);
     };
 
     const onMouseUp = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       window.removeEventListener('mousemove', onMouseMove);
@@ -2134,6 +2217,9 @@ function App() {
     const tick = () => { if (media.current) setTime(media.current.currentTime); frame = requestAnimationFrame(tick); };
     frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame);
   }, [playing, project]);
+  useEffect(() => {
+    if (media.current) media.current.playbackRate = playbackRate;
+  }, [playbackRate]);
   // The <Player> is never played on its own: the <video> element owns the clock
   // and the caption layer is seeked to match, so audio and captions cannot drift.
   useEffect(() => {
@@ -2211,10 +2297,15 @@ function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-          if (timelinePopover) { setTimelinePopover(null); return; }
-        if (wordMenu) { setWordMenu(null); return; }
+        if (modal) { setModal(null); return; }
+        if (timelinePopover) { setTimelinePopover(null); return; }
         if (captionToolsOpen) { setCaptionToolsOpen(false); return; }
         if (editingWordId) { setEditingWordId(null); return; }
+      }
+      if (e.key === '?' || (e.shiftKey && e.key === '/') || ((e.ctrlKey || e.metaKey) && e.key === '/')) {
+        e.preventDefault();
+        setModal(m => m === 'shortcuts' ? null : 'shortcuts');
+        return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); void flushSave().catch(()=>{}); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
@@ -2286,12 +2377,84 @@ function App() {
           return;
         }
       }
+      // NLE Line Jump: [ (previous line), ] (next line)
+      if (e.key === '[') {
+        e.preventDefault();
+        if (groups.length) {
+          const curIdx = groups.findIndex(g => time >= g[0].start && time <= g.at(-1)!.end);
+          if (curIdx > 0) {
+            seek(groups[curIdx - 1][0].start);
+          } else if (curIdx === -1) {
+            const prev = [...groups].reverse().find(g => g.at(-1)!.end < time);
+            if (prev) seek(prev[0].start);
+            else seek(0);
+          } else {
+            seek(0);
+          }
+        }
+        return;
+      }
+      if (e.key === ']') {
+        e.preventDefault();
+        if (groups.length) {
+          const curIdx = groups.findIndex(g => time >= g[0].start && time <= g.at(-1)!.end);
+          if (curIdx !== -1 && curIdx < groups.length - 1) {
+            seek(groups[curIdx + 1][0].start);
+          } else if (curIdx === -1) {
+            const next = groups.find(g => g[0].start > time);
+            if (next) seek(next[0].start);
+          }
+        }
+        return;
+      }
+      // NLE Shuttle controls: J (rewind 1s), K (toggle play), L (forward 1s)
+      if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        seek(Math.max(0, time - 1));
+        return;
+      }
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        seek(Math.min(duration, time + 1));
+        return;
+      }
+      if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2))));
+        return;
+      }
+      if (e.key === '-') {
+        e.preventDefault();
+        setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2))));
+        return;
+      }
+      if (e.shiftKey && (e.key === '>' || e.key === '.')) {
+        e.preventDefault();
+        const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+        const next = speeds[Math.min(speeds.length - 1, speeds.indexOf(playbackRate) + 1)];
+        setPlaybackRate(next);
+        notify(`Playback speed: ${next}x`);
+        return;
+      }
+      if (e.shiftKey && (e.key === '<' || e.key === ',')) {
+        e.preventDefault();
+        const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+        const prev = speeds[Math.max(0, speeds.indexOf(playbackRate) - 1)];
+        setPlaybackRate(prev);
+        notify(`Playback speed: ${prev}x`);
+        return;
+      }
       if (e.key === 'ArrowUp') { e.preventDefault(); setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2)))); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2)))); return; }
       if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     };
     window.addEventListener('keydown',onKey); return () => window.removeEventListener('keydown',onKey);
-  },[togglePlay,flushSave,timelinePopover,wordMenu,captionToolsOpen,editingWordId,selectedWord,time,project,selectedCanvasElementId,handleDeleteCanvasElement,busy]);
+  },[togglePlay,flushSave,timelinePopover,captionToolsOpen,editingWordId,selectedWord,time,project,selectedCanvasElementId,handleDeleteCanvasElement,busy,groups,duration,modal,playbackRate,notify]);
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
@@ -2443,10 +2606,30 @@ function App() {
       setExporting(false);
     }
   }
-  function downloadTranscript(format: 'srt' | 'vtt' | 'json') {
+  function downloadTranscript(format: 'srt' | 'vtt' | 'json' | 'txt') {
     if(!project) return;
-    const text=format==='json'?JSON.stringify({name:project.name,words:project.words,settings},null,2):subtitleText(project.words,settings.wordsPerLine,format);
-    const blob=new Blob([text],{type:format==='json'?'application/json':'text/plain;charset=utf-8'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${project.name.replace(/[^\p{L}\p{N}_-]/gu,'_')}.${format}`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const text = format === 'json'
+      ? JSON.stringify({ name: project.name, words: project.words, settings }, null, 2)
+      : format === 'txt'
+      ? plainTranscript(project.words, settings.wordsPerLine)
+      : subtitleText(project.words, settings.wordsPerLine, format);
+    const blob = new Blob([text], { type: format === 'json' ? 'application/json' : 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.name.replace(/[^\p{L}\p{N}_-]/gu, '_')}.${format}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    notify(`Downloaded .${format.toUpperCase()} transcript`);
+  }
+  function copyTranscript() {
+    if (!project?.words.length) return;
+    const text = plainTranscript(project.words, settings.wordsPerLine);
+    navigator.clipboard.writeText(text).then(() => {
+      notify('Transcript copied to clipboard!');
+    }).catch(() => {
+      notify('Could not copy to clipboard.');
+    });
   }
   /**
    * Start recognition, optionally overriding what the project currently says.
@@ -2479,104 +2662,36 @@ function App() {
   return <div className="app-shell">
     <input ref={input} type="file" accept="video/*,audio/*,.mkv,.m4a,.wav,.mp3,.webm" hidden onChange={e=>void importFile(e.target.files?.[0])}/>
 
-    <header className="studio-navbar">
-      <div className="navbar-left">
-        <button className="navbar-brand" type="button" title="Bol Studio" aria-label="Bol Studio">
-          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo logo-light-only" />
-          <img src="/bol.studio-white.svg" alt="bol.studio" className="navbar-brand-logo logo-dark-only" />
-        </button>
-        {project && (
-          <>
-            <div className="nav-divider" />
-            <div className="navbar-project">
-              <input
-                aria-label="Project name"
-                className="navbar-project-input"
-                value={project.name || project.filename}
-                readOnly={busy}
-                onChange={e => markEdit({ ...project, name: e.target.value })}
-                maxLength={120}
-              />
-              {/* The dot used to track backend health only, so a failed save
-                  showed "Unsaved changes" next to a reassuring green dot. It is
-                  the most glanceable part of the badge, so it reflects both. */}
-              <span className="navbar-save-badge">
-                <span className={`status-dot ${!health ? 'offline' : saveStatus === UNSAVED ? 'unsaved' : ''}`} />
-                <span className="save-text">{saveStatus}</span>
-              </span>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="navbar-center" />
-
-      <div className="navbar-right">
-        <div className="nav-btn-group">
-          <button
-            className="icon-button"
-            aria-label="Undo"
-            title="Undo (Cmd+Z)"
-            disabled={!history.length || busy}
-            onClick={undo}
-          >
-            <Undo2 size={16} />
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Redo"
-            title="Redo (Cmd+Shift+Z)"
-            disabled={!future.length || busy}
-            onClick={redo}
-          >
-            <Redo2 size={16} />
-          </button>
-        </div>
-        <div className="nav-divider" />
-        <AnimatedThemeToggler
-          theme={theme}
-          onThemeChange={persistTheme}
-          className="theme-toggle-btn"
-        />
-        {AUTH_ENABLED && accountEmail && (
-          <button
-            ref={accountButtonRef}
-            className="nav-btn ghost"
-            aria-label={`Account — ${accountName || accountEmail}`}
-            title={accountName ? `${accountName} — ${accountEmail}` : accountEmail}
-            aria-haspopup="menu"
-            aria-expanded={accountMenu !== null}
-            onClick={() => {
-              if (accountMenu) { setAccountMenu(null); return; }
-              const rect = accountButtonRef.current?.getBoundingClientRect();
-              if (!rect) return;
-              // Pinned to the button's right edge rather than its left, so the
-              // menu stays on screen without any measuring: it can only ever
-              // grow inwards from the corner it is already in.
-              setAccountMenu({
-                top: rect.bottom + 8,
-                right: Math.max(12, window.innerWidth - rect.right),
-              });
-            }}
-          >
-            <span className="account-initial">{(accountName || accountEmail)[0].toUpperCase()}</span>
-          </button>
-        )}
-        {/* The projects list is out of the interface while how to present past
-            work is still being decided. The modal and everything behind it are
-            untouched — this is the entry point being withheld, not the feature
-            being removed, so putting it back is one element. */}
-        <button
-          className="nav-btn primary"
-          onClick={() => setModal('export')}
-          disabled={!project?.words.length || busy}
-        >
-          <Download size={15} />
-          <span>Export</span>
-          <ChevronDown size={13} />
-        </button>
-      </div>
-    </header>
+    <StudioNavbar
+      project={project}
+      busy={busy}
+      health={health}
+      saveStatus={saveStatus}
+      hasUndo={history.length > 0}
+      hasRedo={future.length > 0}
+      theme={theme}
+      authEnabled={AUTH_ENABLED}
+      accountEmail={accountEmail}
+      accountName={accountName}
+      accountMenuOpen={accountMenu !== null}
+      onOpenProjects={() => setModal('projects')}
+      onRenameProject={name => project && markEdit({ ...project, name })}
+      onUndo={undo}
+      onRedo={redo}
+      onThemeChange={persistTheme}
+      onToggleAccountMenu={rect => {
+        if (accountMenu) {
+          setAccountMenu(null);
+        } else if (rect) {
+          setAccountMenu({
+            top: rect.bottom + 8,
+            right: Math.max(12, window.innerWidth - rect.right),
+          });
+        }
+      }}
+      onOpenExport={() => setModal('export')}
+      onOpenShortcuts={() => setModal('shortcuts')}
+    />
 
     <div className="studio">
       <aside className="studio-nav-rail" aria-label="Main navigation panels">
@@ -2704,10 +2819,20 @@ function App() {
                 emoji: !!opts.emoji, translate: !!opts.translate,
               });
             }}
-            onCancelTranscription={() => {
-              if (projectRef.current) {
-                markEdit({ ...projectRef.current, status: 'ready', progress: 100 });
+            onCancelTranscription={async () => {
+              const p = projectRef.current;
+              if (p) {
+                markEdit({ ...p, status: 'ready', progress: 0, message: 'Transcription cancelled.' });
                 notify('Transcription cancelled');
+                try {
+                  const updated = await request<Project>(`/projects/${p.id}/cancel`, { method: 'POST' });
+                  if (projectRef.current?.id === p.id) {
+                    setProject(updated);
+                    projectRef.current = updated;
+                  }
+                } catch {
+                  // Keep optimistic local state
+                }
               }
             }}
             onGoToMedia={() => setActiveNavPanel('media')}
@@ -2865,7 +2990,12 @@ function App() {
               <div
                 ref={preview}
                 className={`video-frame ${hasVideoLayer && !videoEnabled ? 'video-removed' : ''}`}
-                style={{ aspectRatio: `${size.width}/${size.height}` }}
+                style={{ aspectRatio: `${size.width}/${size.height}`, cursor: 'pointer' }}
+                onClick={e => {
+                  if (e.target === preview.current || e.target === media.current) {
+                    togglePlay();
+                  }
+                }}
                 onMouseEnter={() => setPreviewHover(true)}
                 onMouseLeave={() => { if (!draggingCaption) setPreviewHover(false); }}
               >
@@ -2877,7 +3007,10 @@ function App() {
                   playsInline
                   preload="metadata"
                   muted={muted}
-                  onPlay={() => setPlaying(true)}
+                  onPlay={() => {
+                    if (media.current) media.current.playbackRate = playbackRate;
+                    setPlaying(true);
+                  }}
                   onPause={() => setPlaying(false)}
                   onEnded={() => setPlaying(false)}
                   onSeeked={() => setTime(media.current?.currentTime ?? 0)}
@@ -3058,14 +3191,14 @@ function App() {
                   width={size.width}
                   height={size.height}
                   aria-label="Animated caption preview"
-                  onClick={() => {
-                    if (activeWord) {
-                      selectWord(activeWord.id);
-                    } else {
-                      const curGroup = groups.find(g => time >= g[0].start && time < (g[g.length - 1].end + 0.08));
-                      if (curGroup?.length) {
-                        selectWord(curGroup[0].id);
-                      }
+                  tabIndex={0}
+                  role="button"
+                  style={{ cursor: 'pointer' }}
+                  onClick={togglePlay}
+                  onKeyDown={e => {
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      togglePlay();
                     }
                   }}
                 />
@@ -3253,6 +3386,20 @@ function App() {
                 >
                   <ChevronRight size={18} />
                 </button>
+                <button
+                  type="button"
+                  className="timeline-speed-pill"
+                  aria-label={`Playback speed ${playbackRate}x`}
+                  title="Playback speed (click to cycle, or Shift + < / >)"
+                  onClick={() => {
+                    const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+                    const next = speeds[(speeds.indexOf(playbackRate) + 1) % speeds.length];
+                    setPlaybackRate(next);
+                  }}
+                  disabled={!project}
+                >
+                  {playbackRate}x
+                </button>
               </div>
 
               {/* Right: Tools (Split, Zoom Slider, Search, Fullscreen) */}
@@ -3338,20 +3485,29 @@ function App() {
                   setIsScrubbing(true);
                   handleTimelineTrackClick(e);
                 }}
+                onMouseMove={(e) => {
+                  if (!timelineTrackRef.current || !duration) return;
+                  const rect = timelineTrackRef.current.getBoundingClientRect();
+                  const relX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+                  const xPct = (relX / rect.width) * 100;
+                  const t = (relX / rect.width) * duration;
+                  setTimelineHover({ xPct, time: t });
+                }}
+                onMouseLeave={() => setTimelineHover(null)}
               >
                 {/* 1. Light Dynamic Ruler */}
-                <div className="timeline-ruler">
-                  {rulerTicks.map((tick, i) => (
-                    <div
-                      key={i}
-                      className={`timeline-ruler-tick ${tick.isMajor ? 'major' : 'minor'}`}
-                      style={{ left: `${duration ? (tick.time / duration) * 100 : 0}%` }}
-                    >
-                      {tick.isMajor && <span className="tick-label">{tick.label}</span>}
-                      <span className="tick-line" />
-                    </div>
-                  ))}
-                </div>
+                <TimelineRuler ticks={rulerTicks} duration={duration} />
+
+                {/* Timeline Hover Scrub Guide */}
+                {timelineHover && !isScrubbing && (
+                  <div
+                    className="timeline-hover-indicator"
+                    style={{ left: `${timelineHover.xPct}%` }}
+                    aria-hidden="true"
+                  >
+                    <div className="timeline-hover-tooltip">{timecode(timelineHover.time)}</div>
+                  </div>
+                )}
 
                 {/* 2. Waveform track with green progress bars */}
                 {project?.waveform?.length ? (
@@ -3475,6 +3631,22 @@ function App() {
                                   title={`${w.text} (${timecode(w.start)} - ${timecode(w.end)})`}
                                   onMouseDown={(e) => startWordDrag(e, w)}
                                   onContextMenu={(e) => handleWordContextMenu(e, w)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      setSelectedWord(w.id);
+                                      seek(w.start);
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      setTimelinePopover({
+                                        word: w,
+                                        rect,
+                                        draftText: w.text,
+                                        emphasis: !!w.emphasis,
+                                        spotlight: !!w.spotlight,
+                                        behind: !!w.behind,
+                                      });
+                                    }
+                                  }}
                                 >
                                   {/* Left trim handle */}
                                   <div
@@ -3608,9 +3780,9 @@ function App() {
       </main>
     </div>
 
+    <LiveAnnouncer notice={notice} saveStatus={saveStatus} uploadProgress={uploadProgress} busy={busy} />
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
     {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
-    {modal==='projects'&&<Modal title="Your workspace" onClose={()=>setModal(null)}><p className="modal-description">{AUTH_ENABLED?'Projects are saved to your account. Cloud storage is temporary for now — export anything you want to keep.':'Projects are saved on this computer, ready whenever you are.'}</p><button className="button primary full" onClick={()=>{setModal(null);input.current?.click();}}><Plus size={16}/>New upload</button><div className="project-list">{projects.length?projects.map(p=><button key={p.id} onClick={()=>void openProject(p)}><span className="project-list-icon">{p.mediaType==='audio'?<FileAudio size={21}/>:<Film size={21}/>}</span><span><strong>{p.name}</strong><small>{timecode(p.duration)} · {p.status==='ready'?`${p.words?.length??0} words`:p.status}</small></span><ChevronRight size={17}/></button>):<div className="empty-projects"><FolderOpen size={32}/><p>Your first story is one upload away.</p></div>}</div></Modal>}
     {modal === 'export' && (
       <Modal title="Export Video" onClose={() => setModal(null)} wide>
         <p className="modal-description">
@@ -3818,7 +3990,9 @@ function App() {
           <div>
             <button type="button" onClick={() => downloadTranscript('srt')}>.SRT</button>
             <button type="button" onClick={() => downloadTranscript('vtt')}>.VTT</button>
+            <button type="button" onClick={() => downloadTranscript('txt')}>.TXT</button>
             <button type="button" onClick={() => downloadTranscript('json')}>Word timings .JSON</button>
+            <button type="button" onClick={copyTranscript} title="Copy plain text to clipboard">Copy Text</button>
           </div>
         </div>
       </Modal>
@@ -3935,348 +4109,71 @@ function App() {
         </button>
       </div>
     </Modal>}
-    {modal==='help'&&<Modal title="A little guide to Bol." onClose={()=>setModal(null)} wide><div className="guide-grid"><div><span className="guide-number">01</span><h3>Bring your story</h3><p>Upload a video or audio file. Choose Hindi + English for Hinglish and Roman to write “aap kaise ho” in Latin letters.</p></div><div><span className="guide-number">02</span><h3>Give it a once-over</h3><p>The local Hinglish recognizer times each word against the audio. Review names, slang, and spellings &mdash; the recognizer does not report how sure it is, so give proper nouns a second look.</p></div><div><span className="guide-number">03</span><h3>Find your emphasis</h3><p>Loudness, pitch, and duration suggest a word to highlight in each line, shown with a dashed outline. They are only suggestions: click any word and toggle its highlight to decide for yourself.</p></div><div><span className="guide-number">04</span><h3>Make some moves</h3><p>Pick a template, adjust color and motion, then export a captioned MP4, green-screen overlay, or subtitle file.</p></div></div><div className="guide-note"><MonitorPlay size={22}/><p><strong>Local by design.</strong> Your recordings stay here. The first transcription downloads the model; later runs use the cached copy. Roman spelling and timing can need corrections, especially with names, music, or overlapping voices.</p></div><div className="guide-shortcuts"><span><kbd>Space</kbd>Play / pause</span><span><kbd>⌘ / Ctrl + S</kbd>Save changes</span></div></Modal>}
+    <StudioModals
+      modal={modal === 'projects' || modal === 'help' || modal === 'search-replace' || modal === 'shortcuts' ? modal : null}
+      onClose={() => setModal(null)}
+      authEnabled={AUTH_ENABLED}
+      projects={projects}
+      onOpenProject={p => void openProject(p)}
+      onNewUpload={() => input.current?.click()}
+      timecode={timecode}
+      project={project}
+      searchFindText={searchFindText}
+      setSearchFindText={setSearchFindText}
+      searchReplaceText={searchReplaceText}
+      setSearchReplaceText={setSearchReplaceText}
+      searchCaseSensitive={searchCaseSensitive}
+      setSearchCaseSensitive={setSearchCaseSensitive}
+      onReplaceNext={() => {
+        if (!project || !searchFindText.trim()) return;
+        const idx = project.words.findIndex(w =>
+          searchCaseSensitive
+            ? w.text.includes(searchFindText)
+            : w.text.toLowerCase().includes(searchFindText.toLowerCase())
+        );
+        if (idx === -1) {
+          notify(`No occurrences found for "${searchFindText}"`);
+          return;
+        }
+        const target = project.words[idx];
+        const updated = searchCaseSensitive
+          ? target.text.replace(searchFindText, searchReplaceText)
+          : target.text.replace(new RegExp(searchFindText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), searchReplaceText);
+        updateWord(target.id, { text: updated });
+        seek(target.start);
+        notify(`Replaced occurrence at ${target.start.toFixed(2)}s`);
+      }}
+      onReplaceAll={() => {
+        if (!project || !searchFindText.trim()) return;
+        const count = project.words.filter(w =>
+          searchCaseSensitive
+            ? w.text.includes(searchFindText)
+            : w.text.toLowerCase().includes(searchFindText.toLowerCase())
+        ).length;
+        const updatedWords = replaceAllOccurrences(project.words, searchFindText, searchReplaceText, searchCaseSensitive);
+        markEdit({ ...project, words: updatedWords });
+        notify(`Replaced ${count} occurrence${count === 1 ? '' : 's'}.`);
+        setModal(null);
+      }}
+    />
 
-    {modal === 'search-replace' && (
-      <Modal title="Search & Replace" onClose={() => setModal(null)}>
-        <div className="search-replace-modal-body">
-          <div className="search-replace-field">
-            <label>
-              <span>Find</span>
-              {searchFindText.trim() && project && (
-                <span style={{ color: '#34d399' }}>
-                  {
-                    project.words.filter(w =>
-                      searchCaseSensitive
-                        ? w.text.includes(searchFindText)
-                        : w.text.toLowerCase().includes(searchFindText.toLowerCase())
-                    ).length
-                  } found
-                </span>
-              )}
-            </label>
-            <input
-              autoFocus
-              type="text"
-              placeholder="Word to find..."
-              value={searchFindText}
-              onChange={e => setSearchFindText(e.target.value)}
-            />
-          </div>
-
-          <div className="search-replace-field">
-            <label><span>Replace with</span></label>
-            <input
-              type="text"
-              placeholder="Replacement text..."
-              value={searchReplaceText}
-              onChange={e => setSearchReplaceText(e.target.value)}
-            />
-          </div>
-
-          <label className="search-replace-options">
-            <input
-              type="checkbox"
-              checked={searchCaseSensitive}
-              onChange={e => setSearchCaseSensitive(e.target.checked)}
-            />
-            <span>Match case</span>
-          </label>
-
-          <div className="search-replace-actions">
-            <button
-              type="button"
-              className="button secondary compact"
-              onClick={() => setModal(null)}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="button secondary compact"
-              disabled={!searchFindText.trim() || !project}
-              onClick={() => {
-                if (!project || !searchFindText.trim()) return;
-                const idx = project.words.findIndex(w =>
-                  searchCaseSensitive
-                    ? w.text.includes(searchFindText)
-                    : w.text.toLowerCase().includes(searchFindText.toLowerCase())
-                );
-                if (idx === -1) {
-                  notify(`No occurrences found for "${searchFindText}"`);
-                  return;
-                }
-                const target = project.words[idx];
-                const updated = searchCaseSensitive
-                  ? target.text.replace(searchFindText, searchReplaceText)
-                  : target.text.replace(new RegExp(searchFindText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), searchReplaceText);
-                updateWord(target.id, { text: updated });
-                seek(target.start);
-                notify(`Replaced occurrence at ${target.start.toFixed(2)}s`);
-              }}
-            >
-              Replace Next
-            </button>
-            <button
-              type="button"
-              className="button primary compact"
-              disabled={!searchFindText.trim() || !project}
-              onClick={() => {
-                if (!project || !searchFindText.trim()) return;
-                const count = project.words.filter(w =>
-                  searchCaseSensitive
-                    ? w.text.includes(searchFindText)
-                    : w.text.toLowerCase().includes(searchFindText.toLowerCase())
-                ).length;
-                const updatedWords = replaceAllOccurrences(project.words, searchFindText, searchReplaceText, searchCaseSensitive);
-                markEdit({ ...project, words: updatedWords });
-                notify(`Replaced ${count} occurrence${count === 1 ? '' : 's'}.`);
-                setModal(null);
-              }}
-            >
-              Replace All
-            </button>
-          </div>
+    {hasExportRunning && modal !== 'export' && latestExport && (
+      <div
+        className="floating-export-badge"
+        onClick={() => setModal('export')}
+        role="button"
+        tabIndex={0}
+        title="Rendering in background — Click to view details"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal('export'); } }}
+      >
+        <LoaderCircle size={14} className="spin" />
+        <div className="floating-export-info">
+          <span className="floating-export-title">Rendering {latestExport.resolution || 1080}p</span>
+          <span className="floating-export-sub">{latestExport.progress || 0}% · Click to view</span>
         </div>
-      </Modal>
+      </div>
     )}
 
-
-
-    {wordMenu && (
-      <>
-        <div
-          className="word-context-backdrop"
-          onClick={() => setWordMenu(null)}
-        />
-        <div
-          className="word-context-menu"
-          style={{
-            top: `${wordMenu.position.top}px`,
-            left: `${wordMenu.position.left}px`,
-          }}
-        >
-          <div className="word-menu-header">
-            {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-              ? `${selectedWordIds.size} words selected`
-              : `"${wordMenu.word.text}"`}
-          </div>
-
-          {/* One highlight control. Emphasize used to sit above this and did
-              nothing the renderer could see unless no word on the page was
-              highlighted — see setWordHighlight. */}
-          <button
-            type="button"
-            className={`word-menu-item ${
-              selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                ? (Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight) ? 'active' : '')
-                : (wordMenu.word.spotlight ? 'active' : '')
-            }`}
-            onClick={() => {
-              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                const allHighlighted = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight);
-                updateWords(selectedWordIds, { spotlight: !allHighlighted, emphasis: false });
-              } else {
-                updateWord(wordMenu.word.id, { spotlight: !wordMenu.word.spotlight, emphasis: false });
-              }
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Zap size={18} fill={(selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id) ? Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.spotlight) : wordMenu.word.spotlight) ? 'currentColor' : 'none'} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Highlight</span>
-              <span className="word-menu-item-desc">
-                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                  ? `Highlight ${selectedWordIds.size} words`
-                  : 'Grow this word and give it the accent colour'}
-              </span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className={`word-menu-item ${
-              selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                ? (Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.behind) ? 'active' : '')
-                : (wordMenu.word.behind ? 'active' : '')
-            }`}
-            onClick={() => {
-              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                const allBehind = Array.from(selectedWordIds).every(id => project?.words.find(w => w.id === id)?.behind);
-                updateWords(selectedWordIds, { behind: !allBehind });
-              } else {
-                updateWord(wordMenu.word.id, { behind: !wordMenu.word.behind });
-              }
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Accessibility size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Send Behind</span>
-              <span className="word-menu-item-desc">
-                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                  ? `Send ${selectedWordIds.size} words behind subject`
-                  : 'Move this word behind the subject'}
-              </span>
-            </div>
-          </button>
-
-          <hr className="word-menu-divider" />
-
-          {(!selectedWordIds.has(wordMenu.word.id) || selectedWordIds.size <= 1) && (
-            <>
-              <button
-                type="button"
-                className="word-menu-item"
-                onClick={() => {
-                  setEditingWordId(wordMenu.word.id);
-                  setEditingText(wordMenu.word.text);
-                  setWordMenu(null);
-                }}
-              >
-                <div className="word-menu-item-icon">
-                  <Pencil size={18} />
-                </div>
-                <div className="word-menu-item-content">
-                  <span className="word-menu-item-title">Edit</span>
-                  <span className="word-menu-item-desc">Modify the text</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                className="word-menu-item"
-                onClick={() => {
-                  handleSplitLine(wordMenu.word.id);
-                  setWordMenu(null);
-                }}
-              >
-                <div className="word-menu-item-icon">
-                  <Split size={18} />
-                </div>
-                <div className="word-menu-item-content">
-                  <span className="word-menu-item-title">Split</span>
-                  <span className="word-menu-item-desc">Split caption here</span>
-                </div>
-              </button>
-            </>
-          )}
-
-          <button
-            type="button"
-            className="word-menu-item"
-            onClick={() => {
-              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                const p = projectRef.current;
-                if (p) {
-                  const sorted = p.words.filter(w => selectedWordIds.has(w.id));
-                  let cur = p.words;
-                  for (const w of sorted) {
-                    cur = moveWordToPreviousLine(cur, w.id, settings.wordsPerLine);
-                  }
-                  markEdit({ ...p, words: cur });
-                  notify(`Moved ${sorted.length} words to previous line.`);
-                }
-              } else {
-                handleMoveToPreviousLine(wordMenu.word.id);
-              }
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <ArrowLeft size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Previous Line</span>
-              <span className="word-menu-item-desc">Move word to previous line</span>
-            </div>
-          </button>
-
-          <button
-            type="button"
-            className="word-menu-item"
-            onClick={() => {
-              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                const p = projectRef.current;
-                if (p) {
-                  const sorted = p.words.filter(w => selectedWordIds.has(w.id)).reverse();
-                  let cur = p.words;
-                  for (const w of sorted) {
-                    cur = moveWordToNextLine(cur, w.id);
-                  }
-                  markEdit({ ...p, words: cur });
-                  notify(`Moved ${sorted.length} words to next line.`);
-                }
-              } else {
-                handleMoveToNextLine(wordMenu.word.id);
-              }
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <ArrowRight size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Next Line</span>
-              <span className="word-menu-item-desc">Move word to next line</span>
-            </div>
-          </button>
-
-          <hr className="word-menu-divider" />
-
-          <button
-            type="button"
-            className="word-menu-item"
-            onClick={() => {
-              const cleanText = wordMenu.word.text.replace(/[.!?।,;:—\-]+$/, '');
-              setSearchFindText(cleanText);
-              setSearchReplaceText('');
-              setModal('search-replace');
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Search size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Search &amp; Replace</span>
-              <span className="word-menu-item-desc">Find all occurrences</span>
-            </div>
-          </button>
-
-          <hr className="word-menu-divider" />
-
-          <button
-            type="button"
-            className="word-menu-item danger"
-            onClick={() => {
-              if (selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)) {
-                handleDeleteWords(selectedWordIds);
-              } else {
-                handleDeleteWord(wordMenu.word.id);
-              }
-              setWordMenu(null);
-            }}
-          >
-            <div className="word-menu-item-icon">
-              <Trash2 size={18} />
-            </div>
-            <div className="word-menu-item-content">
-              <span className="word-menu-item-title">Delete</span>
-              <span className="word-menu-item-desc">
-                {selectedWordIds.size > 1 && selectedWordIds.has(wordMenu.word.id)
-                  ? `Remove ${selectedWordIds.size} words`
-                  : 'Remove this word'}
-              </span>
-            </div>
-          </button>
-        </div>
-      </>
-    )}
     {accountMenu && (
       <>
         {/* The same transparent catcher the word inspector uses: a click

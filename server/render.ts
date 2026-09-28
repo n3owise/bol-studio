@@ -7,7 +7,13 @@ import { pathToFileURL } from 'node:url';
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import { dimensions, templates } from '../src/lib/captions.ts';
 import { streamCaptionFrames } from './remotion-captions.ts';
+import { drawKeyedMedia, setChromaKeyCanvasFactory } from '../src/lib/chromakey.ts';
 import type { Project, Settings, Word } from '../src/lib/types.ts';
+
+setChromaKeyCanvasFactory((w, h) => {
+  const c = createCanvas(w, h);
+  return { canvas: c, ctx: c.getContext('2d') };
+});
 
 const require = createRequire(import.meta.url);
 /**
@@ -216,9 +222,20 @@ export async function renderCaptionVideo(options: {
             if (img) {
               const elW = (width * 0.32) * (el.scale || 1.0);
               const elH = (img.height / (img.width || 1)) * elW;
-              const elX = (el.x / 100) * width - elW / 2;
-              const elY = (el.y / 100) * height - elH / 2;
-              ctx.drawImage(img, elX, elY, elW, elH);
+              const elCenterX = (el.x / 100) * width;
+              const elCenterY = (el.y / 100) * height;
+
+              ctx.save();
+              ctx.translate(elCenterX, elCenterY);
+              if (el.rotation) {
+                ctx.rotate((el.rotation * Math.PI) / 180);
+              }
+              if (el.greenScreen?.enabled) {
+                drawKeyedMedia(ctx as any, img as any, -elW / 2, -elH / 2, elW, elH, el.greenScreen);
+              } else {
+                ctx.drawImage(img, -elW / 2, -elH / 2, elW, elH);
+              }
+              ctx.restore();
             }
           }
         }

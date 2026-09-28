@@ -28,6 +28,8 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
 }) {
   const [templateSearch, setTemplateSearch] = useState('');
   const [templateCategory, setTemplateCategory] = useState<'all' | 'minimal' | 'bold' | 'kinetic' | 'editorial' | 'fun'>('all');
+  const [showFilters, setShowFilters] = useState(true);
+  const [layoutFilter, setLayoutFilter] = useState<'all' | 'single' | 'stacked'>('all');
 
   // What the chosen template would make the highlighted word, so the control
   // starts where the design puts it rather than at some arbitrary default.
@@ -38,6 +40,8 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
       const q = templateSearch.trim().toLowerCase();
       const matchesSearch = !q || t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.tag.toLowerCase().includes(q);
       if (!matchesSearch) return false;
+      if (layoutFilter === 'single' && treatmentFor(t.id).layout === 'stack') return false;
+      if (layoutFilter === 'stacked' && treatmentFor(t.id).layout !== 'stack') return false;
       if (templateCategory === 'all') return true;
       if (templateCategory === 'minimal') return t.id === 'soft-focus' || t.id === 'editorial' || t.id === 'karaoke';
       if (templateCategory === 'bold') return t.id === 'welcome-stack' || t.id === 'double-trouble' || t.id === 'editing-school' || t.id === 'mumbai';
@@ -46,7 +50,7 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
       if (templateCategory === 'fun') return t.id === 'scribble' || t.id === 'bubble-highlight' || t.id === 'neon' || t.id === 'glow-script';
       return true;
     });
-  }, [templateSearch, templateCategory]);
+  }, [templateSearch, templateCategory, layoutFilter]);
 
   return (
             <section className="style-panel panel">
@@ -66,24 +70,48 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
                         onChange={e => setTemplateSearch(e.target.value)}
                         className="template-search-input"
                       />
-                      <button type="button" className="template-filter-btn" title="Filter templates">
+                      <button
+                        type="button"
+                        className={`template-filter-btn ${showFilters ? 'active' : ''}`}
+                        title={showFilters ? 'Hide filters' : 'Show filters'}
+                        aria-label="Toggle template filters"
+                        aria-expanded={showFilters}
+                        onClick={() => setShowFilters(s => !s)}
+                      >
                         <SlidersHorizontal size={14} />
                       </button>
                     </div>
                   </div>
 
-                  <div className="template-category-pills">
-                    {(['all', 'minimal', 'bold', 'kinetic', 'editorial', 'fun'] as const).map(cat => (
-                      <button
-                        key={cat}
-                        type="button"
-                        className={`category-pill ${templateCategory === cat ? 'active' : ''}`}
-                        onClick={() => setTemplateCategory(cat)}
-                      >
-                        {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                      </button>
-                    ))}
-                  </div>
+                  {showFilters && (
+                    <>
+                      <div className="template-category-pills">
+                        {(['all', 'minimal', 'bold', 'kinetic', 'editorial', 'fun'] as const).map(cat => (
+                          <button
+                            key={cat}
+                            type="button"
+                            className={`category-pill ${templateCategory === cat ? 'active' : ''}`}
+                            onClick={() => setTemplateCategory(cat)}
+                          >
+                            {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="template-category-pills layout-pills" style={{ paddingTop: 4, paddingBottom: 8 }}>
+                        {(['all', 'single', 'stacked'] as const).map(l => (
+                          <button
+                            key={l}
+                            type="button"
+                            className={`category-pill ${layoutFilter === l ? 'active' : ''}`}
+                            onClick={() => setLayoutFilter(l)}
+                          >
+                            {l === 'all' ? 'All layouts' : l === 'single' ? 'Single line' : '3-tier stacked'}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 

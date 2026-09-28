@@ -40,6 +40,11 @@ export function subtitleText(words: Word[], max: number, format: 'srt' | 'vtt') 
   return (format === 'vtt' ? 'WEBVTT\n\n' : '') + groupWords(words,max).map((g,i) => `${format === 'srt' ? `${i+1}\n` : ''}${stamp(g[0].start)} --> ${stamp(g.at(-1)!.end)}\n${g.map(w=>w.text).join(' ')}\n`).join('\n');
 }
 
+export function plainTranscript(words: Word[], max = 12): string {
+  if (!words.length) return '';
+  return groupWords(words, max).map(g => g.map(w => w.text).join(' ')).join('\n');
+}
+
 export function ensureValidIntervals(words: Word[], duration: number): void {
   for (let i = 0; i < words.length; i++) {
     const prevEnd = i > 0 ? words[i - 1].end : 0;
@@ -255,7 +260,8 @@ function moveSingleWordToLine(
   wordId: string,
   targetGroupIdx: number,
   targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' },
-  maxWordsPerLine = 5
+  maxWordsPerLine = 5,
+  duration = 9999
 ): Word[] {
   const sourceWord = words.find(w => w.id === wordId);
   if (!sourceWord) return words;
@@ -405,7 +411,7 @@ function moveSingleWordToLine(
   }
 
   // Ensure all intervals in newWords strictly satisfy start < end and non-overlapping
-  ensureValidIntervals(newWords, 9999);
+  ensureValidIntervals(newWords, duration);
 
   // Hold the target line together: every word inside it is explicitly joined,
   // so neither a stray full stop nor the clause breaker can part the line the
@@ -433,13 +439,14 @@ export function moveWordsToLine(
   wordIds: string[],
   targetGroupIdx: number,
   targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' },
-  maxWordsPerLine = 5
+  maxWordsPerLine = 5,
+  duration = 9999
 ): Word[] {
   const movingWords = words.filter(w => wordIds.includes(w.id));
   if (!movingWords.length) return words;
 
   if (movingWords.length === 1) {
-    return moveSingleWordToLine(words, movingWords[0].id, targetGroupIdx, targetPosition, maxWordsPerLine);
+    return moveSingleWordToLine(words, movingWords[0].id, targetGroupIdx, targetPosition, maxWordsPerLine, duration);
   }
 
   // If targetPosition targets one of the moving words, abort
@@ -452,11 +459,11 @@ export function moveWordsToLine(
 
   for (let i = 0; i < movingWords.length; i++) {
     const wId = movingWords[i].id;
-    currentWords = moveSingleWordToLine(currentWords, wId, targetGroupIdx, currentTargetPos, maxWordsPerLine);
+    currentWords = moveSingleWordToLine(currentWords, wId, targetGroupIdx, currentTargetPos, maxWordsPerLine, duration);
     currentTargetPos = { targetWordId: wId, insert: 'after' };
   }
 
-  ensureValidIntervals(currentWords, 9999);
+  ensureValidIntervals(currentWords, duration);
   return currentWords;
 }
 
@@ -480,7 +487,8 @@ export function moveWordsToNewLine(
   words: Word[],
   wordIds: string[],
   afterGroupIdx: number,
-  maxWordsPerLine = 5
+  maxWordsPerLine = 5,
+  duration = 9999
 ): Word[] {
   const moving = words.filter(w => wordIds.includes(w.id));
   if (!moving.length) return words;
@@ -489,8 +497,8 @@ export function moveWordsToNewLine(
   if (afterGroupIdx >= groups.length) return words;
 
   const moved = afterGroupIdx < 0
-    ? moveWordsToLine(words, wordIds, 0, 'start', maxWordsPerLine)
-    : moveWordsToLine(words, wordIds, afterGroupIdx, 'end', maxWordsPerLine);
+    ? moveWordsToLine(words, wordIds, 0, 'start', maxWordsPerLine, duration)
+    : moveWordsToLine(words, wordIds, afterGroupIdx, 'end', maxWordsPerLine, duration);
 
   const movingIds = new Set(wordIds);
   const first = moved.findIndex(w => movingIds.has(w.id));
@@ -511,9 +519,10 @@ export function moveWordToLine(
   wordId: string,
   targetGroupIdx: number,
   targetPosition: 'start' | 'end' | { targetWordId: string; insert: 'before' | 'after' },
-  maxWordsPerLine = 5
+  maxWordsPerLine = 5,
+  duration = 9999
 ): Word[] {
-  return moveWordsToLine(words, [wordId], targetGroupIdx, targetPosition, maxWordsPerLine);
+  return moveWordsToLine(words, [wordId], targetGroupIdx, targetPosition, maxWordsPerLine, duration);
 }
 
 export function replaceAllOccurrences(words: Word[], findText: string, replaceText: string, caseSensitive = false): Word[] {

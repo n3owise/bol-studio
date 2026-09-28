@@ -1,0 +1,166 @@
+import React, { useRef } from 'react';
+import { Undo2, Redo2, FolderOpen, Download, ChevronDown, Keyboard } from 'lucide-react';
+import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
+import type { Project } from '../lib/types';
+import type { Health } from '../lib/shell';
+
+export interface StudioNavbarProps {
+  project: Project | null;
+  busy: boolean;
+  health: Health | boolean | null;
+  saveStatus: string;
+  hasUndo: boolean;
+  hasRedo: boolean;
+  theme: 'light' | 'dark';
+  authEnabled?: boolean;
+  accountEmail?: string | null;
+  accountName?: string | null;
+  accountMenuOpen?: boolean;
+  onOpenProjects: () => void;
+  onRenameProject: (name: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onThemeChange: (theme: 'light' | 'dark') => void;
+  onToggleAccountMenu?: (rect: DOMRect | null) => void;
+  onOpenExport: () => void;
+  onOpenShortcuts?: () => void;
+}
+
+export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
+  project,
+  busy,
+  health,
+  saveStatus,
+  hasUndo,
+  hasRedo,
+  theme,
+  authEnabled,
+  accountEmail,
+  accountName,
+  accountMenuOpen,
+  onOpenProjects,
+  onRenameProject,
+  onUndo,
+  onRedo,
+  onThemeChange,
+  onToggleAccountMenu,
+  onOpenExport,
+  onOpenShortcuts,
+}) => {
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <header className="studio-navbar">
+      <div className="navbar-left">
+        <button
+          className="navbar-brand"
+          type="button"
+          title="Bol Studio — View projects"
+          aria-label="Bol Studio"
+          onClick={onOpenProjects}
+        >
+          <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo logo-light-only" />
+          <img src="/bol.studio-white.svg" alt="bol.studio" className="navbar-brand-logo logo-dark-only" />
+        </button>
+        {project && (
+          <>
+            <div className="nav-divider" />
+            <div className="navbar-project">
+              <input
+                aria-label="Project name"
+                className="navbar-project-input"
+                value={project.name || project.filename}
+                readOnly={busy}
+                onChange={e => onRenameProject(e.target.value)}
+                maxLength={120}
+              />
+              <span className="navbar-save-badge">
+                <span className={`status-dot ${!health ? 'offline' : saveStatus.includes('Unsaved') ? 'unsaved' : ''}`} />
+                <span className="save-text">{saveStatus}</span>
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="navbar-center" />
+
+      <div className="navbar-right">
+        <div className="nav-btn-group">
+          <button
+            className="icon-button"
+            aria-label="Undo"
+            title="Undo (Cmd+Z)"
+            disabled={!hasUndo || busy}
+            onClick={onUndo}
+          >
+            <Undo2 size={16} />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Redo"
+            title="Redo (Cmd+Shift+Z)"
+            disabled={!hasRedo || busy}
+            onClick={onRedo}
+          >
+            <Redo2 size={16} />
+          </button>
+        </div>
+        <div className="nav-divider" />
+        <AnimatedThemeToggler
+          theme={theme}
+          onThemeChange={onThemeChange}
+          className="theme-toggle-btn"
+        />
+        {onOpenShortcuts && (
+          <button
+            className="icon-button"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+            onClick={onOpenShortcuts}
+          >
+            <Keyboard size={16} />
+          </button>
+        )}
+        {authEnabled && accountEmail && (
+          <button
+            ref={accountButtonRef}
+            className="nav-btn ghost"
+            aria-label={`Account — ${accountName || accountEmail}`}
+            title={accountName ? `${accountName} — ${accountEmail}` : accountEmail}
+            aria-haspopup="menu"
+            aria-expanded={accountMenuOpen}
+            onClick={() => {
+              if (onToggleAccountMenu) {
+                const rect = accountButtonRef.current?.getBoundingClientRect() || null;
+                onToggleAccountMenu(rect);
+              }
+            }}
+          >
+            <span className="account-initial">{(accountName || accountEmail)[0].toUpperCase()}</span>
+          </button>
+        )}
+        <button
+          className="nav-btn ghost"
+          aria-label="Projects"
+          title="Open projects workspace"
+          onClick={onOpenProjects}
+        >
+          <FolderOpen size={15} />
+          <span>Projects</span>
+        </button>
+        <button
+          className="nav-btn primary"
+          onClick={onOpenExport}
+          disabled={!project?.words.length || busy}
+        >
+          <Download size={15} />
+          <span>Export</span>
+          <ChevronDown size={13} />
+        </button>
+      </div>
+    </header>
+  );
+});
+
+StudioNavbar.displayName = 'StudioNavbar';

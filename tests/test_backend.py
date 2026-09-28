@@ -1585,3 +1585,19 @@ def test_an_audio_project_saves_although_it_has_no_video_layer(client, project):
     backend.update_project(video["id"], lambda p: p.update(mediaType="video"))
     assert client.patch(f"/api/projects/{video['id']}", json={"videoEnabled": False}).status_code == 200
     assert backend.load_project(video["id"])["videoEnabled"] is False
+
+
+def test_cancel_transcription_endpoint_and_job_abortion(client, project):
+    backend.update_project(project["id"], lambda p: p.update(status="processing", progress=45))
+    response = client.post(f"/api/projects/{project['id']}/cancel")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ready"
+    assert data["progress"] == 0
+    assert "cancelled" in data["message"].lower()
+
+    # When marked cancelled, transcription_job aborts without running
+    backend.transcription_job(project["id"])
+    stored = backend.load_project(project["id"])
+    assert stored["status"] == "ready"
+    assert stored["progress"] == 0

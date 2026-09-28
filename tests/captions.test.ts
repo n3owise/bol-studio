@@ -5,7 +5,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import {
   appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor,
   groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
-  moveWordsToNewLine, replaceAllOccurrences, splitLineAtWord, subtitleText, templates
+  moveWordsToNewLine, plainTranscript, replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
 import { MAX_WORDS_PER_PAGE, buildPages, heroRun, pickEmoji } from '../src/lib/pages.ts';
 import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.ts';
@@ -1568,4 +1568,70 @@ test('deleting the open project cannot leave a save queued against it', () => {
   const panel = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
   assert.ok(panel.includes('disabled={workerHasIt}'), 'the delete button is gated on the running job');
   assert.ok(!panel.includes("['queued', 'processing'"), 'and queued is not treated as running');
+});
+
+test('moveWordsToLine respects project duration and never overflows duration bound', () => {
+  const words: Word[] = [
+    { id: 'w1', text: 'First', original: 'First', start: 0.1, end: 0.5, confidence: 1, emphasis: false, emphasisScore: 0.5, lineBreak: true },
+    { id: 'w2', text: 'Second', original: 'Second', start: 1.5, end: 2.0, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+  ];
+  const clipDuration = 2.2;
+  // Move w1 to the end of line 2 with clipDuration
+  const moved = moveWordsToLine(words, ['w1'], 1, 'end', 5, clipDuration);
+  for (const w of moved) {
+    assert.ok(w.end <= clipDuration + 0.0001, `Word ${w.id} end (${w.end}) must not exceed clip duration (${clipDuration})`);
+    assert.ok(w.start < w.end, `Word ${w.id} start < end`);
+  }
+});
+
+test('navbar projects button and logo click open projects modal, and send behind is removed', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(editor.includes("setModal('projects')"), 'projects modal entry point is present in navbar');
+  assert.ok(!editor.includes("Send Behind"), 'faux send behind control is removed from editor');
+  assert.ok(!editor.includes("id: 'audio'"), 'dead audio tab is removed from NAV_PANELS');
+});
+
+test('keyboard shortcuts modal and project search/sort are mounted and functional', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const modals = readFileSync(new URL('../src/components/StudioModals.tsx', import.meta.url), 'utf8');
+  const shortcuts = readFileSync(new URL('../src/components/ShortcutModal.tsx', import.meta.url), 'utf8');
+  const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+
+  // Verify shortcuts modal exists and is hooked up to keyboard and navbar
+  assert.ok(editor.includes("setModal('shortcuts')"), 'shortcuts modal is triggerable from main editor');
+  assert.ok(modals.includes("<ShortcutModal"), 'StudioModals mounts ShortcutModal');
+  assert.ok(shortcuts.includes("Keyboard Shortcuts"), 'ShortcutModal defines keyboard cheatsheet');
+
+  // Verify project search & sort controls exist in workspace modal
+  assert.ok(modals.includes("projects-search-box"), 'workspace modal includes search input');
+  assert.ok(modals.includes("projects-sort-select"), 'workspace modal includes sort selector');
+
+  // Verify bundle optimization chunks in vite.config.ts
+  assert.ok(viteConfig.includes("vendor-remotion"), 'Vite configuration splits remotion vendor chunks');
+  assert.ok(viteConfig.includes("vendor-icons"), 'Vite configuration splits lucide-react icons');
+});
+
+test('plainTranscript produces clean readable paragraphs without timestamps', () => {
+  const words: Word[] = [
+    { id: 'w1', text: 'Yeh', original: 'Yeh', start: 0.1, end: 0.4, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w2', text: 'ek', original: 'ek', start: 0.45, end: 0.7, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w3', text: 'kamaal', original: 'kamaal', start: 0.75, end: 1.1, confidence: 1, emphasis: true, emphasisScore: 0.9 },
+    { id: 'w4', text: 'video', original: 'video', start: 1.15, end: 1.5, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w5', text: 'hai.', original: 'hai.', start: 1.55, end: 1.9, confidence: 1, emphasis: false, emphasisScore: 0.5, lineBreak: true },
+    { id: 'w6', text: 'Aap', original: 'Aap', start: 2.1, end: 2.4, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w7', text: 'dekhein.', original: 'dekhein.', start: 2.45, end: 2.8, confidence: 1, emphasis: false, emphasisScore: 0.5 },
+  ];
+  const transcript = plainTranscript(words, 5);
+  assert.ok(transcript.includes('Yeh ek kamaal video hai.'));
+  assert.ok(transcript.includes('Aap dekhein.'));
+  assert.ok(!transcript.includes('-->'), 'plain transcript carries no timecodes');
+});
+
+test('playback speed pill, floating export badge, and hover guide are in place', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.ok(editor.includes("timeline-speed-pill"), 'timeline transport includes playback speed pill');
+  assert.ok(editor.includes("floating-export-badge"), 'editor includes floating background export tracker');
+  assert.ok(editor.includes("timeline-hover-indicator"), 'timeline includes hover timecode scrub guide');
+  assert.ok(editor.includes("downloadTranscript('txt')"), 'export modal includes plain text download');
+  assert.ok(editor.includes("copyTranscript"), 'export modal includes copy transcript button');
 });
