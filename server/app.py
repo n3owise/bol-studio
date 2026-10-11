@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+import traceback
 from server.temporary_sessions import expired as temporary_session_expired, LEASE_SECONDS, CLOSE_GRACE_SECONDS
 
 import asyncio
@@ -534,6 +535,8 @@ def _transcription_job(project_id: str, generation: int) -> None:
         if transcription_cancelled(project_id, generation):
             return
         diagnostics = trace.finish(exc)
+        LOGGER.error("transcription_failure type=%s frames=%s", type(exc).__name__,
+                     [(Path(frame.filename).name, frame.name, frame.lineno) for frame in traceback.extract_tb(exc.__traceback__)])
         message = str(exc) if isinstance(exc, ValueError) else "Transcription failed. Check the local model installation or connection for its first download, then retry."
         try:
             update_transcription(project_id, generation, lambda p: p.update(status="error", progress=0, message=message, diagnostics=diagnostics))

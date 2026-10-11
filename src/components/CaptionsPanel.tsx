@@ -1120,6 +1120,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
           <div className="empty-icon-wrap">
             <Captions size={44} strokeWidth={1.5} className="empty-cc-icon" />
           </div>
+          {project?.status === 'error' && <p role="alert" className="empty-description">{project.message || 'Caption generation failed. Please retry.'}</p>}
           <h3 className="empty-title">Create captions for your video</h3>
           <p className="empty-description">
             Generate accurate captions from your video's speech.
