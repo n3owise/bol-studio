@@ -117,13 +117,21 @@ from gradio.routes import App as GradioApp
 # already has a CORSMiddleware, and it looks for that on this argument alone.
 # Without it the deployment happily told https://evil.example it was allowed,
 # overruling our allowlist from inside.
-application = GradioApp.create_app(demo, parent_app=app)
+# Gradio rebuilds its lifespan during launch, even for a supplied application.
+# Supply the backend lifecycle at both construction and launch so journal replay
+# and temporary-upload cleanup run on the hosted server as well as localhost.
+backend_app_kwargs = {"lifespan": app.router.lifespan_context}
+application = GradioApp.create_app(demo, parent_app=app, app_kwargs=backend_app_kwargs)
+gradio_lifespan = application.router.lifespan_context
 # The routes, and then the protections that guard them. The second call is the
 # one that was missing: include_router copies routes and no middleware, so the
 # Space ran open and unscoped while every endpoint behaved perfectly.
 application.include_router(app.router)
+# include_router may merge the backend lifecycle a second time. The explicitly
+# constructed Gradio lifecycle already contains it, so retain that single copy.
+application.router.lifespan_context = gradio_lifespan
 install_middleware(application)
 
 if __name__ == "__main__":
-    demo.launch(_app=application, server_name="0.0.0.0",
+    demo.launch(_app=application, app_kwargs=backend_app_kwargs, server_name="0.0.0.0",
                 server_port=int(os.getenv("PORT", 7860)), ssr_mode=False)
