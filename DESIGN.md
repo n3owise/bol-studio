@@ -202,7 +202,7 @@ glide — and 120–180ms for state changes. Two rules learned the hard way:
   and sits on its first frame forever — which looks like an empty element, not
   like motion. Derive the value from a clock instead.
 
-Everything animated has a `prefers-reduced-motion` answer, and that answer is a
+Every animation should have a `prefers-reduced-motion` answer; this is a design requirement, not a claim of complete current coverage. That answer should be a
 **composed still**, never a blank one.
 
 ---

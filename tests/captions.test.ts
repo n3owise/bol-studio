@@ -1,9 +1,10 @@
+import { linkedCaptionSize } from '../src/lib/caption-settings.ts';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
 import {
-  appendWord, autoDetectHighlights, dimensions, ensureValidIntervals, getContrastColor,
+  appendWord, autoDetectHighlights, csvTranscript, dimensions, ensureValidIntervals, getContrastColor,
   groupWords, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordToNextLine, moveWordToPreviousLine,
   moveWordsToNewLine, plainTranscript, replaceAllOccurrences, splitLineAtWord, subtitleText, templates
 } from '../src/lib/captions.ts';
@@ -1378,27 +1379,11 @@ test('the highlighted word can be sized apart from the rest of the caption', () 
 });
 
 test('linking the two caption sizes holds their ratio, and unlinking frees it', () => {
-  // The link only means anything once the highlighted word has its own size:
-  // without an override the template's proportion already moves the two
-  // together, so there is no ratio of the creator's to preserve.
-  const panel = readFileSync(new URL('../src/components/TextPanel.tsx', import.meta.url), 'utf8');
-
-  assert.match(panel, /const ratio = settings\.heroFontSize \/ settings\.fontSize/,
-    'the ratio between the sizes is what is held — not either number on its own');
-  assert.match(panel, /heroFontSize: Math\.round\(next \* ratio\)/,
-    'and the highlighted word is carried by that ratio');
-  assert.match(panel, /if \(!linked \|\| settings\.heroFontSize === undefined\)/,
-    'unlinked, or with no override to carry, the caption size moves alone');
-
-  // Every way of changing the caption size goes through the one function, or
-  // the link would hold for the slider and not for the plus and minus buttons.
-  // The only direct writes are the two inside that function.
-  assert.equal((panel.match(/updateSettings\(\{ fontSize:/g) || []).length, 2,
-    'fontSize is written only inside setCaptionSize, once per branch');
-  assert.equal((panel.match(/setCaptionSize\(/g) || []).length, 4,
-    'the definition plus the slider, the steppers and the reset');
-
-  assert.match(panel, /settings\.linkFontSizes !== false/, 'linked is the default');
+  const settings = { ...defaults, fontSize: 40, heroFontSize: 80 };
+  assert.deepEqual(linkedCaptionSize(settings, 60, true), { fontSize: 60, heroFontSize: 120 });
+  assert.deepEqual(linkedCaptionSize(settings, 60, false), { fontSize: 60 });
+  assert.deepEqual(linkedCaptionSize({ ...settings, heroFontSize: undefined }, 60, true), { fontSize: 60 });
+  assert.deepEqual(linkedCaptionSize({ ...settings, heroFontSize: 200 }, 92, true), { fontSize: 40, heroFontSize: 200 });
 });
 
 test('a line can carry its own position, overriding the project', () => {
@@ -1584,9 +1569,9 @@ test('moveWordsToLine respects project duration and never overflows duration bou
   }
 });
 
-test('navbar projects button and logo click open projects modal, and send behind is removed', () => {
+test('temporary editor has no saved-project entry point, and send behind is removed', () => {
   const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
-  assert.ok(editor.includes("setModal('projects')"), 'projects modal entry point is present in navbar');
+  assert.ok(!editor.includes("setModal('projects')"), 'saved-project modal is not an active editor entry point');
   assert.ok(!editor.includes("Send Behind"), 'faux send behind control is removed from editor');
   assert.ok(!editor.includes("id: 'audio'"), 'dead audio tab is removed from NAV_PANELS');
 });
@@ -1634,4 +1619,75 @@ test('playback speed pill, floating export badge, and hover guide are in place',
   assert.ok(editor.includes("timeline-hover-indicator"), 'timeline includes hover timecode scrub guide');
   assert.ok(editor.includes("downloadTranscript('txt')"), 'export modal includes plain text download');
   assert.ok(editor.includes("copyTranscript"), 'export modal includes copy transcript button');
+});
+
+test('Phase 7: audio download, waveform normalization, and interactive onboarding tour', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const tour = readFileSync(new URL('../src/components/OnboardingTour.tsx', import.meta.url), 'utf8');
+  const modals = readFileSync(new URL('../src/components/StudioModals.tsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+
+  // 1. Separate audio track download
+  assert.ok(editor.includes('downloadAudioTrack'), 'editor defines downloadAudioTrack handler');
+  assert.ok(editor.includes('Audio .M4A'), 'export modal includes Audio .M4A download action');
+
+  // 2. Timeline audio waveform auto-gain & dynamic normalization
+  assert.ok(editor.includes('Math.max(0.08, ...wf)'), 'waveform computes dynamic peak auto-gain ceiling');
+  assert.ok(editor.includes('Math.pow(normalized, 0.72)'), 'waveform applies perceptual power curve normalization');
+
+  // 3. Interactive onboarding tour
+  assert.ok(editor.includes('<OnboardingTour'), 'main editor mounts OnboardingTour');
+  assert.ok(editor.includes('bol_tour_completed'), 'main editor checks and stores tour completion in localStorage');
+  assert.ok(modals.includes('onStartTour'), 'StudioModals supports onStartTour callback');
+  assert.ok(modals.includes('tour-trigger-banner'), 'Help modal provides Launch Tour banner');
+  assert.ok(tour.includes('TOUR_STEPS'), 'OnboardingTour defines structured interactive steps');
+  assert.ok(tour.includes('ArrowRight') && tour.includes('ArrowLeft'), 'OnboardingTour supports arrow key navigation');
+  assert.ok(styles.includes('.tour-overlay') && styles.includes('.tour-card'), 'styles.css defines onboarding tour styling');
+});
+
+test('csvTranscript outputs formatted CSV with headers and timing metadata', () => {
+  const words: Word[] = [
+    { id: 'w1', text: 'Namaste', original: 'Namaste', start: 0.1, end: 0.45, confidence: 0.98, emphasis: false, emphasisScore: 0.5 },
+    { id: 'w2', text: 'dosto,', original: 'dosto,', start: 0.5, end: 0.9, confidence: 0.92, emphasis: true, emphasisScore: 0.9, spotlight: true },
+  ];
+  const csv = csvTranscript(words);
+  const lines = csv.trim().split('\n');
+  assert.equal(lines.length, 3, 'header + 2 rows');
+  assert.equal(lines[0], 'Word,Start (s),End (s),Duration (s),Confidence,Spotlight,Original');
+  assert.ok(lines[1].includes('"Namaste",0.100,0.450,0.350,0.98,false,"Namaste"'));
+  assert.ok(lines[2].includes('"dosto,",0.500,0.900,0.400,0.92,true,"dosto,"'));
+});
+
+test('Phase 8: timeline nudging, batch line casing, command palette, and CSV export', () => {
+  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const captionsPanel = readFileSync(new URL('../src/components/CaptionsPanel.tsx', import.meta.url), 'utf8');
+  const palette = readFileSync(new URL('../src/components/CommandPalette.tsx', import.meta.url), 'utf8');
+  const shortcuts = readFileSync(new URL('../src/components/ShortcutModal.tsx', import.meta.url), 'utf8');
+  const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+
+  // 1. Timeline single frame and 1-second nudging
+  assert.ok(editor.includes("e.shiftKey ? 1.0 : (1 / 30)"), 'timeline supports single frame (1/30s) and 1-second nudging');
+  assert.ok(editor.includes("e.key === 'ArrowLeft'") && editor.includes("e.key === 'ArrowRight'"), 'timeline listens for ArrowLeft and ArrowRight');
+  assert.ok(shortcuts.includes('Nudge playhead by 1 frame'), 'ShortcutModal lists frame nudge shortcut');
+  assert.ok(shortcuts.includes('Jump playhead by 1.0 second'), 'ShortcutModal lists 1s jump shortcut');
+
+  // 2. Batch line casing & clear highlights in CaptionsPanel
+  assert.ok(captionsPanel.includes('handleBatchLineCase'), 'CaptionsPanel defines handleBatchLineCase');
+  assert.ok(captionsPanel.includes('handleClearLineHighlights'), 'CaptionsPanel defines handleClearLineHighlights');
+  assert.ok(captionsPanel.includes('UPPERCASE LINE'), 'CaptionsPanel row menu offers UPPERCASE LINE');
+  assert.ok(captionsPanel.includes('Title Case Line'), 'CaptionsPanel row menu offers Title Case Line');
+  assert.ok(captionsPanel.includes('lowercase line'), 'CaptionsPanel row menu offers lowercase line');
+  assert.ok(captionsPanel.includes('Clear Line Highlights'), 'CaptionsPanel row menu offers Clear Line Highlights');
+
+  // 3. Command Palette (Cmd+K)
+  assert.ok(editor.includes('<CommandPalette'), 'main editor mounts CommandPalette');
+  assert.ok(editor.includes("e.key.toLowerCase() === 'k'"), 'main editor listens for Cmd/Ctrl+K to open CommandPalette');
+  assert.ok(palette.includes('CommandPaletteProps'), 'CommandPalette component is typed and defined');
+  assert.ok(shortcuts.includes('Open studio command palette'), 'ShortcutModal lists Cmd+K command palette shortcut');
+  assert.ok(styles.includes('.palette-backdrop') && styles.includes('.palette-dialog'), 'styles.css defines command palette styling');
+
+  // 4. CSV export
+  assert.ok(editor.includes("downloadTranscript('csv')"), 'main editor supports downloadTranscript with csv');
+  assert.ok(editor.includes('Spreadsheet .CSV'), 'export modal includes Spreadsheet .CSV button');
+  assert.ok(captionsPanel.includes("downloadTranscript('csv')"), 'CaptionsPanel dropdown includes Export as CSV');
 });

@@ -1,9 +1,9 @@
 import captionDefaults from './caption-defaults.json';
-export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean; fromGlossary?: boolean;
+export type Word = { id: string; text: string; original: string; start: number; end: number; confidence: number; confidenceApproximate?: boolean; timingApproximate?: boolean; emphasis: boolean; emphasisScore: number; spotlight?: boolean; behind?: boolean; fromGlossary?: boolean;
   /**
    * The creator's own line decision, overriding the clause breaker.
    *
-   * `true` always ends a page after this word, `false` never does, and
+   * `true` always ends a page after this word; `false` joins words when the page ceiling permits, and
    * undefined leaves it to `breakSegment`. The editor used to express this by
    * appending a full stop to the word and squeezing the following timings;
    * that put punctuation the speaker never said into the caption, corrupted
@@ -184,6 +184,7 @@ export type Project = {
   /** Whether the last run asked Whisper for English instead of the spoken words. */
   translate?: boolean;
   activeMediaAssetId?: string;
+  greenScreen?: GreenScreenSettings;
 };
 /**
  * Canonical caption defaults. server/app.py loads the same JSON file, so a

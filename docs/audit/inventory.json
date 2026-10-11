@@ -1,0 +1,1152 @@
+[
+  {
+    "path": ".claude/launch.json",
+    "lines": 27,
+    "sha256": "3aa38da346ce96a67d5589b38640504e5f06005df2f655b8a94f7b566622e522",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        27
+      ]
+    ]
+  },
+  {
+    "path": ".dockerignore",
+    "lines": 9,
+    "sha256": "fbfaa0031d9d2cb55cbbf1ee70f41b4a5ab3acf3f8879b78898d9b339b924df4",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        9
+      ]
+    ]
+  },
+  {
+    "path": ".env.example",
+    "lines": 80,
+    "sha256": "4c995f71dd712a1aec84fe34ba1989cecfd293bbe16d1acf5b4250b8225bbcc7",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Environment values withheld; variable names and consumers only",
+    "ranges": []
+  },
+  {
+    "path": ".env.production",
+    "lines": 1,
+    "sha256": "02d1e39632038ff3cda12a7091a224c2f236ddb051bc7af64f84a12373d16531",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Environment values withheld; variable names and consumers only",
+    "ranges": []
+  },
+  {
+    "path": ".github/workflows/supabase-keepalive.yml",
+    "lines": 43,
+    "sha256": "bfef26daa41d7a6a1d6a3af32ae08301394f0aca3964c9d811bc498c167d2e24",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        43
+      ]
+    ]
+  },
+  {
+    "path": ".gitignore",
+    "lines": 33,
+    "sha256": "d2b1a6477b11771f1ffecd3e7a95d082f57defea16d12b1045708e9d153b7ab1",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        33
+      ]
+    ]
+  },
+  {
+    "path": "CHANGELOG.md",
+    "lines": 415,
+    "sha256": "4c96a80b941ff5aae7c47e29ee7fb41e323dbfb332b83a9c44cd4cc1d46d634f",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        415
+      ]
+    ]
+  },
+  {
+    "path": "DESIGN.md",
+    "lines": 323,
+    "sha256": "b05b93d27e7509d513e0a235c75256f9e655fe514b209bb697c18cdee277cdc8",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        323
+      ]
+    ]
+  },
+  {
+    "path": "Dockerfile",
+    "lines": 45,
+    "sha256": "b6ca6830bd2310d6df28893e7da0152f32bfb3b2b80d024572cb0c16a7c08832",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        45
+      ]
+    ]
+  },
+  {
+    "path": "README.md",
+    "lines": 128,
+    "sha256": "a65766898c077969e04f203b8ce7d436fc46594ba6f4d84bf18143fab63a17d7",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        128
+      ]
+    ]
+  },
+  {
+    "path": "app.py",
+    "lines": 129,
+    "sha256": "9d0a7e7f81c1c93b8c2a1de49d5a4adf7afd8e397ee0ee8c14793f90683b3cca",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        129
+      ]
+    ]
+  },
+  {
+    "path": "docs/RESEARCH.md",
+    "lines": 146,
+    "sha256": "98a380d541e1babee422237aa188e7444eacae6f1ae17e20bd5642a860baf7fa",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        146
+      ]
+    ]
+  },
+  {
+    "path": "index.html",
+    "lines": 49,
+    "sha256": "d4b6f18dbc79fcc4839a6c1f1781345fde7c2e0d94f4020e375acb09b1872d86",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        49
+      ]
+    ]
+  },
+  {
+    "path": "package-lock.json",
+    "lines": 5554,
+    "sha256": "8cfd8e118ea3d3deaf0522262609ffb13a4e2540d1e169bb8a6ec3757d64dcf0",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Dependency lock: version-aware review",
+    "ranges": []
+  },
+  {
+    "path": "package.json",
+    "lines": 46,
+    "sha256": "3bd803d8deb78147d0a66886b7cffe2058f43a83aa8ea388958d2ffff75f5bcf",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        46
+      ]
+    ]
+  },
+  {
+    "path": "packages.txt",
+    "lines": 3,
+    "sha256": "925d23ad6a200b5716e3193a7f5041ae6d2ffda75757821e3cdbe94bb173c440",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        3
+      ]
+    ]
+  },
+  {
+    "path": "public/apple-touch-icon.png",
+    "lines": 90,
+    "sha256": "e595084759e3347a6ea48d287816f058e5f9509c9b74a4883e49f7ae002475eb",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/bol.studio-white.svg",
+    "lines": 26,
+    "sha256": "693d6c89741de0c7232804f43f7544e974325e5a227caa51c408388fbd087571",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Generated vector path geometry; SVG structure inspected, not every path coordinate. Static brand assets.",
+    "ranges": []
+  },
+  {
+    "path": "public/bol.studio.png",
+    "lines": 44,
+    "sha256": "1c074b3557a4fb0fc830ab1ddbfb3743a375b426cb889af73986a3b369fdb046",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/bol.studio.svg",
+    "lines": 26,
+    "sha256": "feb06f0852f8ba919ffb987f16915ed2db93c09c212fc2c602229db3a66a252c",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Generated vector path geometry; SVG structure inspected, not every path coordinate. Static brand assets.",
+    "ranges": []
+  },
+  {
+    "path": "public/bol.svg",
+    "lines": 25,
+    "sha256": "7db5cae550c13b6ee2652607abb9201f75f1509bcfddc69f9c4da70856b66a31",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Generated vector path geometry; SVG structure inspected, not every path coordinate. Static brand assets.",
+    "ranges": []
+  },
+  {
+    "path": "public/favicon-16x16.png",
+    "lines": 10,
+    "sha256": "7d665c05b2c5b83cc0145dda44ac677639c26792b4c4a8659f0e48f9d0bb2502",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/favicon-32x32.png",
+    "lines": 12,
+    "sha256": "2c60beaffae610b1bcd429955e24a637e50b8f9709d26b530fbecaeb34a160fa",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/favicon-48x48.png",
+    "lines": 30,
+    "sha256": "ed600bbceec176356b173a1964a7dea4db1d81b251ed6895d336712c77ac69a0",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/favicon.ico",
+    "lines": 52,
+    "sha256": "a7068d365100e39cc8978b84b63af67cb343b6ba396678577bef4085eba52333",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/favicon.png",
+    "lines": 12,
+    "sha256": "2c60beaffae610b1bcd429955e24a637e50b8f9709d26b530fbecaeb34a160fa",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/favicon.svg",
+    "lines": 19,
+    "sha256": "a9b017e3730a72e3b2606a1d1fd0c8206cc0e1e9edaf249b27c16b9a567c5f47",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Generated vector path geometry; SVG structure inspected, not every path coordinate. Static brand assets.",
+    "ranges": []
+  },
+  {
+    "path": "public/icon-192.png",
+    "lines": 65,
+    "sha256": "3144514135b45373442920522fcd899d526367708274f690bee4f2a70bfbfcfb",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/icon-512.png",
+    "lines": 183,
+    "sha256": "907bf7f6265ff31b243cba192963599712cb042dd37cd8ea890386d7b2e17481",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Binary asset; inspect references and rendered use",
+    "ranges": []
+  },
+  {
+    "path": "public/safari-pinned-tab.svg",
+    "lines": 10,
+    "sha256": "4a4f62680df41a51c663a0987082894736a147d4a162fa9f1be7c234bd5f42cf",
+    "status": "EXCLUDED WITH JUSTIFICATION",
+    "reason": "Generated vector path geometry; SVG structure inspected, not every path coordinate. Static brand assets.",
+    "ranges": []
+  },
+  {
+    "path": "public/site.webmanifest",
+    "lines": 19,
+    "sha256": "ba1e28acd9856811e4ca9f715fba76b763961492f49bde9f4521b021693ac904",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        19
+      ]
+    ]
+  },
+  {
+    "path": "requirements.txt",
+    "lines": 21,
+    "sha256": "e3d3fde907e23f2261f64e607fc632f155805927e807f6c4df921bd4a81138ee",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        21
+      ]
+    ]
+  },
+  {
+    "path": "scripts/backfill-owner.py",
+    "lines": 73,
+    "sha256": "2acdecf5822b46942d5a5fe0e2202fbe7df3c613ba16d0f29ba23895a3aa674c",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        73
+      ]
+    ]
+  },
+  {
+    "path": "scripts/compare-models.py",
+    "lines": 451,
+    "sha256": "63939f74631d9eb20317f893d024813e5f9c1b1dcdc5d850b2e0005b5cc224c9",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        451
+      ]
+    ]
+  },
+  {
+    "path": "scripts/dev.mjs",
+    "lines": 47,
+    "sha256": "c61cc1376a55cb525d89ca7d905abca4dea9a9dabdffe38e6eb3c31c2b0b77eb",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        47
+      ]
+    ]
+  },
+  {
+    "path": "scripts/make-test-media.py",
+    "lines": 76,
+    "sha256": "a7da56261d8402e690df7e9a53f74af92755984353a036352f45b8583d008903",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        76
+      ]
+    ]
+  },
+  {
+    "path": "scripts/prepare-hinglish-model.py",
+    "lines": 50,
+    "sha256": "c2b8074c5feed48efb557b7fef6c40dac3683d037cd86ed5ed8d8a0c392c6043",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        50
+      ]
+    ]
+  },
+  {
+    "path": "scripts/prepare-model.py",
+    "lines": 44,
+    "sha256": "1dde35ec22983586654b52db36be377fd24d4f50a2e14485799b513729a7ec02",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        44
+      ]
+    ]
+  },
+  {
+    "path": "scripts/smoke-test.py",
+    "lines": 187,
+    "sha256": "aec56632bcf241013fae89073bcbcbd4e676409d939f9458f8372ef35c645a0a",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        187
+      ]
+    ]
+  },
+  {
+    "path": "server/app.py",
+    "lines": 1568,
+    "sha256": "2bb96f87a1e5070455ad224a15e25fd2ed9f60dacc8648869d53e5ef2f632586",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        1568
+      ]
+    ]
+  },
+  {
+    "path": "server/auth.py",
+    "lines": 252,
+    "sha256": "bbf8e4045d44c2de798b0e461e764040cd6d19fce22bcb2f2a7a64d2610dc65c",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        252
+      ]
+    ]
+  },
+  {
+    "path": "server/denoise.py",
+    "lines": 161,
+    "sha256": "b1499a756e1461b6a336c4e0948889f04c8192390bacecd85ba147e2a9c4c855",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        161
+      ]
+    ]
+  },
+  {
+    "path": "server/emoji.py",
+    "lines": 268,
+    "sha256": "59b8c0f5b4c08b257b3ecbb512b648e98cb15459cadfda39f006e3bb690fca02",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        268
+      ]
+    ]
+  },
+  {
+    "path": "server/glossary.py",
+    "lines": 150,
+    "sha256": "1688b0a5c081b990af1ac3358c64dd669722136deccc1e0724c04dfa25052c96",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        150
+      ]
+    ]
+  },
+  {
+    "path": "server/remotion-captions.ts",
+    "lines": 141,
+    "sha256": "986b523c8742d38d9cad69a289dc496271a84935513d8a2e7fd506c25fd76231",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        141
+      ]
+    ]
+  },
+  {
+    "path": "server/render.ts",
+    "lines": 292,
+    "sha256": "c7be4454289a8091774465d08394ce6d8cd0debdbb02cf25be4577cbce593b0f",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        292
+      ]
+    ]
+  },
+  {
+    "path": "server/requirements-cpu.txt",
+    "lines": 2,
+    "sha256": "b9a2bf9419643a955a0c5a4b4002ecfc54f9762f4e7d2acc60c0ef15395eef41",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        2
+      ]
+    ]
+  },
+  {
+    "path": "server/requirements.txt",
+    "lines": 33,
+    "sha256": "840675107b7f45a0f67978cde360cd01fd468f6ba9661ed03dda8420ad539d54",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        33
+      ]
+    ]
+  },
+  {
+    "path": "server/transcription.py",
+    "lines": 812,
+    "sha256": "0fcaf8f87c26d7ec72113ca88c423c194247c0a457a416d14462873f1cd2bfe5",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        812
+      ]
+    ]
+  },
+  {
+    "path": "skills-lock.json",
+    "lines": 83,
+    "sha256": "592af9de31bdb3840854c87214fcac2568e4d16b0f96b4b89df7d7eb3875dfb5",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        83
+      ]
+    ]
+  },
+  {
+    "path": "src/components/AuthScreen.tsx",
+    "lines": 527,
+    "sha256": "c52b18c239766e5ab43ddeaf68746edaa8d3518655ded2f98c8767172754a564",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        527
+      ]
+    ]
+  },
+  {
+    "path": "src/components/CaptionsPanel.tsx",
+    "lines": 2218,
+    "sha256": "d09249c966f19de9b95273ea8649204f35289f83d452049d0754f41660811d70",
+    "status": "REVIEWED",
+    "reason": "Complete sequential source review; runtime coverage separate",
+    "ranges": [
+      [
+        1,
+        2218
+      ]
+    ]
+  },
+  {
+    "path": "src/components/CommandPalette.tsx",
+    "lines": 458,
+    "sha256": "f4c05aaeb379995a6f14a4ca7667b757ea6fb5e05714dbcd0d7226742843d128",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        458
+      ]
+    ]
+  },
+  {
+    "path": "src/components/LiveAnnouncer.tsx",
+    "lines": 68,
+    "sha256": "566815b45d8bcbff713d20a258056acf9a6e6cebd3820b3a120455d0e9a552c1",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        68
+      ]
+    ]
+  },
+  {
+    "path": "src/components/MediaPanel.tsx",
+    "lines": 1549,
+    "sha256": "67aabfd9a4d5a46da848c501effcb6887124f082d5bf3291c556469a6f03f191",
+    "status": "REVIEWED",
+    "reason": "Complete sequential source review; runtime coverage separate",
+    "ranges": [
+      [
+        1,
+        1549
+      ]
+    ]
+  },
+  {
+    "path": "src/components/Modal.tsx",
+    "lines": 23,
+    "sha256": "30ecc99f17e09ef028522f6f3328b2d70580cff9393279fe957df17200f478b6",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        23
+      ]
+    ]
+  },
+  {
+    "path": "src/components/OnboardingTour.tsx",
+    "lines": 147,
+    "sha256": "0fd2fa8452bdff14264f245167c8a6f48c554e49a20dc7482247c2297a663254",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        147
+      ]
+    ]
+  },
+  {
+    "path": "src/components/SettingsPanel.tsx",
+    "lines": 439,
+    "sha256": "4550b29a31dc710ed20f8725a511b35932c6b065c06b7501ba5e77c6e65135eb",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        439
+      ]
+    ]
+  },
+  {
+    "path": "src/components/ShortcutModal.tsx",
+    "lines": 89,
+    "sha256": "b3b89d716d957862d5f20c9bff8f94c5d827c66df7060528d6fe8090031b1307",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        89
+      ]
+    ]
+  },
+  {
+    "path": "src/components/StudioModals.tsx",
+    "lines": 287,
+    "sha256": "915ae5b3a7df042a43c7acee65b0377cec8b4464fe5325a5f72a3fd8f3e6034e",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        287
+      ]
+    ]
+  },
+  {
+    "path": "src/components/StudioNavbar.tsx",
+    "lines": 166,
+    "sha256": "c356241b51fd7ca8ee312f829d711a549ec2824b24fe17d4902ddd87606167f4",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        166
+      ]
+    ]
+  },
+  {
+    "path": "src/components/StylePanel.tsx",
+    "lines": 153,
+    "sha256": "3e4f10cc5acd4778dd84c004596ddca9729881c5769b8c7910e5904057d76dea",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        153
+      ]
+    ]
+  },
+  {
+    "path": "src/components/TemplateCard.tsx",
+    "lines": 121,
+    "sha256": "1814cddd08c51207ad96bc8c09288978ed07309a9f32e0f47b5eeb05caf3ccd4",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        121
+      ]
+    ]
+  },
+  {
+    "path": "src/components/TextPanel.tsx",
+    "lines": 631,
+    "sha256": "df3cd3d38d1e99499ec8a0328fff7e3b094dd01fadbeaf8fced606c88de78f04",
+    "status": "REVIEWED",
+    "reason": "Complete sequential source review; runtime coverage separate",
+    "ranges": [
+      [
+        1,
+        631
+      ]
+    ]
+  },
+  {
+    "path": "src/components/TimelineRuler.tsx",
+    "lines": 33,
+    "sha256": "cde70da284f7d2d65305c9ce9af40637b915d6c930f8fd5878caa640c8b3abb6",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        33
+      ]
+    ]
+  },
+  {
+    "path": "src/components/WordInspector.tsx",
+    "lines": 159,
+    "sha256": "9cdffd597efe49c4b8b8d39dcbd14384137fef071c5ac22c033ca81b945b8648",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        159
+      ]
+    ]
+  },
+  {
+    "path": "src/fonts/local-faces.ts",
+    "lines": 59,
+    "sha256": "08cf9e09a9411c80331d25b4ee8eef68f4cb1674e0a20bdc3406dcebbaa07f39",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        59
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/api.ts",
+    "lines": 328,
+    "sha256": "9ff2b0e4e3bd58b8a15cea9f384c68f89894e97c95de284f20bdfe53e4af8f13",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        328
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/auth.ts",
+    "lines": 96,
+    "sha256": "8175779032e845fc801239426d4d3216f5c234414cc840c6d67f9eaec5e476a5",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        96
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/caption-defaults.json",
+    "lines": 10,
+    "sha256": "51ecdafd4c704a357e849e73fb5199345c947b5375bd4e5b48648ea94e97b883",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        10
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/caption-fonts.json",
+    "lines": 13,
+    "sha256": "dd34baca11cf3bd0324fb9a921be6c369528bae412bde8757043269a09ccbb3d",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        13
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/caption-fonts.ts",
+    "lines": 66,
+    "sha256": "c627488fbc5ab2f7d2e3840975e97bea554bb805897b503bdc81b0c1d0d25d57",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        66
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/caption-templates.json",
+    "lines": 170,
+    "sha256": "b2777f03cc87ad3d5a15240dad5d6c2d254cf256aaa718c3ea7a0fec8bc9eed2",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        170
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/captions.ts",
+    "lines": 601,
+    "sha256": "65b8e7b537838cb28887a4694090ea96f99c262c21cb73e4408bd4feacb6e623",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        601
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/chromakey.ts",
+    "lines": 169,
+    "sha256": "67d97b926b3472267e5604cb281eb406968aea847bbc494f4060fba0600a77df",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        169
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/pages.ts",
+    "lines": 433,
+    "sha256": "5c5bed8b5b0b5064b6539f66abc7427e61d556f1bb35744318c901b8d122f4da",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        433
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/safe-area.ts",
+    "lines": 77,
+    "sha256": "375a050b12fea3709bd55f2fb4e993c8b010c5d7b1c5d5e208080e5ccd5176ec",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        77
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/shell.ts",
+    "lines": 28,
+    "sha256": "030f09b9cec930daf57fb1a157dc63223058349747c9833b50f2a31e8d34b196",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        28
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/types.ts",
+    "lines": 200,
+    "sha256": "c830bb058ec1bf0eec935e110e70e4b4f62413dd2a454a5064c754faef9065fa",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        200
+      ]
+    ]
+  },
+  {
+    "path": "src/lib/utils.ts",
+    "lines": 118,
+    "sha256": "97a6bd26df6c3cc831a1f97b428ab04380d40245359a12371cf4e559c3c121a5",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        118
+      ]
+    ]
+  },
+  {
+    "path": "src/main.tsx",
+    "lines": 4436,
+    "sha256": "57617714795639954579ec52451b27d09bc8d18b83a85236b9e45f3a113d7495",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        4436
+      ]
+    ]
+  },
+  {
+    "path": "src/registry/magicui/animated-theme-toggler.tsx",
+    "lines": 357,
+    "sha256": "8c080997868b5d1ca018688f36930e9af674a01260109bcf143fab34db44e40f",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        357
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/CaptionPage.tsx",
+    "lines": 354,
+    "sha256": "9ca567251a7d787c2f8cec78219ba5c206b4358d5dd07578d49b9b61f37be9e5",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        354
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/CaptionTrack.tsx",
+    "lines": 88,
+    "sha256": "11633d746c36780eb7aaa3fcd94ae158e00b57a3666d6cd80f2787915cabb8cd",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        88
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/CaptionWord.tsx",
+    "lines": 338,
+    "sha256": "8941cd7b5c72c4fcc41b64d1d57bfe984c02a16e0e47c24175b32e2ad9fbf2ed",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        338
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/Root.tsx",
+    "lines": 55,
+    "sha256": "a5fe4adb53c52c0cb8a304cccc5d9654832e9264ae08713dfa1e672a100b734a",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        55
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/index.ts",
+    "lines": 4,
+    "sha256": "8ad7cfb50e32546485a1a2ef5e468e5b6bdee2bc5c9b92d08882f96e3750b4a3",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        4
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/theme.ts",
+    "lines": 80,
+    "sha256": "13ac06dcd8ec1c1276e799bd645d815924c534544d805a8f3da2296783d89fc1",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        80
+      ]
+    ]
+  },
+  {
+    "path": "src/remotion/treatments.ts",
+    "lines": 181,
+    "sha256": "4de739db3d294cf49876c56cced05843aaa04d04a1d35bb964727779331d97b6",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        181
+      ]
+    ]
+  },
+  {
+    "path": "src/styles.css",
+    "lines": 12274,
+    "sha256": "db01932db2b3b10a6754e7d1e02fe90d6f552f2bbe7eb425332dd22b00c3aebb",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        12274
+      ]
+    ]
+  },
+  {
+    "path": "tests/captions.test.ts",
+    "lines": 1708,
+    "sha256": "f889e0bc3f48c795e45708929880eb41beb78478a9b73eb7addf1abc3d16dff5",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        1708
+      ]
+    ]
+  },
+  {
+    "path": "tests/test_backend.py",
+    "lines": 1615,
+    "sha256": "d8f565a5a766b97ec7a89ad3de9236b3b7282a8f58041f5997fe0a88ed34c095",
+    "status": "REVIEWED",
+    "reason": "Complete source read in sequential chunks; runtime verification tracked separately",
+    "ranges": [
+      [
+        1,
+        1615
+      ]
+    ]
+  },
+  {
+    "path": "tsconfig.json",
+    "lines": 14,
+    "sha256": "482071d971fc62ecf2ead84d4b73a2a84e6a61d6e27ec17f1fb9d5065251b7c9",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        14
+      ]
+    ]
+  },
+  {
+    "path": "vercel.json",
+    "lines": 16,
+    "sha256": "e7c0c4d1f68999a73f90a9e8a6aa8b0e37e88e4d6c47ff8f8068d2659491cb7e",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        16
+      ]
+    ]
+  },
+  {
+    "path": "vite.config.ts",
+    "lines": 64,
+    "sha256": "e51d15cb3484e7a49e0a843ad5fa412b763fb557fe070cd295b7b076cae935d0",
+    "status": "REVIEWED",
+    "reason": "Complete source review; runtime coverage reported separately",
+    "ranges": [
+      [
+        1,
+        64
+      ]
+    ]
+  }
+]

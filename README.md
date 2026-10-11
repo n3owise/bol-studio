@@ -95,7 +95,7 @@ changes. Passwords, confirmation mail and reset links are Supabase's; the backen
 never sees a password.
 
 `<video src>` cannot send headers, so media URLs carry a short-lived signed token
-that opens one project's media for fifteen minutes and nothing else — rather than
+that opens one project's media for two hours and nothing else — rather than
 an access token, which is good for an hour and for everything and would end up in
 proxy logs and browser history.
 
@@ -126,3 +126,19 @@ it needs `SUPABASE_URL` and `SUPABASE_ANON_KEY` as repository secrets.
 ## Deploying later
 
 Vercel is a good home for the frontend and lightweight authenticated API. Large media uploads should go directly to private object storage, while transcription and rendering run in a separate durable worker. The local Python/FFmpeg process is deliberately not bundled into a Vercel function. Add authentication, ownership checks, private media URLs, quotas, retention, and job recovery before making the editor public.
+
+### Job admission and storage mode
+
+The JSON project store supports one server process per data directory on macOS/Linux. Startup takes an OS file lock and refuses a second process before recovery or project writes. Do not configure multiple Uvicorn workers against the same directory. Keep `.bol-process.lock` in place; its lock is released automatically when the process exits.
+
+`BOL_MAX_WORKERS` controls running jobs. `BOL_MAX_QUEUED_JOBS` defaults to 8 additional admitted jobs, and `BOL_MAX_OWNER_JOBS` defaults to 3 running/queued jobs per workspace. Capacity includes an autostart upload while it is being prepared. A full server queue returns 503; the workspace limit returns 429. Both provide `Retry-After: 30`. Rejected admissions do not save queued state. Uploads without autostart remain available when the compute queue is full.
+
+Accepted work is committed to `.bol-jobs.sqlite3` before submitting it to a worker. Graceful shutdown waits for running writers and retains pending journal entries. After a restart, the journal replays unfinished work through the same workspace and global limits, using the frozen export snapshot. Cancelled generations, deleted projects and already completed outputs are skipped. Older jobs without a journal entry become explicit errors with retry instructions. A crash before journal submission can therefore require manual retry; a successful API response occurs after journal submission. Keep the journal with the project data when making backups.
+
+This is durable delivery for the supported single-process store. Multiple hosts/processes still require transactional project storage and distributed leases. A persistent volume and tested backup/restore procedure are required on hosted installations; a journal cannot recover media removed by ephemeral storage.
+
+Uploads and derived outputs have workspace storage reservations, upload concurrency and media limits. Export files and renderer diagnostics are watched for quota overruns. Render admission also limits visual assets, simultaneous video decoders and decoded frame pixels. Limits are configurable; watchdogs have sampling overshoot, and frame-pixel budgets do not bound all codec/browser memory. See [current operations](docs/project-brain/CURRENT_OPERATIONS.md) and [render resource limits](docs/audit/render-resource-fixes.md).
+
+### Current capability limits
+
+Safe Area guides are approximate visual references; they do not constrain caption placement or guarantee that platform controls will never cover captions. Check exports on the target platform. Projects are stored on the configured backend filesystem, not in the browser; account ownership applies when authentication is enabled. A hosted backend requires persistent storage and an operational backup/retention policy. CSV downloads prefix formula-like text with an apostrophe for spreadsheet safety; use JSON when exact text round trips matter.

@@ -1,3 +1,4 @@
+import { useDialogFocus } from './useDialogFocus';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
@@ -905,6 +906,7 @@ function MediaPreviewModal({
   const isAudio = asset.mediaType === 'audio';
   const isImage = asset.mediaType === 'image';
 
+  const dialogRef = useDialogFocus(true, onClose);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -946,7 +948,7 @@ function MediaPreviewModal({
   const mediaSourceUrl = mediaUrl(asset.url || '') || undefined;
 
   return (
-    <div className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
+    <div ref={dialogRef} className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Media settings">
       <div className="media-modal-card preview-modal" onClick={e => e.stopPropagation()}>
         <div className="media-modal-head">
           <h3 className="media-modal-title" title={asset.filename}>{asset.filename}</h3>
@@ -1099,6 +1101,7 @@ function MediaRenameModal({
   onClose: () => void;
   onSave: (newName: string) => void;
 }) {
+  const dialogRef = useDialogFocus(true, onClose);
   const [name, setName] = useState(getBaseName(asset.filename));
   const ext = getExtension(asset.filename);
 
@@ -1117,7 +1120,7 @@ function MediaRenameModal({
   }, [onClose]);
 
   return (
-    <div className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
+    <div ref={dialogRef} className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Media settings">
       <div className="media-modal-card dialog-modal" onClick={e => e.stopPropagation()}>
         <div className="media-modal-head">
           <h3 className="media-modal-title">Rename Media</h3>
@@ -1173,6 +1176,8 @@ function MediaRemoveModal({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const dialogRef = useDialogFocus(true, onClose);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -1182,7 +1187,7 @@ function MediaRemoveModal({
   }, [onClose]);
 
   return (
-    <div className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
+    <div ref={dialogRef} className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Media settings">
       <div className="media-modal-card dialog-modal" onClick={e => e.stopPropagation()}>
         <div className="media-modal-head">
           <h3 className="media-modal-title">Remove this media?</h3>
@@ -1230,6 +1235,7 @@ export function GreenScreenModal({
   onApply: (config: GreenScreenSettings) => void;
 }) {
   const isVideo = asset.mediaType === 'video';
+  const dialogRef = useDialogFocus(true, onClose);
   const initialSettings = asset.greenScreen || defaultGreenScreen;
 
   const [enabled, setEnabled] = useState(initialSettings.enabled ?? true);
@@ -1329,7 +1335,7 @@ export function GreenScreenModal({
   }, [onClose, isEyedropperActive]);
 
   return (
-    <div className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true">
+    <div ref={dialogRef} className="media-modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-label="Media settings">
       <div className="media-modal-card greenscreen-modal" onClick={e => e.stopPropagation()}>
         <div className="media-modal-head">
           <div className="modal-title-wrap">

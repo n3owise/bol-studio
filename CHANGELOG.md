@@ -1,3 +1,5 @@
+> Historical release notes describe behavior at the time of each release. For current limits and deployment behavior, see README.md and docs/project-brain. Media URLs currently last two hours, Safe Area guides are visual references, and reduced-motion coverage must be verified for each new interaction.
+
 # Changelog
 
 Notable changes to Bol Studio.

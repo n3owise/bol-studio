@@ -21,6 +21,8 @@ const SHORTCUTS: ShortcutCategory[] = [
     category: 'Playback & Shuttle',
     items: [
       { keys: ['Space', 'or', 'K'], description: 'Play / Pause playback' },
+      { keys: ['←', 'or', '→'], description: 'Nudge playhead by 1 frame (~33ms)' },
+      { keys: ['Shift', '← / →'], description: 'Jump playhead by 1.0 second' },
       { keys: ['J'], description: 'Step backward 1 second' },
       { keys: ['L'], description: 'Step forward 1 second' },
       { keys: ['['], description: 'Jump to previous subtitle line' },
@@ -41,6 +43,7 @@ const SHORTCUTS: ShortcutCategory[] = [
   {
     category: 'Timeline View & Help',
     items: [
+      { keys: ['Ctrl', 'K'], description: 'Open studio command palette' },
       { keys: ['Ctrl', 'Scroll'], description: 'Fluid zoom timeline in / out' },
       { keys: ['↑', 'or', '↓'], description: 'Zoom timeline resolution' },
       { keys: ['?'], description: 'Open / close this keyboard shortcuts guide' },

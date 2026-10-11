@@ -35,14 +35,42 @@ export function getContrastColor(hexColor: string): '#111318' | '#ffffff' {
   return lum > 145 ? '#111318' : '#ffffff';
 }
 
+/** Keep user text literal instead of treating it as WebVTT cue markup. */
+export function escapeVttText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/[\r\n]+/g, ' ');
+}
+
 export function subtitleText(words: Word[], max: number, format: 'srt' | 'vtt') {
   const stamp = (s: number) => { const ms = Math.max(0, Math.round(s*1000)); return `${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}${format === 'srt' ? ',' : '.'}${String(ms%1000).padStart(3,'0')}`; };
-  return (format === 'vtt' ? 'WEBVTT\n\n' : '') + groupWords(words,max).map((g,i) => `${format === 'srt' ? `${i+1}\n` : ''}${stamp(g[0].start)} --> ${stamp(g.at(-1)!.end)}\n${g.map(w=>w.text).join(' ')}\n`).join('\n');
+  return (format === 'vtt' ? 'WEBVTT\n\n' : '') + groupWords(words,max).map((g,i) => `${format === 'srt' ? `${i+1}\n` : ''}${stamp(g[0].start)} --> ${stamp(g.at(-1)!.end)}\n${g.map(w => format === 'vtt' ? escapeVttText(w.text) : w.text).join(' ')}\n`).join('\n');
 }
 
 export function plainTranscript(words: Word[], max = 12): string {
   if (!words.length) return '';
   return groupWords(words, max).map(g => g.map(w => w.text).join(' ')).join('\n');
+}
+
+/**
+ * Export word-level timings as spreadsheet-safe CSV. Text that starts with a
+ * formula marker (including after whitespace) gets a leading apostrophe. This
+ * deliberately changes those CSV fields; JSON retains the original text.
+ */
+export function csvTranscript(words: Word[]): string {
+  const escapeCsv = (val: string) => {
+    const safe = /^[\s\u0000-\u001f]*[=+@-]/u.test(val) ? `'${val}` : val;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  const header = ['Word', 'Start (s)', 'End (s)', 'Duration (s)', 'Confidence', 'Spotlight', 'Original'];
+  const rows = words.map(w => [
+    escapeCsv(w.text),
+    w.start.toFixed(3),
+    w.end.toFixed(3),
+    Math.max(0, w.end - w.start).toFixed(3),
+    (w.confidence ?? 1).toFixed(2),
+    w.spotlight ? 'true' : 'false',
+    escapeCsv(w.original || w.text),
+  ].join(','));
+  return [header.join(','), ...rows].join('\n');
 }
 
 export function ensureValidIntervals(words: Word[], duration: number): void {
@@ -525,25 +553,21 @@ export function moveWordToLine(
   return moveWordsToLine(words, [wordId], targetGroupIdx, targetPosition, maxWordsPerLine, duration);
 }
 
-export function replaceAllOccurrences(words: Word[], findText: string, replaceText: string, caseSensitive = false): Word[] {
+/** Match a complete spoken word, allowing its trailing punctuation. */
+export function matchesCaptionWord(text: string, findText: string, caseSensitive = false): boolean {
   const query = findText.trim();
-  if (!query) return words;
+  if (!query) return false;
+  const base = text.replace(/[.!?।,;:—\-]+$/, '');
+  return caseSensitive ? base === query : base.toLowerCase() === query.toLowerCase();
+}
+
+export function replaceAllOccurrences(words: Word[], findText: string, replaceText: string, caseSensitive = false): Word[] {
+  const replacement = replaceText.trim();
+  if (!findText.trim() || !replacement) return words;
   return words.map(w => {
-    const matchPunct = w.text.match(/([.!?।,;:—\-]+)$/);
-    const punct = matchPunct ? matchPunct[1] : '';
-    const baseText = punct ? w.text.slice(0, -punct.length) : w.text;
-
-    const matches = caseSensitive
-      ? baseText === query
-      : baseText.toLowerCase() === query.toLowerCase();
-
-    if (matches) {
-      return {
-        ...w,
-        text: `${replaceText}${punct}`,
-      };
-    }
-    return w;
+    if (!matchesCaptionWord(w.text, findText, caseSensitive)) return w;
+    const punct = w.text.match(/([.!?।,;:—\-]+)$/)?.[1] ?? '';
+    return { ...w, text: `${replacement}${punct}` };
   });
 }
 

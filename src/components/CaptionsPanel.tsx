@@ -1,3 +1,5 @@
+import { activeCaptionIndex, captionTimeIndex } from '../lib/frontend-reliability';
+import { useDialogFocus } from './useDialogFocus';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   Captions,
@@ -23,6 +25,7 @@ import {
   Type,
 } from 'lucide-react';
 import type { MediaAsset, Project, Settings, Word } from '../lib/types';
+import { getContrastColor } from '../lib/captions';
 import { MAX_WORDS_PER_PAGE } from '../lib/pages';
 import { groupWords } from '../lib/pages';
 import { WordInspector, recase, type WordCase } from './WordInspector';
@@ -61,6 +64,7 @@ interface CaptionsPanelProps {
   busy: boolean;
   onSelectWord: (wordId: string, e?: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => void;
   onSeek: (time: number) => void;
+  onFocusGroup: (group: Word[]) => void;
   onTogglePlay?: () => void;
   onUpdateSettings: (update: Partial<Settings>) => void;
   /** Insert a new word beside an existing one. */
@@ -91,7 +95,7 @@ interface CaptionsPanelProps {
   ) => void;
   onDuplicateGroup: (group: Word[]) => void;
   onAddCaptionAtTime: (time: number) => void;
-  onEditCaptionGroup: (groupIdx: number, newText: string, newStart: number, newEnd: number) => void;
+  onEditCaptionGroup: (groupIdx: number, newText: string, newStart: number, newEnd: number) => string | undefined;
   onClearAllCaptions: () => void;
   onRegenerateCaptions: (sourceAssetId?: string, script?: string, language?: string, glossary?: string[], isolateVocals?: boolean) => Promise<void>;
   onStartTranscription: (
@@ -110,7 +114,7 @@ interface CaptionsPanelProps {
   onGoToMedia: () => void;
   onBrowseTemplates?: () => void;
   notify: (msg: string) => void;
-  downloadTranscript: (format: 'srt' | 'vtt' | 'json') => void;
+  downloadTranscript: (format: 'srt' | 'vtt' | 'json' | 'csv') => void;
 }
 
 // Helpers for formatted timecodes (e.g. 00:02.8)
@@ -123,24 +127,12 @@ function formatTimecode(seconds: number): string {
 }
 
 function parseTimecode(str: string): number | null {
-  const trimmed = str.trim();
-  if (!trimmed) return null;
-  if (trimmed.includes(':')) {
-    const parts = trimmed.split(':');
-    if (parts.length === 2) {
-      const m = parseFloat(parts[0]);
-      const s = parseFloat(parts[1]);
-      if (!isNaN(m) && !isNaN(s) && m >= 0 && s >= 0) {
-        return Number((m * 60 + s).toFixed(3));
-      }
-    }
-  } else {
-    const s = parseFloat(trimmed);
-    if (!isNaN(s) && s >= 0) {
-      return Number(s.toFixed(3));
-    }
-  }
-  return null;
+  const value = str.trim();
+  if (!/^\d+(?:\.\d+)?$/.test(value) && !/^\d+:\d{1,2}(?:\.\d+)?$/.test(value)) return null;
+  const parts = value.split(':');
+  if (parts.length === 2 && Number(parts[1]) >= 60) return null;
+  const result = parts.length === 2 ? Number(parts[0])*60 + Number(parts[1]) : Number(value);
+  return Number.isFinite(result) ? result : null;
 }
 
 export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
@@ -162,6 +154,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   busy,
   onSelectWord,
   onSeek,
+  onFocusGroup,
   onTogglePlay,
   onUpdateWord,
   onUpdateWords,
@@ -170,6 +163,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   onSplitGroup,
   onSplitLine,
   onMergeGroups,
+  onMoveToPreviousLine,
+  onMoveToNextLine,
   onDropWord,
   onDropWords,
   onDuplicateGroup,
@@ -193,6 +188,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const [panelMenuOpen, setPanelMenuOpen] = useState(false);
   const [activeRowMenuIdx, setActiveRowMenuIdx] = useState<number | null>(null);
   const [modalType, setModalType] = useState<'regenerate-confirm' | 'clear-confirm' | null>(null);
+  const confirmDialogRef = useDialogFocus(modalType !== null, () => setModalType(null));
 
   // Generation form state
   const compatibleAssets = useMemo(() => {
@@ -328,13 +324,9 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   }, [activeRowMenuIdx]);
 
   // Active spoken group during playback
-  const activeGroupIdx = useMemo(() => {
-    return groups.findIndex(g => {
-      const gStart = g[0]?.start ?? 0;
-      const gEnd = (g[g.length - 1]?.end ?? 0) + 0.08;
-      return time >= gStart && time < gEnd;
-    });
-  }, [groups, time]);
+  const [captionPage, setCaptionPage] = useState(0);
+  const timeIndex = useMemo(() => captionTimeIndex(groups, 0.08), [groups]);
+  const activeGroupIdx = activeCaptionIndex(timeIndex, time);
 
   // Active spoken word ID during playback
   const activeWordId = useMemo(() => {
@@ -377,10 +369,10 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
 
       if (rowRect.top < containerRect.top + 8) {
         const delta = rowRect.top - containerRect.top - 12;
-        container.scrollBy({ top: delta, behavior: 'smooth' });
+        container.scrollBy({ top: delta, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
       } else if (rowRect.bottom > containerRect.bottom - 8) {
         const delta = rowRect.bottom - containerRect.bottom + 16;
-        container.scrollBy({ top: delta, behavior: 'smooth' });
+        container.scrollBy({ top: delta, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
       }
     }
   }, [activeGroupIdx, playing]);
@@ -419,6 +411,20 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
 
     return list;
   }, [groups, searchQuery, activeFilter]);
+  const pageSize = 100;
+  const resultPositions = useMemo(() => new Map(searchResults.map((row, index) => [row.idx, index])), [searchResults]);
+  const playbackResultIndex = playing ? (resultPositions.get(activeGroupIdx) ?? -1) : -1;
+  const visiblePage = playbackResultIndex >= 0 ? Math.floor(playbackResultIndex / pageSize)
+    : Math.min(captionPage, Math.max(0, Math.ceil(searchResults.length / pageSize) - 1));
+  const visibleSearchResults = searchResults.slice(visiblePage * pageSize, (visiblePage + 1) * pageSize);
+  useEffect(() => {
+    if (!selectedWord) return;
+    const resultIndex = searchResults.findIndex(row => row.group.some(word => word.id === selectedWord));
+    if (resultIndex >= 0) setCaptionPage(Math.floor(resultIndex / pageSize));
+  }, [selectedWord, searchResults]);
+
+  useEffect(() => { if (playing && playbackResultIndex >= 0) setCaptionPage(Math.floor(playbackResultIndex / pageSize)); }, [playing, playbackResultIndex]);
+
 
   // Selected group index based on selectedWord
   const selectedGroupIdx = useMemo(() => {
@@ -426,14 +432,30 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     return groups.findIndex(g => g.some(w => w.id === selectedWord));
   }, [groups, selectedWord]);
 
+  // Batch line casing & clear highlights
+  const handleBatchLineCase = useCallback((group: Word[], c: WordCase) => {
+    group.forEach(w => {
+      onUpdateWord(w.id, { text: recase(w, c) });
+    });
+    notify(`Converted line to ${c}`);
+  }, [onUpdateWord, notify]);
+
+  const handleClearLineHighlights = useCallback((group: Word[]) => {
+    const ids = group.filter(w => w.spotlight || w.emphasis).map(w => w.id);
+    if (ids.length) {
+      onUpdateWords(ids, { spotlight: false, emphasis: false });
+      notify('Cleared line highlights');
+    }
+  }, [onUpdateWords, notify]);
+
   // Start inline editing of entire group
   const startInlineGroupEdit = useCallback((idx: number) => {
     if (idx < 0 || idx >= groups.length) return;
     const g = groups[idx];
     setEditingGroupIdx(idx);
     setDraftGroupText(g.map(w => w.text).join(' '));
-    setDraftGroupStart(formatTimecode(g[0].start));
-    setDraftGroupEnd(formatTimecode(g[g.length - 1].end));
+    setDraftGroupStart(String(g[0].start));
+    setDraftGroupEnd(String(g[g.length - 1].end));
     setGroupTimeError('');
     setActiveRowMenuIdx(null);
     setWordPopover(null);
@@ -454,10 +476,12 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       return;
     }
 
-    onEditCaptionGroup(editingGroupIdx, draftGroupText.trim(), parsedStart, parsedEnd);
+    if (!draftGroupText.trim()) { setGroupTimeError('Caption text cannot be blank.'); return; }
+    const failure = onEditCaptionGroup(editingGroupIdx, draftGroupText.trim(), parsedStart, parsedEnd);
+    if (failure) { setGroupTimeError(failure); return; }
     setEditingGroupIdx(null);
     setGroupTimeError('');
-    notify('Caption updated');
+    notify('Caption updated. Added or retimed words use estimated timing.');
   }, [editingGroupIdx, groups.length, draftGroupStart, draftGroupEnd, draftGroupText, onEditCaptionGroup, notify]);
 
   const cancelInlineGroupEdit = useCallback(() => {
@@ -465,12 +489,14 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     setGroupTimeError('');
   }, []);
 
-  // Word Chip Single Click -> select, seek, open contextual inspector popover
+  // Word click selects its group on the timeline and opens the inspector.
   const handleWordClick = (e: React.MouseEvent, w: Word) => {
     if (justDraggedRef.current) return;
     e.stopPropagation();
     onSelectWord(w.id, e);
-    onSeek(w.start);
+    const group = groups.find(words => words.some(word => word.id === w.id));
+    if (group) onFocusGroup(group);
+    else onSeek(w.start);
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const popoverWidth = 250;
@@ -976,7 +1002,15 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   };
 
   return (
-    <section className="captions-panel panel" ref={panelRef} aria-label="Captions Panel">
+    <section
+      className="captions-panel panel"
+      ref={panelRef}
+      aria-label="Captions Panel"
+      style={{
+        '--caption-accent': settings.accent,
+        '--caption-accent-contrast': getContrastColor(settings.accent),
+      } as React.CSSProperties}
+    >
       {/* PANEL HEADER */}
       <div className="captions-header compact-header">
         <div className="captions-title-block">
@@ -993,7 +1027,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
           <div className="captions-header-actions" ref={menuRef}>
             <button
               type="button"
-              className="icon-button round"
+              className={`icon-button round ${panelMenuOpen ? 'active' : ''}`}
               title="Caption Options"
               aria-label="Caption Options"
               onClick={() => setPanelMenuOpen(prev => !prev)}
@@ -1035,6 +1069,17 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                 >
                   <Download size={14} />
                   <span>Export as JSON</span>
+                </button>
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => {
+                    downloadTranscript('csv');
+                    setPanelMenuOpen(false);
+                  }}
+                >
+                  <Download size={14} />
+                  <span>Export as CSV</span>
                 </button>
                 <button type="button" className="menu-item" onClick={handleCopyAll}>
                   <Copy size={14} />
@@ -1438,6 +1483,13 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
             </div>
           </div>
 
+          {searchResults.length > pageSize && <nav aria-label="Caption pages" className="captions-toolbar">
+            <button type="button" className="button tiny secondary" disabled={playing || visiblePage === 0}
+              onClick={() => setCaptionPage(visiblePage - 1)}>Previous captions</button>
+            <span>Page {visiblePage + 1} of {Math.ceil(searchResults.length / pageSize)}</span>
+            <button type="button" className="button tiny secondary" disabled={playing || (visiblePage + 1) * pageSize >= searchResults.length}
+              onClick={() => setCaptionPage(visiblePage + 1)}>Next captions</button>
+          </nav>}
           {/* SCROLLABLE CAPTION CARDS */}
           <div
             className="captions-list-container"
@@ -1466,7 +1518,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                 </button>
               </div>
             ) : (
-              searchResults.map(({ group, idx }) => {
+              visibleSearchResults.map(({ group, idx }) => {
                 const isActiveSpoken = activeGroupIdx === idx;
                 const isSelected = selectedGroupIdx === idx;
                 const isEditingGroup = editingGroupIdx === idx;
@@ -1509,7 +1561,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                     }}
                     onClick={() => {
                       if (!isEditingGroup && !justDraggedRef.current) {
-                        onSeek(group[0].start);
+                        onFocusGroup(group);
                         onSelectWord(group[0].id);
                       }
                     }}
@@ -1570,6 +1622,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                           }}
                         />
 
+                        <p className="field-hint">Text corrections keep word timing. Added words use estimated timing; changing Start or End retimes this line.</p>
                         <div className="inline-edit-buttons">
                           <button
                             type="button"
@@ -1630,7 +1683,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                             <div className="caption-row-menu-wrap" onClick={e => e.stopPropagation()}>
                               <button
                                 type="button"
-                                className="caption-row-menu-btn"
+                                className={`caption-row-menu-btn ${activeRowMenuIdx === idx ? 'active' : ''}`}
                                 title="Caption options"
                                 aria-label="Caption options"
                                 onClick={() =>
@@ -1699,6 +1752,52 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                   >
                                     <CopyPlus size={13} />
                                     <span>Duplicate</span>
+                                  </button>
+                                  <div className="menu-divider" />
+                                  <div className="menu-section-label">Line Casing</div>
+                                  <button
+                                    type="button"
+                                    className="menu-item"
+                                    onClick={() => {
+                                      handleBatchLineCase(group, 'uppercase');
+                                      setActiveRowMenuIdx(null);
+                                    }}
+                                  >
+                                    <Type size={13} />
+                                    <span>UPPERCASE LINE</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="menu-item"
+                                    onClick={() => {
+                                      handleBatchLineCase(group, 'title');
+                                      setActiveRowMenuIdx(null);
+                                    }}
+                                  >
+                                    <Type size={13} />
+                                    <span>Title Case Line</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="menu-item"
+                                    onClick={() => {
+                                      handleBatchLineCase(group, 'lowercase');
+                                      setActiveRowMenuIdx(null);
+                                    }}
+                                  >
+                                    <Type size={13} />
+                                    <span>lowercase line</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="menu-item"
+                                    onClick={() => {
+                                      handleClearLineHighlights(group);
+                                      setActiveRowMenuIdx(null);
+                                    }}
+                                  >
+                                    <Sparkles size={13} />
+                                    <span>Clear Line Highlights</span>
                                   </button>
                                   <div className="menu-divider" />
                                   <button
@@ -1834,7 +1933,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                         <button
                                           type="button"
                                           className="caption-word-insert before"
-                                          tabIndex={-1}
+                                          tabIndex={0}
                                           aria-label={`Add a word before "${w.text}"`}
                                           title={`Add a word before "${w.text}"`}
                                           onClick={e => { e.stopPropagation(); onInsertWord(w.id, 'before'); }}
@@ -1842,7 +1941,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                         <button
                                           type="button"
                                           className="caption-word-insert after"
-                                          tabIndex={-1}
+                                          tabIndex={0}
                                           aria-label={`Add a word after "${w.text}"`}
                                           title={`Add a word after "${w.text}"`}
                                           onClick={e => { e.stopPropagation(); onInsertWord(w.id, 'after'); }}
@@ -1878,12 +1977,18 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                                           onClick={e => handleWordClick(e, w)}
                                           onDoubleClick={e => handleWordDoubleClick(e, w)}
                                           onKeyDown={e => {
+                                            if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                                              e.preventDefault(); e.stopPropagation();
+                                              if (e.key === 'ArrowUp') onMoveToPreviousLine?.(w.id);
+                                              else onMoveToNextLine?.(w.id);
+                                              return;
+                                            }
                                             if (e.key === 'Enter' || e.key === ' ') {
                                               e.preventDefault();
                                               handleWordClick(e as unknown as React.MouseEvent, w);
                                             }
                                           }}
-                                          title={`${w.text} (${formatTimecode(w.start)} – ${formatTimecode(w.end)}) · Drag to move · Click to inspect · Double-click to edit`}
+                                          title={`${w.text} (${formatTimecode(w.start)} – ${formatTimecode(w.end)}) · Drag to move or Alt+Up/Down to move between lines · Click to inspect · Double-click to edit`}
                                         >
                                           <span className="caption-word-text">{w.text}</span>
                                           {/* The badge reports what the preview does, not what a flag
@@ -2012,7 +2117,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       {/* REGENERATE CONFIRMATION MODAL */}
       {modalType === 'regenerate-confirm' && (
         <div className="modal-backdrop" onClick={() => setModalType(null)}>
-          <div className="bol-modal" onClick={e => e.stopPropagation()}>
+          <div ref={confirmDialogRef} className="bol-modal" role="dialog" aria-modal="true" aria-label="Regenerate captions" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Regenerate Captions</h3>
               <button
@@ -2095,7 +2200,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       {/* CLEAR ALL CONFIRMATION MODAL */}
       {modalType === 'clear-confirm' && (
         <div className="modal-backdrop" onClick={() => setModalType(null)}>
-          <div className="bol-modal danger-modal" onClick={e => e.stopPropagation()}>
+          <div ref={confirmDialogRef} className="bol-modal danger-modal" role="dialog" aria-modal="true" aria-label="Remove all captions" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Remove All Captions</h3>
               <button

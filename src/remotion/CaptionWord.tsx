@@ -203,7 +203,7 @@ export const CaptionWord: React.FC<Props> = ({
 
   const isGradient = !!treatment.gradientRamp && isHero && !pill;
   const gradientBg = isGradient
-    ? `linear-gradient(180deg, #ffffff 15%, ${color} 100%)`
+    ? `linear-gradient(180deg, #ffffff 0%, ${color} 35%, ${color} 100%)`
     : undefined;
 
   const glow = treatment.glow && isHero && d >= 0

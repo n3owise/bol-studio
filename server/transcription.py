@@ -4,12 +4,16 @@ Whisper's alignment is retained: an ASR unit containing several words stays one
 unit. We never manufacture per-word timestamps by evenly dividing a segment.
 """
 from __future__ import annotations
+from server.model_provenance import mlx_model_path, configured_revision, model_provenance
 
 import importlib.util
 import math
+import logging
 import os
 import platform
 import re
+import tempfile
+from contextlib import nullcontext
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
@@ -23,6 +27,8 @@ from scipy.io import wavfile
 
 
 DEFAULT_MLX_MODEL = "mlx-community/whisper-large-v3-turbo"
+DEFAULT_TRANSLATION_MODEL = "large-v3"
+DEFAULT_MLX_TRANSLATION_MODEL = "mlx-community/whisper-large-v3-mlx"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_HINGLISH_MODEL = PROJECT_ROOT / "data" / "models" / "hinglish-swift" / "hi-hinglish-swift"
 DEFAULT_HINGLISH_APEX_MODEL = PROJECT_ROOT / "data" / "models" / "hinglish-apex" / "hi-hinglish-apex"
@@ -528,7 +534,7 @@ def refine_word_boundaries_with_vad(words: list[dict], audio: np.ndarray, rate: 
 @lru_cache(maxsize=1)
 def _faster_model(model: str):
     from faster_whisper import WhisperModel
-    return WhisperModel(model, device=os.getenv("BOL_DEVICE", os.getenv("WHISPER_DEVICE", "cpu")),
+    return WhisperModel(model, revision=configured_revision(model), device=os.getenv("BOL_DEVICE", os.getenv("WHISPER_DEVICE", "cpu")),
                         compute_type=os.getenv("BOL_COMPUTE_TYPE", os.getenv("WHISPER_COMPUTE_TYPE", "int8")))
 
 
@@ -655,11 +661,17 @@ def _sherpa_decode(audio: np.ndarray, rate: int, duration: float, model: str, pr
     return [{"words": all_words}], detected_language
 
 
+class CompanionSegments(list):
+    def __init__(self, segments, backend: str, model: str):
+        super().__init__(segments)
+        self.provenance = {"backend": backend, "model": model, **model_provenance(model)}
+
+
 def _english_companion_decode(audio_path: Path, backend: str, model: str, progress: Callable[[int, str], None]) -> list[dict]:
     """Decode a Latin-script companion only when the primary output needs it.
 
-    The local Sherpa specialist is excellent at preserving Roman Hinglish but
-    can still miss a short English word. On Apple Silicon, a cached MLX
+    The local Sherpa specialist emits Roman Hinglish, but its accuracy depends
+    on the clip and it can miss a short English word. On Apple Silicon, a cached MLX
     large-v3-turbo pass is used as an English verifier. It never replaces the
     primary transcript wholesale; ``merge_code_mixed_english`` only accepts
     aligned English candidates. Deployments without MLX use faster-whisper
@@ -678,40 +690,66 @@ def _english_companion_decode(audio_path: Path, backend: str, model: str, progre
         else:
             verify_model = os.getenv("BOL_ENGLISH_VERIFY_MODEL", DEFAULT_MLX_MODEL)
             progress(72, "Verifying English switches with a local multilingual pass.")
-            result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=verify_model if backend == "sherpa-hinglish" else model, verbose=None,
+            result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=mlx_model_path(verify_model if backend == "sherpa-hinglish" else model), verbose=None,
                                             hallucination_silence_threshold=2.0, **options)
-            return result.get("segments", [])
+            return CompanionSegments(result.get("segments", []), "mlx", verify_model if backend == "sherpa-hinglish" else model)
     verify_model = os.getenv("BOL_ENGLISH_VERIFY_MODEL", "large-v3-turbo") if backend == "sherpa-hinglish" else model
     if importlib.util.find_spec("faster_whisper") is None:
         return []
     progress(72, "Verifying English switches with a local multilingual pass.")
     local_model = _faster_model(verify_model)
     stream, _ = local_model.transcribe(str(audio_path), vad_filter=True, **options)
-    return [{"words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]} for segment in stream]
+    return CompanionSegments([{ "words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]} for segment in stream], "faster-whisper", verify_model)
+
+
+def _mlx_supported() -> bool:
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
+
+
+def _translation_capable(backend: str, model: str) -> bool:
+    # Only known multilingual Whisper families; Turbo, distilled and .en
+    # checkpoints must never receive a translate task. Unknown custom models
+    # can still transcribe, but translation needs an explicit supported model.
+    if backend == "mlx":
+        return bool(re.fullmatch(r"mlx-community/whisper-(tiny|base|small|medium|large-v[123])-mlx", model))
+    return bool(re.fullmatch(r"(?:(?:Systran|guillaumekln)/faster-whisper-)?(?:tiny|base|small|medium|large|large-v[123])", model))
 
 
 def decode_plan(backend: str, model: str, script: str, translate: bool) -> tuple[str, str, str]:
-    """Settle which model runs and what it is asked to produce.
-
-    Pulled out of `transcribe` because it is the part that can be wrong without
-    failing: every combination below still returns words, and two of them would
-    return the wrong ones while looking entirely successful.
-
-    The specialist is intentionally a Roman-Hinglish model. Native Devanagari
-    falls back to the multilingual model rather than pretending Roman output can
-    be turned into native Hindi. Translation falls back for a sharper reason:
-    the specialist has no translate task at all, so asking it for one returns an
-    ordinary Hinglish transcript labelled English — silently wrong, which is
-    worse than unavailable.
-
-    Translating also forces native script, because the romanisation pass exists
-    to spell Hindi in Latin letters and has nothing to do once the words are
-    already English.
-    """
+    """Choose a platform-supported engine and a model that supports the task."""
+    if backend not in {"sherpa-hinglish", "mlx", "faster-whisper"}:
+        raise ValueError("BOL_ENGINE must be sherpa-hinglish, mlx, or faster-whisper.")
     if translate:
         script = "native"
-    if backend == "sherpa-hinglish" and (script != "roman" or translate):
-        backend, model = "mlx", DEFAULT_MLX_MODEL
+    if backend == "sherpa-hinglish" and script != "roman":
+        backend = "mlx" if _mlx_supported() and importlib.util.find_spec("mlx_whisper") else "faster-whisper"
+        model = os.getenv("BOL_FALLBACK_MODEL", DEFAULT_MLX_MODEL if backend == "mlx" else "large-v3-turbo")
+    if translate:
+        configured = os.getenv("BOL_TRANSLATION_MODEL")
+        if configured:
+            if not _translation_capable(backend, configured):
+                raise ValueError("BOL_TRANSLATION_MODEL must select a supported multilingual Whisper model, such as "
+                                 + (DEFAULT_MLX_TRANSLATION_MODEL if backend == "mlx" else DEFAULT_TRANSLATION_MODEL) + ".")
+            model = configured
+        elif not _translation_capable(backend, model):
+            model = DEFAULT_MLX_TRANSLATION_MODEL if backend == "mlx" else DEFAULT_TRANSLATION_MODEL
+    return backend, model, script
+
+
+def validate_transcription_request(script: str, translate: bool = False) -> tuple[str, str, str]:
+    """Check local engine capability before queuing, without downloading weights."""
+    backend, model, script = decode_plan(*model_config(), script, translate)
+    if backend == "mlx" and not _mlx_supported():
+        raise ValueError("MLX transcription requires Apple Silicon. Configure BOL_ENGINE=faster-whisper on this platform.")
+    module = {"mlx": "mlx_whisper", "faster-whisper": "faster_whisper", "sherpa-hinglish": "sherpa_onnx"}[backend]
+    if importlib.util.find_spec(module) is None:
+        raise ValueError(f"The {backend} engine required for this transcription is not installed. Install the server requirements before retrying.")
+    if backend == "sherpa-hinglish" and not _hinglish_model_ready(model):
+        raise ValueError("The Hinglish model files are missing. Prepare the configured model before retrying.")
+    if Path(model).is_absolute() and not Path(model).is_dir():
+        raise ValueError("The configured speech model directory is missing.")
+    if backend != "sherpa-hinglish":
+        configured_revision(model)  # Validate provenance without touching weights or the network.
     return backend, model, script
 
 
@@ -733,80 +771,109 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
     # original audio is untouched, so the exported video keeps its full mix. On
     # a clean voiceover there is nothing to remove, which is why this is a choice
     # rather than always-on.
-    if isolateVocals and denoise_available() and source_path is not None:
-        progress(22, "Separating the voice from background music.")
-        separated = isolate_vocals_from_source(source_path, rate, len(audio))
-        if separated is not None:
-            audio = separated
+    isolated = False
+    if isolateVocals:
+        if denoise_available() and source_path is not None:
+            progress(22, "Separating the voice from background music.")
+            try:
+                separated = isolate_vocals_from_source(source_path, rate, len(audio))
+                if separated is not None:
+                    cleaned = np.asarray(separated, dtype=np.float32)
+                    if cleaned.shape != audio.shape or not np.all(np.isfinite(cleaned)):
+                        raise ValueError("Vocal isolation returned an invalid audio signal.")
+                    audio = cleaned
+                    isolated = True
+            except TranscriptionCancelled:
+                raise
+            except Exception as error:
+                logging.getLogger("bol").warning("Vocal isolation failed; using original audio: %s", error)
+        if not isolated:
+            progress(24, "Vocal isolation is unavailable or failed. Using the original audio.")
     if is_cancelled and is_cancelled():
         raise TranscriptionCancelled("Transcription was cancelled.")
-    progress(28, "Loading the local speech model. First use downloads the model weights.")
-    # Whisper translates to English natively, from the audio, as a different
-    # decoding task — not as a second pass over the transcript. So it costs no
-    # extra model and no network, and the words it emits carry their own
-    # timestamps. The trade is that it cannot see the transcript: corrections
-    # already made by hand, and glossary spellings, do not reach it.
-    options = {"language": None if language == "auto" else language,
-               "task": "translate" if translate else "transcribe",
-               "word_timestamps": True, "temperature": 0, "condition_on_previous_text": False,
-               "initial_prompt": None if translate
-                   else "Transcribe exactly as spoken. This is code-mixed Hindi-English. Keep English words in Latin letters and Hindi words in Devanagari. Example: Come on, lets start aaj ki video.",
-               "no_speech_threshold": .6}
-    if backend == "sherpa-hinglish":
-        segments, detected_language = _sherpa_decode(audio, rate, duration, model, progress, is_cancelled=is_cancelled)
-    elif backend == "mlx":
-        import mlx_whisper
-        progress(34, "Transcribing locally and aligning spoken words. This may take a few minutes.")
-        result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=model, verbose=None,
-                                       hallucination_silence_threshold=2.0, **options)
-        segments = result.get("segments", [])
-        detected_language = result.get("language")
-    elif backend == "faster-whisper":
-        local_model = _faster_model(model)
-        progress(34, "Transcribing locally and aligning spoken words.")
-        stream, info = local_model.transcribe(str(audio_path), vad_filter=True, **options)
-        segments = []
-        for segment in stream:
-            if is_cancelled and is_cancelled():
-                raise TranscriptionCancelled("Transcription was cancelled.")
-            segments.append({"words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]})
-            progress(min(84, 34 + int(50*segment.end/max(duration,.01))), "Transcribing and aligning spoken words.")
-        detected_language = info.language
-    else:
-        raise ValueError("BOL_ENGINE must be sherpa-hinglish, mlx, or faster-whisper.")
-    if is_cancelled and is_cancelled():
-        raise TranscriptionCancelled("Transcription was cancelled.")
-    progress(68, "Preparing Hinglish spelling and measuring spoken emphasis.")
-    words = normalize_words(segments, duration, script)
-    if script == "roman" and backend == "sherpa-hinglish":
-        verified_segments = _english_companion_decode(audio_path, backend, model, progress)
-        if verified_segments:
+    # Keep the same cleaned signal available to lazy decoders and companion passes.
+    # TemporaryDirectory closes files and removes them on success, failure or cancellation.
+    with tempfile.TemporaryDirectory(prefix="bol-recognition-") if isolated else nullcontext(None) as temporary:
+        decode_path = audio_path
+        if temporary is not None:
+            decode_path = Path(temporary) / "vocals.wav"
+            wavfile.write(str(decode_path), rate, audio)
+        progress(28, "Loading the local speech model. First use downloads the model weights.")
+        # Whisper translates to English natively, from the audio, as a different
+        # decoding task — not as a second pass over the transcript. So it costs no
+        # text-translation service. Its translation-capable checkpoint may need a
+        # first-use download, and the words it emits carry their own
+        # timestamps. The trade is that it cannot see the transcript: corrections
+        # already made by hand, and glossary spellings, do not reach it.
+        options = {"language": None if language == "auto" else language,
+                   "task": "translate" if translate else "transcribe",
+                   "word_timestamps": True, "temperature": 0, "condition_on_previous_text": False,
+                   "initial_prompt": None if translate
+                       else "Transcribe exactly as spoken. This is code-mixed Hindi-English. Keep English words in Latin letters and Hindi words in Devanagari. Example: Come on, lets start aaj ki video.",
+                   "no_speech_threshold": .6}
+        if backend == "sherpa-hinglish":
+            segments, detected_language = _sherpa_decode(audio, rate, duration, model, progress, is_cancelled=is_cancelled)
+        elif backend == "mlx":
+            import mlx_whisper
+            progress(34, "Transcribing locally and aligning spoken words. This may take a few minutes.")
+            result = mlx_whisper.transcribe(str(decode_path), path_or_hf_repo=mlx_model_path(model), verbose=None,
+                                           hallucination_silence_threshold=2.0, **options)
+            segments = result.get("segments", [])
+            detected_language = result.get("language")
+        elif backend == "faster-whisper":
+            local_model = _faster_model(model)
+            progress(34, "Transcribing locally and aligning spoken words.")
+            stream, info = local_model.transcribe(str(decode_path), vad_filter=True, **options)
+            segments = []
+            for segment in stream:
+                if is_cancelled and is_cancelled():
+                    raise TranscriptionCancelled("Transcription was cancelled.")
+                segments.append({"words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]})
+                progress(min(84, 34 + int(50*segment.end/max(duration,.01))), "Transcribing and aligning spoken words.")
+            detected_language = info.language
+        else:
+            raise ValueError("BOL_ENGINE must be sherpa-hinglish, mlx, or faster-whisper.")
+        if is_cancelled and is_cancelled():
+            raise TranscriptionCancelled("Transcription was cancelled.")
+        progress(68, "Preparing Hinglish spelling and measuring spoken emphasis.")
+        companion_provenance = None
+        words = normalize_words(segments, duration, script)
+        if script == "roman" and backend == "sherpa-hinglish":
+            verified_segments = _english_companion_decode(decode_path, backend, model, progress)
+            companion_provenance = getattr(verified_segments, "provenance", None)
+            if verified_segments:
+                words = merge_code_mixed_english(words, verified_segments)
+        elif backend != "sherpa-hinglish" and script == "roman" and any(_word_is_devanagari(str(raw.get("word", ""))) for segment in segments for raw in segment.get("words", [])):
+            progress(72, "Checking English switches in the mixed speech.")
+            verified_segments = _english_companion_decode(decode_path, backend, model, progress)
+            companion_provenance = getattr(verified_segments, "provenance", None)
             words = merge_code_mixed_english(words, verified_segments)
-    elif backend != "sherpa-hinglish" and script == "roman" and any(_word_is_devanagari(str(raw.get("word", ""))) for segment in segments for raw in segment.get("words", [])):
-        progress(72, "Checking English switches in the mixed speech.")
-        words = merge_code_mixed_english(words, _english_companion_decode(audio_path, backend, model, progress))
-    # Brand names, handles and domains come back spelled phonetically, and no
-    # model fixes that — the correct spelling is only known to the creator. This
-    # runs before boundary refinement so a merged term is timed as one word.
-    if glossary:
-        progress(76, "Applying your brand words.")
-        words = apply_glossary(words, glossary)
-    if is_cancelled and is_cancelled():
-        raise TranscriptionCancelled("Transcription was cancelled.")
-    progress(80, "Refining speech pauses and word timing with acoustic energy analysis.")
-    words = refine_word_boundaries_with_vad(words, audio, rate, duration)
-    if is_cancelled and is_cancelled():
-        raise TranscriptionCancelled("Transcription was cancelled.")
-    progress(88, "Preparing Hinglish spelling and measuring spoken emphasis.")
-    suggest_emphasis(words, audio, rate)
-    # English only, and only when asked. The encoder behind this is trained on
-    # English; Hinglish written in Latin letters lands nowhere near the right
-    # description while still scoring high enough to look deliberate, so
-    # offering it there would mean shipping confident nonsense.
-    if emoji and language == "en":
-        progress(94, "Matching emoji to words.")
-        emoji_suggest(words)
-    return {"words": words, "waveform": waveform, "model": model, "detectedLanguage": detected_language,
-            "emphasisMethod": EMPHASIS_METHOD,
-            "timingMethod": "Whisper word alignment. Multiword ASR units are kept together; flagged adjustments are approximate."}
+        # Brand names, handles and domains come back spelled phonetically, and no
+        # model fixes that — the correct spelling is only known to the creator. This
+        # runs before boundary refinement so a merged term is timed as one word.
+        if glossary:
+            progress(76, "Applying your brand words.")
+            words = apply_glossary(words, glossary)
+        if is_cancelled and is_cancelled():
+            raise TranscriptionCancelled("Transcription was cancelled.")
+        progress(80, "Refining speech pauses and word timing with acoustic energy analysis.")
+        words = refine_word_boundaries_with_vad(words, audio, rate, duration)
+        if is_cancelled and is_cancelled():
+            raise TranscriptionCancelled("Transcription was cancelled.")
+        progress(88, "Preparing Hinglish spelling and measuring spoken emphasis.")
+        suggest_emphasis(words, audio, rate)
+        # English only, and only when asked. The encoder behind this is trained on
+        # English; Hinglish written in Latin letters lands nowhere near the right
+        # description while still scoring high enough to look deliberate, so
+        # offering it there would mean shipping confident nonsense.
+        if emoji and language == "en":
+            progress(94, "Matching emoji to words.")
+            emoji_suggest(words)
+        return {"words": words, "waveform": waveform, "model": model, "detectedLanguage": detected_language,
+                "emphasisMethod": EMPHASIS_METHOD,
+                "modelProvenance": model_provenance(model),
+                **({"companionModelProvenance": companion_provenance} if companion_provenance is not None else {}),
+                "audioSignal": "isolated-vocals" if isolated else "original",
+                "isolationFallback": bool(isolateVocals and not isolated),
+                "timingMethod": "Whisper word alignment. Multiword ASR units are kept together; flagged adjustments are approximate."}
 

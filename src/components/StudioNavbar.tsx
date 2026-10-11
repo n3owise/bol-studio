@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Undo2, Redo2, FolderOpen, Download, ChevronDown, Keyboard } from 'lucide-react';
+import { Undo2, Redo2, Download, ChevronDown, Keyboard } from 'lucide-react';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 import type { Project } from '../lib/types';
 import type { Health } from '../lib/shell';
@@ -16,7 +16,6 @@ export interface StudioNavbarProps {
   accountEmail?: string | null;
   accountName?: string | null;
   accountMenuOpen?: boolean;
-  onOpenProjects: () => void;
   onRenameProject: (name: string) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -38,7 +37,6 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
   accountEmail,
   accountName,
   accountMenuOpen,
-  onOpenProjects,
   onRenameProject,
   onUndo,
   onRedo,
@@ -52,16 +50,10 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
   return (
     <header className="studio-navbar">
       <div className="navbar-left">
-        <button
-          className="navbar-brand"
-          type="button"
-          title="Bol Studio — View projects"
-          aria-label="Bol Studio"
-          onClick={onOpenProjects}
-        >
+        <div className="navbar-brand" title="Bol Studio" aria-label="Bol Studio">
           <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo logo-light-only" />
           <img src="/bol.studio-white.svg" alt="bol.studio" className="navbar-brand-logo logo-dark-only" />
-        </button>
+        </div>
         {project && (
           <>
             <div className="nav-divider" />
@@ -140,15 +132,6 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
             <span className="account-initial">{(accountName || accountEmail)[0].toUpperCase()}</span>
           </button>
         )}
-        <button
-          className="nav-btn ghost"
-          aria-label="Projects"
-          title="Open projects workspace"
-          onClick={onOpenProjects}
-        >
-          <FolderOpen size={15} />
-          <span>Projects</span>
-        </button>
         <button
           className="nav-btn primary"
           onClick={onOpenExport}

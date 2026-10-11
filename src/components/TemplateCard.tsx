@@ -26,7 +26,71 @@ export function TemplatePreview({ id, thirdLine }: { id: string; thirdLine?: str
   if (id === 'editing-school') return <span><b>USTAAD</b></span>;
   if (id === 'kalakar-shadow') return <span>Hello <b>KALAKAR</b></span>;
   if (id === 'pop-up') return <span>PATAKHA <b>DHAMAKA</b></span>;
-  // Composition 2 is the three-line preset, so its card shows three lines.
+  // Premiere MOGRT presets: each gets distinct wording, layout and motion styling
+  if (id === 'mogrt-rise') {
+    return (
+      <span className="mogrt-rise-art">
+        <small>upar</small>
+        <b>UDAAN <i>↑</i></b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-pop') {
+    return (
+      <span className="mogrt-pop-art">
+        <small>bada</small>
+        <b>DHAMAKA!</b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-drop') {
+    return (
+      <span className="mogrt-drop-art">
+        <small>girte</small>
+        <b>BARSAAT <i>💧</i></b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-spread') {
+    return (
+      <span className="mogrt-spread-art">
+        <small>khul gaya</small>
+        <b>P H A I L A A V</b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-swing') {
+    return (
+      <span className="mogrt-swing-art">
+        <small>mast</small>
+        <b>JHOOLA</b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-wipe') {
+    return (
+      <span className="mogrt-wipe-art">
+        <small>khula</small>
+        <b>PARDA</b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-flip') {
+    return (
+      <span className="mogrt-flip-art">
+        <small>ekdum</small>
+        <b>PALAT</b>
+      </span>
+    );
+  }
+  if (id === 'mogrt-slide') {
+    return (
+      <span className="mogrt-slide-art">
+        <small>tez</small>
+        <b>SARKAN »</b>
+      </span>
+    );
+  }
   if (id === 'mogrt-triple') {
     return (
       <span className="mogrt-triple-art">
@@ -36,7 +100,6 @@ export function TemplatePreview({ id, thirdLine }: { id: string; thirdLine?: str
       </span>
     );
   }
-  if (id.startsWith('mogrt-')) return <span>ye <b>SAB</b> kuch</span>;
   return <span>THINK <b>BIGGER.</b></span>;
 }
 

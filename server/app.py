@@ -1,6 +1,9 @@
 """Local API: persisted projects, one compute queue, real transcription and exports."""
 from __future__ import annotations
 
+import time
+from server.temporary_sessions import expired as temporary_session_expired, LEASE_SECONDS, CLOSE_GRACE_SECONDS
+
 import asyncio
 import copy
 import json
@@ -12,12 +15,15 @@ import shutil
 import subprocess
 import secrets
 import threading
+import tempfile
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+import weakref
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
+from email.message import Message
 from pathlib import Path
 from typing import Annotated, Literal
+from PIL import Image, UnidentifiedImageError
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,19 +33,39 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_
 
 from server.auth import (AUTH_ENABLED, AuthError, MEDIA_TOKEN_TTL_SECONDS, mint_media_token,
                          owner_from_media_token, user_id_from)
-from server.transcription import TranscriptionCancelled, model_status, transcribe
+from server.transcription import TranscriptionCancelled, model_status, transcribe, validate_transcription_request
+
+from server.jobs import BoundedExecutor, JobJournal, QueueFull, exclusive_store, replay_jobs
+from server.diagnostics import JobFailure, JobTrace
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(ROOT / "data"))).resolve()
 MAX_BYTES = 1024 * 1024 * 1024
 MAX_DURATION = 20 * 60
+MAX_OWNER_STORAGE_BYTES = max(1, int(os.getenv("BOL_MAX_OWNER_STORAGE_BYTES", str(10 * MAX_BYTES))))
+MAX_EXPORT_BYTES = max(1, int(os.getenv("BOL_MAX_EXPORT_BYTES", str(MAX_BYTES))))
+MAX_OWNER_PROJECTS = max(1, int(os.getenv("BOL_MAX_OWNER_PROJECTS", "100")))
+MAX_OWNER_UPLOADS = max(1, int(os.getenv("BOL_MAX_OWNER_UPLOADS", "2")))
+MAX_TOTAL_UPLOADS = max(1, int(os.getenv("BOL_MAX_TOTAL_UPLOADS", "4")))
+MIN_DISK_FREE_BYTES = max(0, int(os.getenv("BOL_MIN_DISK_FREE_BYTES", str(64 * 1024 * 1024))))
+MAX_PROJECT_ASSETS = max(1, int(os.getenv("BOL_MAX_PROJECT_ASSETS", "500")))
+UPLOAD_MULTIPART_OVERHEAD = 1024 * 1024
+UPLOAD_RESERVATIONS: dict[str, dict[str, int]] = {}
 LOCK = threading.RLock()
 CANCELLATIONS: set[str] = set()
+JOB_CONTEXT = threading.local()
+TRANSCRIPTION_LOCKS = weakref.WeakValueDictionary()
+AUDIO_DOWNLOAD_LOCKS = weakref.WeakValueDictionary()
 MAX_WORKERS = max(1, int(os.getenv("BOL_MAX_WORKERS", "2" if (os.cpu_count() or 1) >= 4 else "1")))
-EXECUTOR = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="bol-worker")
+MAX_QUEUED_JOBS = max(0, int(os.getenv("BOL_MAX_QUEUED_JOBS", "8")))
+MAX_OWNER_JOBS = max(1, int(os.getenv("BOL_MAX_OWNER_JOBS", "3")))
+EXECUTOR = BoundedExecutor(MAX_WORKERS, MAX_QUEUED_JOBS, MAX_OWNER_JOBS)
 TRANSCRIPTION_EXECUTOR = EXECUTOR
 EXPORT_EXECUTOR = EXECUTOR
 LOGGER = logging.getLogger("bol")
+LOGGER.setLevel(logging.INFO)
+if not LOGGER.hasHandlers():
+    LOGGER.addHandler(logging.StreamHandler())
 # Shared with the browser: src/lib/types.ts imports this same file. Keeping two
 # hand-written copies meant a project created here opened with a different
 # template, accent and words-per-line than one created in the editor.
@@ -72,7 +98,20 @@ DEFAULT_SETTINGS = json.loads(
 
 # The most words one caption page may show. Mirrors MAX_WORDS_PER_PAGE in
 # src/lib/pages.ts, which enforces the same ceiling when pages are built.
+CAPTION_BOUNDS = json.loads((ROOT / "src/lib/caption-bounds.json").read_text())
 MAX_WORDS_PER_LINE = 7
+
+
+@contextmanager
+def job_slot(owner: str, enabled: bool = True):
+    try:
+        if enabled and isinstance(EXECUTOR, BoundedExecutor):
+            with EXECUTOR.admission(owner) as slot:
+                yield slot
+        else:
+            yield EXECUTOR
+    except QueueFull as error:
+        raise HTTPException(429 if error.tenant else 503, str(error), headers={"Retry-After": "30"}) from error
 
 
 def project_dir(project_id: str) -> Path:
@@ -117,18 +156,143 @@ def update_project(project_id: str, change) -> dict:
 
 
 def set_progress(project_id: str, progress: int, message: str) -> None:
-    update_project(project_id, lambda p: p.update(progress=progress, message=message))
+    generation = getattr(JOB_CONTEXT, "generation", None)
+    if generation is None:
+        update_project(project_id, lambda p: p.update(progress=progress, message=message))
+    else:
+        update_transcription(project_id, generation, lambda p: p.update(progress=progress, message=message))
+
+
+def active_output_reservations(owner: str, exclude_export: str | None = None) -> int:
+    total = 0
+    with LOCK:
+        for path in DATA_DIR.glob("*/project.json"):
+            try:
+                project = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if owns(project, owner):
+                total += sum(int(job.get("storageReservationBytes", 0)) for job in project.get("exports", [])
+                             if job.get("status") in {"queued", "processing"} and job.get("id") != exclude_export)
+    return total
+
+
+def output_quota_exceeded(path: Path, owner: str, limit: int, exclude_export: str | None = None) -> bool:
+    try:
+        if path.is_file() and path.stat().st_size > limit:
+            return True
+    except OSError:
+        return False
+    return owned_project_usage(owner)[1] + active_output_reservations(owner, exclude_export) > MAX_OWNER_STORAGE_BYTES
+
+
+@contextmanager
+def monitor_output_quota(process, path: Path, owner: str, limit: int, exclude_export: str | None = None, log_path: Path | None = None):
+    """Stop a running encoder even if it stops emitting progress lines."""
+    stop = threading.Event()
+    exceeded = threading.Event()
+    def watch():
+        while not stop.wait(0.25):
+            try:
+                log_exceeded = log_path is not None and log_path.is_file() and log_path.stat().st_size > 8 * 1024 * 1024
+            except OSError:
+                log_exceeded = False
+            if log_exceeded or output_quota_exceeded(path, owner, limit, exclude_export):
+                exceeded.set()
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                return
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        yield exceeded
+    finally:
+        stop.set()
+        watcher.join()
+
+
+@contextmanager
+def monitor_process_streams(process, streams):
+    stop = threading.Event()
+    exceeded = threading.Event()
+    def watch():
+        while not stop.wait(0.1):
+            if any(os.fstat(stream.fileno()).st_size > cap for stream, cap in streams):
+                exceeded.set()
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                return
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    try:
+        yield exceeded
+    finally:
+        stop.set()
+        watcher.join()
+
+
+def run_bounded_media_process(args: list[str], timeout: int, project: dict, limit: int) -> None:
+    owner = project.get("owner", "")
+    output = Path(args[-1])
+    process = None
+    try:
+        with storage_reservation(owner, limit, upload_slot=False), tempfile.TemporaryFile() as errors:
+            process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=errors)
+            with monitor_output_quota(process, output, owner, limit) as exceeded, monitor_process_streams(process, [(errors, 1024 * 1024)]) as noisy:
+                try:
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    raise ValueError("Media processing took too long. Try a shorter clip.")
+            if exceeded.is_set() or output_quota_exceeded(output, owner, limit):
+                raise HTTPException(413, "Preparing media would exceed the workspace storage limit.")
+            if noisy.is_set() or os.fstat(errors.fileno()).st_size > 1024 * 1024:
+                raise ValueError("Media processing exceeded the diagnostic output limit.")
+            if process.returncode:
+                LOGGER.error("Media encoder failed with exit code %s", process.returncode)
+                raise ValueError("The media could not be decoded. Please upload a valid media file.")
+    except BaseException:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait()
+        output.unlink(missing_ok=True)
+        raise
 
 
 def run_process(args: list[str], timeout: int = 120) -> subprocess.CompletedProcess:
+    process = None
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+            process = subprocess.Popen(args, stdout=output, stderr=errors)
+            caps = [(output, 8 * 1024 * 1024), (errors, 1024 * 1024)]
+            with monitor_process_streams(process, caps) as exceeded:
+                try:
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    raise ValueError("Media processing took too long. Try a shorter clip.")
+            if exceeded.is_set() or any(os.fstat(stream.fileno()).st_size > cap for stream, cap in caps):
+                raise ValueError("Media processing exceeded the diagnostic output limit.")
+            output.seek(0)
+            errors.seek(0)
+            result = subprocess.CompletedProcess(args, process.returncode,
+                                                 output.read(8 * 1024 * 1024).decode("utf-8", errors="replace"),
+                                                 errors.read(1024 * 1024).decode("utf-8", errors="replace"))
     except FileNotFoundError:
         raise ValueError(f"{Path(args[0]).name} is missing. Install FFmpeg and restart the server.")
-    except subprocess.TimeoutExpired:
-        raise ValueError("Media processing took too long. Try a shorter clip.")
+    except BaseException:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait()
+        raise
     if result.returncode:
-        LOGGER.error("Media command failed: %s", result.stderr[-2000:])
+        LOGGER.error("Media command failed with exit code %s", result.returncode)
         raise ValueError("The media could not be decoded. Please upload a valid video or audio file.")
     return result
 
@@ -231,8 +395,9 @@ def remux_for_playback(project: dict) -> bool:
 
     remuxed = directory / "source.remux.mp4"
     try:
-        run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0",
-                     "-c", "copy", "-movflags", "+faststart", str(remuxed)], 600)
+        run_bounded_media_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0",
+                                  "-c", "copy", "-movflags", "+faststart", str(remuxed)], 600,
+                                  project, source.stat().st_size + 1024 * 1024)
         remuxed.replace(source)
     except ValueError:
         # Some containers refuse a straight copy. Fall through to a preview.
@@ -265,24 +430,24 @@ def prepare_media(project: dict) -> None:
     directory = project_dir(project["id"])
     source = directory / "source.bin"
     if not (directory / "audio.wav").is_file():
-        run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
-                     "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(directory / "audio.tmp.wav")], 300)
+        run_bounded_media_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
+                     "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(directory / "audio.tmp.wav")], 300, project, int(project["duration"] * 32000) + 4096)
         (directory / "audio.tmp.wav").replace(directory / "audio.wav")
 
     playable = remux_for_playback(project)
 
     if not playable and project["mediaType"] == "video" and not (directory / "preview.mp4").is_file():
         set_progress(project["id"], 15, "Preparing a browser-friendly video preview.")
-        run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:V:0", "-map", "0:a:0",
+        run_bounded_media_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:V:0", "-map", "0:a:0",
                      "-vf", "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
                      "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p", "-c:a", "aac",
-                     "-b:a", "128k", "-movflags", "+faststart", str(directory / "preview.tmp.mp4")], 1800)
+                     "-b:a", "128k", "-movflags", "+faststart", str(directory / "preview.tmp.mp4")], 1800, project, min(MAX_BYTES, int(project["duration"] * 2_000_000) + 1024 * 1024))
         (directory / "preview.tmp.mp4").replace(directory / "preview.mp4")
 
     if not playable and project["mediaType"] == "audio" and not (directory / "preview.m4a").is_file():
         # The recogniser's mono 16 kHz copy is never used for listening.
-        run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
-                     "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(directory / "preview.tmp.m4a")], 300)
+        run_bounded_media_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
+                     "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(directory / "preview.tmp.m4a")], 300, project, int(project["duration"] * 32000) + 1024 * 1024)
         (directory / "preview.tmp.m4a").replace(directory / "preview.m4a")
 
 
@@ -300,19 +465,51 @@ def _was_deleted(project_id: str) -> bool:
         return not (DATA_DIR / project_id / "project.json").is_file()
 
 
-def transcription_job(project_id: str) -> None:
+def transcription_cancelled(project_id: str, generation: int) -> bool:
+    with LOCK:
+        return (_was_deleted(project_id) or project_id in CANCELLATIONS
+                or load_project(project_id).get("transcriptionGeneration", 0) != generation)
+
+
+def update_transcription(project_id: str, generation: int, change) -> dict:
+    with LOCK:
+        if transcription_cancelled(project_id, generation):
+            raise TranscriptionCancelled("Transcription was cancelled.")
+        return update_project(project_id, change)
+
+
+def transcription_job(project_id: str, generation: int | None = None) -> None:
+    with LOCK:
+        if _was_deleted(project_id):
+            return
+        if generation is None:
+            generation = load_project(project_id).get("transcriptionGeneration", 0)
+        job_lock = TRANSCRIPTION_LOCKS.setdefault(project_id, threading.Lock())
+    # A cancelled worker must finish using shared media files before its retry starts.
+    with job_lock:
+        JOB_CONTEXT.generation = generation
+        try:
+            _transcription_job(project_id, generation)
+        finally:
+            del JOB_CONTEXT.generation
+
+
+def _transcription_job(project_id: str, generation: int) -> None:
+    trace = JobTrace(f'{project_id}:{generation}', 'transcription')
     try:
         with LOCK:
-            if project_id in CANCELLATIONS or _was_deleted(project_id):
-                CANCELLATIONS.discard(project_id)
+            if transcription_cancelled(project_id, generation):
                 return
-        project = update_project(project_id, lambda p: p.update(status="processing", progress=5, message="Extracting the audio track."))
+        project = update_transcription(project_id, generation, lambda p: p.update(status="processing", progress=5, message="Extracting the audio track."))
+        trace.enter('extracting')
         prepare_media(project)
-        is_cancelled = lambda: project_id in CANCELLATIONS or _was_deleted(project_id)
+        is_cancelled = lambda: transcription_cancelled(project_id, generation)
         if is_cancelled():
             raise TranscriptionCancelled("Transcription was cancelled.")
+        trace.enter('decoding')
         result = transcribe(project_dir(project_id) / "audio.wav", project["duration"], project["script"], project.get("language", "hi"),
-                            lambda percent, message: set_progress(project_id, percent, message),
+                            lambda percent, message: update_transcription(project_id, generation,
+                                lambda p: p.update(progress=percent, message=message)),
                             glossary=project.get("glossary") or [],
                             isolateVocals=bool(project.get("isolateVocals")),
                             source_path=project_dir(project_id) / "source.bin",
@@ -321,25 +518,31 @@ def transcription_job(project_id: str) -> None:
                             is_cancelled=is_cancelled)
         if is_cancelled():
             raise TranscriptionCancelled("Transcription was cancelled.")
+        trace.enter('saving')
         # The current project is reread under the lock: concurrent name/style edits survive.
-        update_project(project_id, lambda p: p.update(**result, status="ready", progress=100,
-                      message="Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech."))
+        update_transcription(project_id, generation, lambda p: p.update(**result, status="ready", progress=100, diagnostics=trace.finish(),
+                      message=("Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech.")
+                      + (" Vocal isolation was unavailable; the original audio was used." if result.get("isolationFallback") else "")))
         # The recogniser's copy is uncompressed 16 kHz wav and nothing reads it
         # again — a third of the stored size for a file regenerated from the
         # source in seconds if the clip is ever transcribed again.
         (project_dir(project_id) / "audio.wav").unlink(missing_ok=True)
     except TranscriptionCancelled:
-        LOGGER.info("Transcription cancelled for %s", project_id)
+        trace.emit('cancelled')
         (project_dir(project_id) / "audio.wav").unlink(missing_ok=True)
     except Exception as exc:
-        if _was_deleted(project_id):
+        if transcription_cancelled(project_id, generation):
             return
-        LOGGER.exception("Transcription failed for %s", project_id)
+        diagnostics = trace.finish(exc)
         message = str(exc) if isinstance(exc, ValueError) else "Transcription failed. Check the local model installation or connection for its first download, then retry."
-        update_project(project_id, lambda p: p.update(status="error", progress=0, message=message))
+        try:
+            update_transcription(project_id, generation, lambda p: p.update(status="error", progress=0, message=message, diagnostics=diagnostics))
+        except TranscriptionCancelled:
+            pass
     finally:
         with LOCK:
-            CANCELLATIONS.discard(project_id)
+            if not _was_deleted(project_id) and load_project(project_id).get("transcriptionGeneration", 0) == generation:
+                CANCELLATIONS.discard(project_id)
 
 
 def mark_export(project_id: str, export_id: str, **changes) -> None:
@@ -352,10 +555,12 @@ def mark_export(project_id: str, export_id: str, **changes) -> None:
 
 
 def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resolution: int, fps: int = 60) -> None:
+    trace = JobTrace(export_id, 'export')
     directory = project_dir(project_id)
     snapshot_path = directory / f"export-{export_id}.json"
     output_path = directory / f"export-{export_id}.mp4"
     try:
+        trace.enter('snapshot')
         mark_export(project_id, export_id, status="processing", progress=1, message="Rendering animated captions.")
         snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, allow_nan=False))
         # FFmpeg probes the original by content, so its neutral .bin name is safe.
@@ -363,6 +568,7 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
         # full-quality source audio instead of the mono16k recognition input.
         media_path = directory / "source.bin"
         error_path = directory / f"export-{export_id}.log"
+        trace.enter('rendering')
         with error_path.open("w+") as error_file:
             process = subprocess.Popen(["node", "--import", "tsx", "server/render.ts", str(snapshot_path), str(media_path),
                                         str(output_path), mode, str(resolution), str(fps)], cwd=ROOT, stdout=subprocess.PIPE, stderr=error_file, text=True)
@@ -370,57 +576,133 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
             timer = threading.Timer(7200, process.kill)
             timer.daemon = True
             timer.start()
-            last_progress = -1
-            try:
-                for line in process.stdout:
-                    try:
-                        progress = int(float(json.loads(line).get("progress", 0)))
-                    except (ValueError, TypeError, AttributeError):
-                        continue
-                    progress = max(1, min(99, progress))
-                    if progress != last_progress:
-                        mark_export(project_id, export_id, progress=progress)
-                        last_progress = progress
-                result = process.wait()
-            finally:
-                timer.cancel()
+            owner = snapshot.get("owner", "")
+            persisted = load_project(project_id)
+            limit = next((j.get("storageReservationBytes", MAX_EXPORT_BYTES) for j in persisted.get("exports", []) if j.get("id") == export_id), MAX_EXPORT_BYTES)
+            with monitor_output_quota(process, output_path, owner, limit, export_id, error_path) as exceeded:
+                last_progress = -1
+                resource_error = False
+                try:
+                    for line in process.stdout:
+                        try:
+                            event = json.loads(line)
+                            if event.get('errorCode') == 'render_resource_limit':
+                                resource_error = True
+                                continue
+                            progress = int(float(event.get("progress", 0)))
+                        except (ValueError, TypeError, AttributeError):
+                            continue
+                        progress = max(1, min(99, progress))
+                        if progress != last_progress:
+                            mark_export(project_id, export_id, progress=progress)
+                            last_progress = progress
+                    result = process.wait()
+                finally:
+                    timer.cancel()
+            if exceeded.is_set() or error_path.stat().st_size > 8 * 1024 * 1024 or output_quota_exceeded(output_path, owner, limit, export_id):
+                raise JobFailure('storage_limit', "Export exceeded the workspace or output file storage limit.")
+            if resource_error:
+                raise JobFailure('render_resource_limit', "This scene exceeds rendering limits. Lower export resolution, use smaller images, or reduce overlapping video layers, then retry.")
             if result or not output_path.is_file() or output_path.stat().st_size < 100:
                 error_file.seek(0)
-                LOGGER.error("Renderer failed: %s", error_file.read()[-3000:])
-                raise ValueError("Export failed. Verify FFmpeg and the rendering dependencies, then retry.")
+                LOGGER.error("Renderer failed with exit code %s", result)
+                raise JobFailure('render_dependency', "Export failed. Verify FFmpeg and the rendering dependencies, then retry.")
         name = re.sub(r"[^\w .-]", "", snapshot["name"]).strip()[:70] or "bol-captions"
         res_label = "4k" if resolution == 2160 else f"{resolution}p"
-        mark_export(project_id, export_id, status="ready", progress=100, message="Your video is ready.", filename=f"{name}-{mode}-{res_label}-{fps}fps.mp4")
-    except Exception:
+        trace.enter('saving')
+        mark_export(project_id, export_id, status="ready", progress=100, message="Your video is ready.", filename=f"{name}-{mode}-{res_label}-{fps}fps.mp4", diagnostics=trace.finish())
+    except Exception as exc:
         if _was_deleted(project_id):
             return
-        LOGGER.exception("Export failed for %s", project_id)
+        diagnostics = trace.finish(exc)
         output_path.unlink(missing_ok=True)
-        mark_export(project_id, export_id, status="error", progress=0, message="Export failed. Check the local rendering dependencies and try again.")
+        message = str(exc) if isinstance(exc, JobFailure) else "Export failed. Check the local rendering dependencies and try again."
+        mark_export(project_id, export_id, status="error", progress=0, message=message, diagnostics=diagnostics)
+    finally:
+        # Snapshots can contain private captions; keep only project data and the output.
+        snapshot_path.unlink(missing_ok=True)
+        (directory / f"export-{export_id}.log").unlink(missing_ok=True)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    # Incomplete work is explicitly retryable after a restart, never left spinning.
+def recover_interrupted_jobs(journal=None):
+    unfinished = journal.unfinished() if journal else []
+    transcriptions = {(args[0], args[1]) for _, _, kind, args in unfinished
+                     if kind == 'transcription_job' and len(args) >= 2}
+    exports = {(args[0], args[1]) for _, _, kind, args in unfinished
+               if kind == 'export_job' and len(args) >= 2}
     with LOCK:
         for path in DATA_DIR.glob("*/project.json"):
             try:
                 project = json.loads(path.read_text())
                 changed = False
                 if project.get("status") in {"queued", "processing"}:
-                    project.update(status="error", progress=0, message="Processing was interrupted by a server restart. Retry transcription.")
+                    if (project['id'], project.get('transcriptionGeneration', 0)) in transcriptions:
+                        project.update(status="queued", progress=0, message="Resuming transcription after a server restart.")
+                    else:
+                        project["transcriptionGeneration"] = project.get("transcriptionGeneration", 0) + 1
+                        project.update(status="error", progress=0, message="Processing was interrupted by a server restart. Retry transcription.")
                     changed = True
                 for job in project.get("exports", []):
                     if job.get("status") in {"queued", "processing"}:
-                        job.update(status="error", progress=0, message="Export was interrupted by a server restart. Export again.")
+                        if (project['id'], job['id']) in exports:
+                            job.update(status="queued", progress=0, message="Resuming export after a server restart.")
+                        else:
+                            job.update(status="error", progress=0, message="Export was interrupted by a server restart. Export again.")
                         changed = True
                 if changed:
                     project["revision"] = project.get("revision", 0) + 1
                     write_project(project)
             except Exception:
-                LOGGER.exception("Could not restore project %s", path.parent.name)
-    yield
+                LOGGER.error("job_recovery_failed project_id=%s", path.parent.name)
+
+
+def resume_transcription(project_id, generation):
+    with LOCK:
+        if _was_deleted(project_id): return
+        project = load_project(project_id)
+        if project.get('status') not in {'queued', 'processing'} or project.get('transcriptionGeneration', 0) != generation: return
+    transcription_job(project_id, generation)
+
+
+def resume_export(project_id, export_id, snapshot, mode, resolution, fps=60):
+    with LOCK:
+        if _was_deleted(project_id): return
+        project = load_project(project_id)
+        job = next((item for item in project.get('exports', []) if item['id'] == export_id), None)
+        if not job or job.get('status') not in {'queued', 'processing'}: return
+    export_job(project_id, export_id, snapshot, mode, resolution, fps)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global EXECUTOR, TRANSCRIPTION_EXECUTOR, EXPORT_EXECUTOR
+    with exclusive_store(DATA_DIR):
+        if isinstance(EXECUTOR, BoundedExecutor) and EXECUTOR.closed:
+            EXECUTOR = BoundedExecutor(MAX_WORKERS, MAX_QUEUED_JOBS, MAX_OWNER_JOBS)
+            TRANSCRIPTION_EXECUTOR = EXPORT_EXECUTOR = EXECUTOR
+        close_replay = lambda: None
+        if isinstance(EXECUTOR, BoundedExecutor):
+            EXECUTOR.journal = JobJournal(DATA_DIR)
+            recover_interrupted_jobs(EXECUTOR.journal)
+            close_replay = replay_jobs(EXECUTOR, EXECUTOR.journal,
+                                      {'transcription_job': resume_transcription, 'export_job': resume_export})
+        else:
+            recover_interrupted_jobs()
+        stop_cleanup = threading.Event()
+        def clean_temporary_sessions():
+            while not stop_cleanup.wait(10):
+                reap_temporary_projects()
+        cleanup_thread = threading.Thread(target=clean_temporary_sessions, daemon=True, name="temporary-session-cleanup")
+        cleanup_thread.start()
+        try:
+            yield
+        finally:
+            stop_cleanup.set()
+            await asyncio.to_thread(cleanup_thread.join)
+            if isinstance(EXECUTOR, BoundedExecutor):
+                close_replay()
+                # Keep the data-store lock until every running writer has stopped.
+                await asyncio.to_thread(EXECUTOR.shutdown)
 
 
 app = FastAPI(title="Bol local media API", lifespan=lifespan)
@@ -713,8 +995,8 @@ class Settings(BaseModel):
             raise ValueError(f"Unknown caption font: {value}")
         return value
 
-    fontSize: float = Field(default=DEFAULT_SETTINGS["fontSize"], ge=20, le=100)
-    position: float = Field(default=DEFAULT_SETTINGS["position"], ge=10, le=90)
+    fontSize: float = Field(default=DEFAULT_SETTINGS["fontSize"], ge=CAPTION_BOUNDS["fontSize"]["min"], le=CAPTION_BOUNDS["fontSize"]["max"])
+    position: float = Field(default=DEFAULT_SETTINGS["position"], ge=CAPTION_BOUNDS["position"]["min"], le=CAPTION_BOUNDS["position"]["max"])
     # Kept in step with MAX_WORDS_PER_PAGE in src/lib/pages.ts. The bound used to
     # be 8 while the editor's generate slider went to 12, so a caption could be
     # half a paragraph wide. Projects saved under the old bound are clamped on
@@ -745,7 +1027,7 @@ class Settings(BaseModel):
     align: Literal["left", "center", "right"] | None = None
     showSafeArea: StrictBool | None = None
     autoHighlight: StrictBool | None = None
-    heroFontSize: float | None = Field(default=None, ge=20, le=200)
+    heroFontSize: float | None = Field(default=None, ge=CAPTION_BOUNDS["heroFontSize"]["min"], le=CAPTION_BOUNDS["heroFontSize"]["max"])
     linkFontSizes: StrictBool | None = None
     # Typography adjustments layered over the template's own, so 1 and 0 mean
     # "leave it alone" — see src/lib/types.ts.
@@ -759,6 +1041,32 @@ class Settings(BaseModel):
     safeArea: Literal["none", "reels", "shorts"] | None = None
 
 
+class GreenScreenSettings(ValidatedModel):
+    enabled: StrictBool
+    color: str = Field(pattern=r"^#[0-9a-fA-F]{6}$")
+    tolerance: float = Field(ge=0, le=100)
+    spillReduction: StrictBool
+    smoothEdges: StrictBool
+
+
+class CanvasElement(ValidatedModel):
+    id: str = Field(min_length=1, max_length=100)
+    assetId: str = Field(min_length=1, max_length=100)
+    name: str = Field(max_length=240)
+    type: Literal["image", "video"]
+    url: str = Field(default="", max_length=4096)
+    x: float = Field(ge=0, le=100)
+    y: float = Field(ge=0, le=100)
+    scale: float = Field(ge=0.15, le=3.5)
+    rotation: float | None = Field(default=None, ge=-360, le=360)
+    start: float | None = Field(default=None, ge=0, le=MAX_DURATION)
+    end: float | None = Field(default=None, ge=0, le=MAX_DURATION)
+    greenScreen: GreenScreenSettings | None = None
+    visible: StrictBool | None = None
+    locked: StrictBool | None = None
+    zIndex: StrictInt | None = Field(default=None, ge=-10000, le=10000)
+
+
 class ProjectPatch(ValidatedModel):
     words: list[Word] | None = Field(default=None, max_length=20000)
     settings: Settings | None = None
@@ -769,7 +1077,8 @@ class ProjectPatch(ValidatedModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     videoEnabled: StrictBool | None = None
     revision: StrictInt | None = Field(default=None, ge=0)
-    canvasElements: list[dict] | None = None
+    canvasElements: list[CanvasElement] | None = Field(default=None, max_length=500)
+    activeMediaAssetId: str | None = None
 
 
 class TranscribeRequest(ValidatedModel):
@@ -788,6 +1097,7 @@ class TranscribeRequest(ValidatedModel):
     # own translate task, decoded from the audio, so it replaces the transcript
     # rather than annotating it.
     translate: StrictBool | None = None
+    autoHighlight: StrictBool | None = None
 
 
 class ExportRequest(ValidatedModel):
@@ -835,6 +1145,154 @@ async def strip_foreign_cors(request: Request, call_next):
     return response
 
 
+@contextmanager
+def storage_reservation(owner: str, size: int, new_project: bool = False, upload_slot: bool = True):
+    """Reserve account space and an upload slot atomically before accepting bytes."""
+    with LOCK:
+        count, used = owned_project_usage(owner)
+        pending = UPLOAD_RESERVATIONS.get(owner, {"bytes": 0, "uploads": 0, "projects": 0})
+        if upload_slot and sum(entry["uploads"] for entry in UPLOAD_RESERVATIONS.values()) >= MAX_TOTAL_UPLOADS:
+            raise HTTPException(503, "Upload capacity is full. Retry when an upload finishes.", headers={"Retry-After": "30"})
+        if upload_slot and pending["uploads"] >= MAX_OWNER_UPLOADS:
+            raise HTTPException(429, "Too many uploads are in progress. Retry when one finishes.")
+        if new_project and count + pending["projects"] >= MAX_OWNER_PROJECTS:
+            raise HTTPException(429, "This workspace has reached its project limit. Delete a project first.")
+        if used + active_output_reservations(owner) + pending["bytes"] + size > MAX_OWNER_STORAGE_BYTES:
+            raise HTTPException(413, "This workspace has reached its storage limit. Delete media before uploading.")
+        reserved = sum(entry["bytes"] for entry in UPLOAD_RESERVATIONS.values())
+        free = min(shutil.disk_usage(DATA_DIR).free, shutil.disk_usage(tempfile.gettempdir()).free)
+        if free < reserved + size + MIN_DISK_FREE_BYTES:
+            raise HTTPException(507, "Available server storage is too low. Delete media or retry later.")
+        UPLOAD_RESERVATIONS[owner] = pending
+        pending["bytes"] += size
+        pending["uploads"] += int(upload_slot)
+        pending["projects"] += int(new_project)
+    try:
+        yield
+    finally:
+        with LOCK:
+            pending["bytes"] -= size
+            pending["uploads"] -= int(upload_slot)
+            pending["projects"] -= int(new_project)
+            if not any(pending.values()):
+                UPLOAD_RESERVATIONS.pop(owner, None)
+
+
+def validate_multipart_envelope(buffered, content_type: str) -> None:
+    """Bound parts and headers before the downstream parser allocates them."""
+    header = Message()
+    header["content-type"] = content_type
+    boundary = header.get_param("boundary", header="content-type")
+    if header.get_content_type() != "multipart/form-data" or not boundary:
+        return  # FastAPI supplies its normal missing/invalid multipart error.
+    if not isinstance(boundary, str) or len(boundary) > 200:
+        raise HTTPException(413, "Multipart boundary is too large.")
+    try:
+        delimiter = b"--" + boundary.encode("ascii")
+    except UnicodeEncodeError as error:
+        raise HTTPException(400, "Invalid multipart boundary.") from error
+    buffered.seek(0)
+    parts = 0
+    in_headers = False
+    header_bytes = 0
+    line_start = True
+    while line := buffered.readline(65536):
+        is_boundary = line_start and line.rstrip(b"\r\n") in {delimiter, delimiter + b"--"}
+        line_start = line.endswith(b"\n")
+        if is_boundary:
+            if line.rstrip(b"\r\n") == delimiter + b"--":
+                break
+            parts += 1
+            if parts > 16:
+                raise HTTPException(413, "Too many multipart fields. Upload one file at a time.")
+            in_headers = True
+            header_bytes = 0
+        elif in_headers:
+            header_bytes += len(line)
+            if len(line) > 8192 or header_bytes > 16384:
+                raise HTTPException(413, "Multipart headers are too large.")
+            if line in {b"\r\n", b"\n"}:
+                in_headers = False
+    buffered.seek(0)
+
+
+class UploadAdmissionMiddleware:
+    """Bound bodies before Starlette parses/spools multipart files.
+
+    A capped temporary buffer allows chunked requests to be rejected before
+    routing, rather than letting the multipart parser exhaust disk first.
+    Auth middleware runs outside this gate, so quotas use verified identities.
+    """
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        upload = scope.get("method") == "POST" and (path == "/api/projects" or bool(re.fullmatch(r"/api/projects/[0-9a-f-]{36}/assets", path)))
+        if scope["type"] != "http" or not upload:
+            return await self.app(scope, receive, send)
+        request = Request(scope)
+        owner = owner_of(request)
+        if path != "/api/projects":
+            try:
+                project = load_project(path.split("/")[3])
+                if not owns(project, owner):
+                    raise HTTPException(404, "Project not found.")
+            except HTTPException as error:
+                return await JSONResponse({"detail": error.detail}, status_code=error.status_code)(scope, receive, send)
+        header = request.headers.get("content-length")
+        try:
+            declared = int(header) if header is not None else None
+            if declared is not None and declared < 0:
+                raise ValueError
+        except ValueError:
+            return await JSONResponse({"detail": "Invalid request body length."}, status_code=400)(scope, receive, send)
+        cap = MAX_BYTES + UPLOAD_MULTIPART_OVERHEAD
+        if declared is not None and declared > cap:
+            return await JSONResponse({"detail": "Upload request exceeds the file limit."}, status_code=413)(scope, receive, send)
+        try:
+            with LOCK:
+                _, used = owned_project_usage(owner)
+                remaining = MAX_OWNER_STORAGE_BYTES - used - active_output_reservations(owner) - UPLOAD_RESERVATIONS.get(owner, {}).get("bytes", 0)
+            reservation = declared if declared is not None else min(cap, remaining)
+            if reservation <= 0:
+                raise HTTPException(413, "This workspace has reached its storage limit.")
+            with storage_reservation(owner, reservation, path == "/api/projects"):
+                with tempfile.TemporaryFile() as buffered:
+                    total = 0
+                    while True:
+                        message = await receive()
+                        if message["type"] == "http.disconnect":
+                            return
+                        chunk = message.get("body", b"")
+                        total += len(chunk)
+                        if total > min(cap, reservation):
+                            raise HTTPException(413, "Upload exceeds the file or workspace storage limit.")
+                        buffered.write(chunk)
+                        if not message.get("more_body", False):
+                            break
+                    validate_multipart_envelope(buffered, request.headers.get("content-type", ""))
+                    buffered.seek(0)
+                    exhausted = False
+                    async def replay():
+                        nonlocal exhausted
+                        if exhausted:
+                            return await receive()
+                        body = buffered.read(1024 * 1024)
+                        more = buffered.tell() < total
+                        if not more:
+                            exhausted = True
+                        return {"type": "http.request", "body": body, "more_body": more}
+                    await self.app(scope, replay, send)
+        except HTTPException as error:
+            await JSONResponse({"detail": error.detail}, status_code=error.status_code, headers=error.headers)(scope, receive, send)
+
+
+def check_storage_budget(owner: str) -> None:
+    if owned_project_usage(owner)[1] > MAX_OWNER_STORAGE_BYTES:
+        raise HTTPException(413, "This workspace has reached its storage limit. Delete media before uploading.")
+
+
 def install_middleware(target: FastAPI) -> FastAPI:
     """Put the gate, the workspace check and the CORS allowlist on `target`.
 
@@ -852,6 +1310,7 @@ def install_middleware(target: FastAPI) -> FastAPI:
         return target
     target.add_middleware(BaseHTTPMiddleware, dispatch=scope_to_owner)
     target.add_middleware(BaseHTTPMiddleware, dispatch=strip_foreign_cors)
+    target.add_middleware(UploadAdmissionMiddleware)
     # Inside the key gate and outside scope_to_owner: identity has to be resolved
     # before the ownership check reads it, and a 401 still has to pass back out
     # through strip_foreign_cors to lose a CORS header it was never owed.
@@ -917,6 +1376,12 @@ def limits(request: Request):
     count, used = owned_project_usage(owner_of(request))
     return {"maxExportSeconds": MAX_EXPORT_SECONDS or None,
             "maxUploadBytes": MAX_BYTES,
+            "maxAccountStorageBytes": MAX_OWNER_STORAGE_BYTES,
+            "maxExportBytes": MAX_EXPORT_BYTES,
+            "maxAccountProjects": MAX_OWNER_PROJECTS,
+            "maxConcurrentUploads": MAX_OWNER_UPLOADS,
+            "maxTotalConcurrentUploads": MAX_TOTAL_UPLOADS,
+            "maxProjectAssets": MAX_PROJECT_ASSETS,
             "maxDurationSeconds": MAX_DURATION,
             "diskTotalBytes": usage.total,
             "diskFreeBytes": usage.free,
@@ -934,12 +1399,17 @@ def limits(request: Request):
 @app.get("/api/health")
 def health():
     speech = model_status()
+    queue = {}
+    if isinstance(EXECUTOR, BoundedExecutor):
+        with EXECUTOR.lock:
+            queue = {'active': EXECUTOR.active, 'capacity': EXECUTOR.capacity,
+                     'perOwnerLimit': EXECUTOR.per_owner, 'durable': EXECUTOR.journal is not None}
     return {"status": "ok", **speech, "ffmpeg": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
-            "maxUploadBytes": MAX_BYTES, "maxDuration": MAX_DURATION, "workers": MAX_WORKERS}
+            "maxUploadBytes": MAX_BYTES, "maxDuration": MAX_DURATION, "workers": MAX_WORKERS, 'queue': queue}
 
 
 @app.get("/api/projects")
-def projects(request: Request):
+def projects(request: Request, summary: bool = False):
     owner = owner_of(request)
     result = []
     with LOCK:
@@ -949,6 +1419,8 @@ def projects(request: Request):
             except (OSError, ValueError):
                 continue
             if owns(project, owner):
+                if summary:
+                    project["wordCount"] = len(project.pop("words", []))
                 result.append(project)
     return sorted(result, key=lambda p: p.get("created", ""), reverse=True)
 
@@ -961,37 +1433,48 @@ async def upload_project(request: Request, file: Annotated[UploadFile, File()], 
     directory = project_dir(project_id)
     directory.mkdir(parents=True)
     try:
-        total = 0
-        with (directory / "source.bin").open("wb") as output:
-            while chunk := await file.read(1024 * 1024):
-                total += len(chunk)
-                if total > MAX_BYTES:
-                    raise HTTPException(413, "Please upload a file smaller than 1 GB.")
-                output.write(chunk)
-        if not total:
-            raise HTTPException(422, "The uploaded file is empty.")
-        metadata = await asyncio.to_thread(inspect_media, directory / "source.bin")
-        filename = Path((file.filename or "Untitled clip").replace("\\", "/")).name[:240]
-        project = {"id": project_id, "name": Path(filename).stem[:120] or "Untitled clip", "filename": filename,
-                   **metadata, "videoEnabled": metadata["mediaType"] == "video", "created": datetime.now(timezone.utc).isoformat(),
-                   "status": "queued" if autostart else "ready", "progress": 0,
-                   "message": "Queued for local transcription." if autostart else "Ready when you are.",
-                   "words": [], "settings": copy.deepcopy(DEFAULT_SETTINGS),
-                   "waveform": [], "exports": [], "script": script, "language": language, "revision": 1,
-                   "owner": owner_of(request)}
-        write_project(project)
-        # Before the project is handed back, so the file the browser streams is
-        # the final one. Left until transcription, this rewrote the source out
-        # from under a preview that was already playing it.
-        await asyncio.to_thread(remux_for_playback, project)
-        # The editor asks what language was spoken before starting, so it opts
-        # out and calls /transcribe itself once the creator has answered.
-        # Starting here regardless would transcribe with whatever settings were
-        # left over from the previous clip, and leave the project busy — which
-        # disabled the very button meant to start it.
-        if autostart:
-            EXECUTOR.submit(transcription_job, project_id)
-        return project
+        with job_slot(owner_of(request), enabled=autostart) as queue:
+            if autostart:
+                validate_transcription_request(script)
+            total = 0
+            with (directory / "source.bin").open("wb") as output:
+                while chunk := await file.read(1024 * 1024):
+                    total += len(chunk)
+                    if total > MAX_BYTES:
+                        raise HTTPException(413, "Please upload a file smaller than 1 GB.")
+                    output.write(chunk)
+            if not total:
+                raise HTTPException(422, "The uploaded file is empty.")
+            metadata = await asyncio.to_thread(inspect_media, directory / "source.bin")
+            filename = Path((file.filename or "Untitled clip").replace("\\", "/")).name[:240]
+            project = {"id": project_id, "name": Path(filename).stem[:120] or "Untitled clip", "filename": filename,
+                       **metadata, "videoEnabled": metadata["mediaType"] == "video", "created": datetime.now(timezone.utc).isoformat(),
+                       "status": "queued" if autostart else "ready", "progress": 0,
+                       "message": "Queued for local transcription." if autostart else "Ready when you are.",
+                       "words": [], "settings": copy.deepcopy(DEFAULT_SETTINGS),
+                       "waveform": [], "exports": [], "script": script, "language": language, "revision": 1,
+                       "owner": owner_of(request)}
+            temporary_id = request.headers.get("x-bol-temporary-session")
+            if temporary_id:
+                try:
+                    temporary_id = str(uuid.UUID(temporary_id))
+                except ValueError:
+                    raise HTTPException(422, "Invalid temporary session.")
+                project["temporarySession"] = {"id": temporary_id, "expiresAt": time.time() + LEASE_SECONDS}
+            write_project(project)
+            # Before the project is handed back, so the file the browser streams is
+            # the final one. Left until transcription, this rewrote the source out
+            # from under a preview that was already playing it.
+            await asyncio.to_thread(remux_for_playback, project)
+            check_storage_budget(owner_of(request))
+            # The editor asks what language was spoken before starting, so it opts
+            # out and calls /transcribe itself once the creator has answered.
+            # Starting here regardless would transcribe with whatever settings were
+            # left over from the previous clip, and leave the project busy — which
+            # disabled the very button meant to start it.
+            if autostart:
+                queue.submit(transcription_job, project_id, project.get("transcriptionGeneration", 0))
+            return project
     except HTTPException:
         shutil.rmtree(directory, ignore_errors=True)
         raise
@@ -1007,8 +1490,13 @@ async def upload_project(request: Request, file: Annotated[UploadFile, File()], 
 
 
 @app.get("/api/projects/{project_id}")
-def get_project(project_id: str):
-    return load_project(project_id)
+def get_project(project_id: str, summary: bool = False):
+    project = load_project(project_id)
+    if summary:
+        project["wordCount"] = len(project.pop("words", []))
+        project.pop("waveform", None)
+        project.pop("canvasElements", None)
+    return project
 
 
 @app.patch("/api/projects/{project_id}")
@@ -1047,11 +1535,67 @@ def patch_project(project_id: str, request: ProjectPatch):
                 project["videoEnabled"] = request.videoEnabled
         if request.isolateVocals is not None:
             project["isolateVocals"] = bool(request.isolateVocals)
+        for option in ("emoji", "translate"):
+            value = getattr(request, option)
+            if value is not None:
+                project[option] = value
         if request.glossary is not None:
             project["glossary"] = [t.strip()[:80] for t in request.glossary if t and t.strip()][:200]
+        if request.activeMediaAssetId is not None:
+            if request.activeMediaAssetId != "primary" and project.get("mediaType") != "video":
+                raise HTTPException(422, "Primary video selection requires a video project.")
+            selected = next((a for a in project.get("mediaAssets", []) if a.get("id") == request.activeMediaAssetId), None)
+            if request.activeMediaAssetId != "primary" and (not selected or selected.get("mediaType") != "video"):
+                raise HTTPException(422, "Select a video belonging to this project.")
+            project["activeMediaAssetId"] = request.activeMediaAssetId
         if request.canvasElements is not None:
-            project["canvasElements"] = request.canvasElements
+            assets = {a.get("id"): a for a in project.get("mediaAssets", [])}
+            assets["primary"] = project
+            seen = set()
+            elements = []
+            for model in request.canvasElements:
+                element = model.model_dump(exclude_unset=True)
+                asset = assets.get(element["assetId"])
+                if not asset or asset.get("mediaType") != element["type"]:
+                    raise HTTPException(422, "Canvas asset type must match media belonging to this project.")
+                if element["id"] in seen:
+                    raise HTTPException(422, "Canvas element identifiers must be unique.")
+                seen.add(element["id"])
+                start = element.get("start") if element.get("start") is not None else 0
+                end = element.get("end") if element.get("end") is not None else project["duration"]
+                if start >= end or end > project["duration"]:
+                    raise HTTPException(422, "Canvas timing must fit inside the project duration.")
+                elements.append(element)
+            project["canvasElements"] = elements
     return update_project(project_id, mutate)
+
+
+def reap_temporary_projects():
+    """Only explicitly temporary uploads expire; existing saved work is untouched."""
+    with LOCK:
+        for path in DATA_DIR.glob("*/project.json"):
+            try:
+                project = json.loads(path.read_text())
+                if temporary_session_expired(project, time.time()):
+                    delete_project(path.parent.name)
+            except HTTPException as exc:
+                if exc.status_code not in {404, 409}:
+                    LOGGER.error("temporary_cleanup_failed project_id=%s", path.parent.name)
+            except Exception:
+                LOGGER.error("temporary_cleanup_failed project_id=%s", path.parent.name)
+
+
+@app.post("/api/projects/{project_id}/temporary-session", status_code=204)
+def touch_temporary_session(project_id: str, request: Request, closing: bool = False):
+    with LOCK:
+        project = load_project(project_id)
+        lease = project.get("temporarySession")
+        if not isinstance(lease, dict) or lease.get("id") != request.headers.get("x-bol-temporary-session"):
+            raise HTTPException(404, "Temporary session not found.")
+        lease["expiresAt"] = time.time() + (CLOSE_GRACE_SECONDS if closing else LEASE_SECONDS)
+        # Lease maintenance does not change caption revisions or Undo history.
+        write_project(project)
+    return Response(status_code=204)
 
 
 @app.delete("/api/projects/{project_id}", status_code=204)
@@ -1105,17 +1649,25 @@ def delete_project(project_id: str) -> Response:
 
 @app.post("/api/projects/{project_id}/transcribe")
 def retry_transcription(project_id: str, request: TranscribeRequest | None = None):
-    with LOCK:
-        CANCELLATIONS.discard(project_id)
-    def mutate(project):
-        if project["status"] in {"queued", "processing"}:
-            raise HTTPException(409, "This clip is already queued for transcription.")
-        if request:
-            project.update(request.model_dump(exclude_none=True))
-        project.update(status="queued", progress=0, message="Queued for local transcription.")
-    result = update_project(project_id, mutate)
-    EXECUTOR.submit(transcription_job, project_id)
-    return result
+    with job_slot(load_project(project_id).get("owner", "local")) as queue:
+        def mutate(project):
+            if project["status"] in {"queued", "processing"}:
+                raise HTTPException(409, "This clip is already queued for transcription.")
+            if request:
+                req_data = request.model_dump(exclude_none=True)
+                if "autoHighlight" in req_data:
+                    project["settings"]["autoHighlight"] = req_data.pop("autoHighlight")
+                project.update(req_data)
+            try:
+                validate_transcription_request(project.get("script", "roman"), bool(project.get("translate")))
+            except ValueError as exc:
+                raise HTTPException(422, str(exc))
+            project["transcriptionGeneration"] = project.get("transcriptionGeneration", 0) + 1
+            CANCELLATIONS.discard(project_id)
+            project.update(status="queued", progress=0, message="Queued for local transcription.")
+        result = update_project(project_id, mutate)
+        queue.submit(transcription_job, project_id, result["transcriptionGeneration"])
+        return result
 
 
 @app.post("/api/projects/{project_id}/cancel")
@@ -1125,6 +1677,7 @@ def cancel_transcription(project_id: str):
         CANCELLATIONS.add(project_id)
         def mutate(p):
             if p["status"] in {"queued", "processing"}:
+                p["transcriptionGeneration"] = p.get("transcriptionGeneration", 0) + 1
                 p.update(status="ready", progress=0, message="Transcription cancelled.")
         return update_project(project_id, mutate)
 
@@ -1154,33 +1707,71 @@ def media(project_id: str):
     return FileResponse(path, media_type="video/mp4" if project["mediaType"] == "video" else "audio/mp4")
 
 
+@app.get("/api/projects/{project_id}/audio")
+def audio_track(project_id: str):
+    project = load_project(project_id)
+    directory = project_dir(project_id)
+    with LOCK:
+        audio_lock = AUDIO_DOWNLOAD_LOCKS.setdefault(project_id, threading.Lock())
+    # Concurrent clicks must not encode into the same temporary file.
+    with audio_lock:
+        preview = directory / "preview.m4a"
+        audio_path = preview if project["mediaType"] == "audio" and preview.is_file() else directory / "audio.m4a"
+        if not audio_path.is_file():
+            source = directory / "source.bin"
+            if not source.is_file():
+                raise HTTPException(404, "Original media file not found.")
+            temporary = directory / "audio.tmp.m4a"
+            try:
+                limit = int(project["duration"] * 32000) + 1024 * 1024
+                with storage_reservation(project.get("owner", ""), limit, upload_slot=False):
+                    run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-map", "0:a:0",
+                                 "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-fs", str(limit), str(temporary)], 300)
+                    if temporary.stat().st_size >= limit or output_quota_exceeded(temporary, project.get("owner", ""), limit):
+                        raise HTTPException(413, "Audio preparation exceeded the workspace storage limit.")
+                    temporary.replace(audio_path)
+            finally:
+                temporary.unlink(missing_ok=True)
+    return FileResponse(audio_path, media_type="audio/mp4", filename=f"{project['name']}.m4a")
+
+
 @app.post("/api/projects/{project_id}/exports", status_code=202)
 def create_export(project_id: str, request: ExportRequest):
-    export_id = str(uuid.uuid4())
-    with LOCK:
-        project = load_project(project_id)
-        if project["status"] != "ready":
-            raise HTTPException(409, "Wait for a completed transcript before exporting.")
-        if not project["words"]:
-            raise HTTPException(422, "There are no caption words to export.")
-        if MAX_EXPORT_SECONDS and project["duration"] > MAX_EXPORT_SECONDS:
-            limit = int(MAX_EXPORT_SECONDS // 60) or 1
-            raise HTTPException(
-                422,
-                f"This clip is {int(project['duration'] // 60)}m {int(project['duration'] % 60)}s. "
-                f"Rendering here is capped at {limit} minutes so everyone's exports stay quick. "
-                "Download the SRT and burn it in your editor, or run Bol locally for the full length.",
-            )
-        if request.mode == "green" and project["settings"]["accent"].lower() == "#00ff00":
-            raise HTTPException(422, "Choose an accent other than pure green so your captions remain visible after chroma keying.")
-        if any(job["status"] in {"queued", "processing"} for job in project["exports"]):
-            raise HTTPException(409, "An export for this clip is already in progress.")
-        snapshot = copy.deepcopy(project)
-        job = {"id": export_id, "mode": request.mode, "resolution": request.resolution, "fps": request.fps, "status": "queued", "progress": 0,
-               "message": "Queued for rendering.", "revision": project["revision"]}
-        update_project(project_id, lambda p: p["exports"].append(job))
-    EXECUTOR.submit(export_job, project_id, export_id, snapshot, request.mode, request.resolution, request.fps)
-    return job
+    with job_slot(load_project(project_id).get("owner", "local")) as queue:
+        export_id = str(uuid.uuid4())
+        with LOCK:
+            project = load_project(project_id)
+            if project["status"] != "ready":
+                raise HTTPException(409, "Wait for a completed transcript before exporting.")
+            if not project["words"]:
+                raise HTTPException(422, "There are no caption words to export.")
+            if MAX_EXPORT_SECONDS and project["duration"] > MAX_EXPORT_SECONDS:
+                limit = int(MAX_EXPORT_SECONDS // 60) or 1
+                raise HTTPException(
+                    422,
+                    f"This clip is {int(project['duration'] // 60)}m {int(project['duration'] % 60)}s. "
+                    f"Rendering here is capped at {limit} minutes so everyone's exports stay quick. "
+                    "Download the SRT and burn it in your editor, or run Bol locally for the full length.",
+                )
+            if request.mode == "green" and project["settings"]["accent"].lower() == "#00ff00":
+                raise HTTPException(422, "Choose an accent other than pure green so your captions remain visible after chroma keying.")
+            if any(job["status"] in {"queued", "processing"} for job in project["exports"]):
+                raise HTTPException(409, "An export for this clip is already in progress.")
+            owner = project.get("owner", "")
+            if owned_project_usage(owner)[1] + active_output_reservations(owner) + UPLOAD_RESERVATIONS.get(owner, {}).get("bytes", 0) + MAX_EXPORT_BYTES > MAX_OWNER_STORAGE_BYTES:
+                raise HTTPException(413, "An export would exceed this workspace's storage limit. Delete media first.")
+            snapshot = copy.deepcopy(project)
+            job = {"id": export_id, "mode": request.mode, "resolution": request.resolution, "fps": request.fps, "status": "queued", "progress": 0,
+                   "message": "Queued for rendering.", "revision": project["revision"], "storageReservationBytes": MAX_EXPORT_BYTES}
+            update_project(project_id, lambda p: p["exports"].append(job))
+        queue.submit(export_job, project_id, export_id, snapshot, request.mode, request.resolution, request.fps)
+        return job
+
+
+@app.get("/api/projects/{project_id}/exports")
+def export_statuses(project_id: str):
+    """Return export progress without resending private transcript/scene data."""
+    return load_project(project_id).get("exports", [])
 
 
 @app.get("/api/projects/{project_id}/exports/{export_id}/download")
@@ -1198,6 +1789,22 @@ def download_export(project_id: str, export_id: str):
     return FileResponse(path, media_type="video/mp4", filename=job["filename"])
 
 
+def validate_static_image(path: Path) -> None:
+    try:
+        if path.stat().st_size > 64 * 1024 * 1024:
+            raise ValueError("Image files must be 64 MiB or smaller.")
+        with Image.open(path, formats=["PNG", "JPEG", "WEBP"]) as image:
+            if min(image.size) < 1 or max(image.size) > 8192:
+                raise ValueError("Image dimensions must be positive and no larger than 8192 pixels.")
+            if getattr(image, "is_animated", False):
+                raise ValueError("Animated images are unsupported. Convert the animation to MP4 or WebM.")
+            image.verify()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as error:
+        raise HTTPException(422, "The image file could not be decoded.") from error
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
 def inspect_asset_file(path: Path, original_filename: str) -> dict:
     ext = Path(original_filename).suffix.lower()
     video_exts = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
@@ -1205,6 +1812,8 @@ def inspect_asset_file(path: Path, original_filename: str) -> dict:
     image_exts = {".png", ".jpg", ".jpeg", ".webp"}
     if ext not in (video_exts | audio_exts | image_exts):
         raise HTTPException(422, "Unsupported file type.")
+    if ext in image_exts:
+        validate_static_image(path)
 
     result = run_process(["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)], 30)
     try:
@@ -1216,20 +1825,36 @@ def inspect_asset_file(path: Path, original_filename: str) -> dict:
     except Exception:
         raise HTTPException(422, "The media file could not be decoded.")
 
-    if ext in image_exts:
-        # Fallback to image stream if any
-        img_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
-        width = int(img_stream.get("width", 0)) if img_stream else 800
-        height = int(img_stream.get("height", 0)) if img_stream else 600
-        return {"mediaType": "image", "width": width, "height": height, "duration": None}
-    elif ext in audio_exts or (audio_stream and not video_stream):
-        duration = float(format_info.get("duration") or (audio_stream or {}).get("duration") or 0)
-        return {"mediaType": "audio", "duration": round(duration, 2), "width": None, "height": None}
-    else:
-        duration = float(format_info.get("duration") or (video_stream or {}).get("duration") or 0)
-        width = int(video_stream.get("width", 720)) if video_stream else 720
-        height = int(video_stream.get("height", 1280)) if video_stream else 1280
-        return {"mediaType": "video", "duration": round(duration, 2), "width": width, "height": height}
+    try:
+        if ext in image_exts:
+            if not video_stream or video_stream.get("codec_name") not in {"png", "mjpeg", "webp"}:
+                raise ValueError("The file is not a supported image.")
+            media_type = "image"
+            duration = None
+        elif ext in audio_exts:
+            if not audio_stream or video_stream:
+                raise ValueError("The file is not an audio-only clip.")
+            media_type = "audio"
+            duration = float(format_info.get("duration") or audio_stream.get("duration") or 0)
+        else:
+            if not video_stream:
+                raise ValueError("The file has no video track.")
+            media_type = "video"
+            duration = float(format_info.get("duration") or video_stream.get("duration") or 0)
+        if duration is not None and (not math.isfinite(duration) or duration <= .05 or duration > MAX_DURATION):
+            raise ValueError("Media must have a readable duration between 0.05 seconds and 20 minutes.")
+        width = int(video_stream.get("width", 0)) if media_type != "audio" else None
+        height = int(video_stream.get("height", 0)) if media_type != "audio" else None
+        if media_type == "video":
+            rotation = next((side.get("rotation", 0) for side in video_stream.get("side_data_list", []) if "rotation" in side), video_stream.get("tags", {}).get("rotate", 0))
+            if int(float(rotation)) % 180:
+                width, height = height, width
+        if media_type != "audio" and (min(width, height) < 1 or max(width, height) > 8192 or width * height > 8192 * 8192):
+            raise ValueError("Media dimensions must be positive and no larger than 8192 pixels.")
+        return {"mediaType": media_type, "duration": round(duration, 3) if duration is not None else None,
+                "width": width, "height": height}
+    except (ValueError, TypeError, OverflowError) as error:
+        raise HTTPException(422, str(error)) from error
 
 
 def generate_asset_thumb(source_path: Path, thumb_path: Path, media_type: str) -> None:
@@ -1239,10 +1864,66 @@ def generate_asset_thumb(source_path: Path, thumb_path: Path, media_type: str) -
             run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", "0.5", "-i", str(source_path),
                          "-frames:v", "1", "-vf", "scale=360:-1", str(thumb_path)], 20)
         elif media_type == "image":
-            run_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source_path),
+            run_bounded_media_process(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source_path),
                          "-vf", "scale=360:-1", str(thumb_path)], 20)
     except Exception as exc:
         LOGGER.warning("Thumbnail generation skipped for %s: %s", source_path.name, exc)
+
+
+def prepare_asset_preview(source: Path, destination: Path, metadata: dict, project: dict) -> bool:
+    """Keep original media immutable; normalize unsupported browser video."""
+    if metadata["mediaType"] != "video":
+        return False
+    video, audio = _streams(source)
+    native_mp4 = source.suffix.lower() == ".mp4" and video == "h264" and audio in {"", "aac", "mp3"}
+    native_webm = source.suffix.lower() == ".webm" and video in {"vp8", "vp9"} and audio in {"", "opus", "vorbis"}
+    if native_mp4 or native_webm:
+        return False
+    stream_info = json.loads(run_process(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(source)]).stdout)
+    video_stream = next((stream for stream in stream_info.get("streams", []) if stream.get("codec_type") == "video"), {})
+    pixel_format = str(video_stream.get("pix_fmt", "")).lower()
+    if pixel_format.startswith(("yuva", "gbrap", "rgba", "bgra", "argb", "abgr", "ya")) or video_stream.get("tags", {}).get("alpha_mode") == "1":
+        raise ValueError("Transparent video cannot be normalized for browser preview. Use a static PNG or remove its alpha channel before uploading.")
+    temporary = destination.with_name(destination.stem + ".tmp.mp4")
+    preview_project = {**project, "duration": metadata["duration"]}
+    limit = min(MAX_BYTES, int(metadata["duration"] * 2_000_000) + 1024 * 1024)
+    try:
+        run_bounded_media_process([
+            "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source),
+            "-map", "0:V:0", "-map", "0:a:0?",
+            "-vf", "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(temporary),
+        ], 1800, preview_project, limit)
+        if _streams(temporary)[0] != "h264":
+            raise ValueError("Browser video preparation did not produce a playable video.")
+        temporary.replace(destination)
+        return True
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def manifest_asset_path(project_id: str, asset_id: str, preview: bool = False) -> tuple[dict, Path]:
+    try:
+        if str(uuid.UUID(asset_id)) != asset_id:
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise HTTPException(404, "Asset not found.")
+    project = load_project(project_id)
+    asset = next((a for a in project.get("mediaAssets", []) if a.get("id") == asset_id), None)
+    if not asset:
+        raise HTTPException(404, "Asset not found.")
+    directory = project_dir(project_id).resolve()
+    use_preview = bool(preview and asset.get("previewFile"))
+    relative = asset.get("previewFile") if use_preview else asset.get("sourceFile", "")
+    pattern = rf"assets/{re.escape(asset_id)}\.preview\.mp4" if use_preview else rf"assets/{re.escape(asset_id)}\.[a-z0-9]+"
+    if not isinstance(relative, str) or not re.fullmatch(pattern, relative):
+        raise HTTPException(404, "Asset file not found.")
+    assets = directory / "assets"
+    path = directory / relative
+    if assets.resolve() != assets or not path.is_file() or path.resolve().parent != assets:
+        raise HTTPException(404, "Asset file not found.")
+    return asset, path
 
 
 @app.get("/api/projects/{project_id}/media-thumbnail")
@@ -1288,16 +1969,20 @@ def list_project_assets(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/assets", status_code=201)
-async def upload_project_asset(project_id: str, file: Annotated[UploadFile, File()]):
+async def upload_project_asset(project_id: str, request: Request, file: Annotated[UploadFile, File()]):
     directory = project_dir(project_id)
+    project = load_project(project_id)
+    if len(project.get("mediaAssets", [])) >= MAX_PROJECT_ASSETS:
+        raise HTTPException(429, "This project has reached its media asset limit.")
     assets_dir = directory / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
-    
+
     raw_filename = Path((file.filename or "media").replace("\\", "/")).name[:240]
     ext = Path(raw_filename).suffix.lower()
     asset_id = str(uuid.uuid4())
     dest_path = assets_dir / f"{asset_id}{ext}"
     thumb_path = assets_dir / f"{asset_id}.thumb.jpg"
+    preview_path = assets_dir / f"{asset_id}.preview.mp4"
 
     total = 0
     try:
@@ -1311,7 +1996,8 @@ async def upload_project_asset(project_id: str, file: Annotated[UploadFile, File
             raise HTTPException(422, "The uploaded file is empty.")
 
         meta = await asyncio.to_thread(inspect_asset_file, dest_path, raw_filename)
-        await asyncio.to_thread(generate_asset_thumb, dest_path, thumb_path, meta["mediaType"])
+        normalized = await asyncio.to_thread(prepare_asset_preview, dest_path, preview_path, meta, project)
+        await asyncio.to_thread(generate_asset_thumb, preview_path if normalized else dest_path, thumb_path, meta["mediaType"])
 
         name_stem = Path(raw_filename).stem[:120] or "Untitled media"
         asset = {
@@ -1325,6 +2011,8 @@ async def upload_project_asset(project_id: str, file: Annotated[UploadFile, File
             "height": meta["height"],
             "createdAt": datetime.now(timezone.utc).isoformat(),
             "sourceFile": f"assets/{asset_id}{ext}",
+            "previewFile": f"assets/{asset_id}.preview.mp4" if normalized else None,
+            "previewNormalized": normalized,
             "thumbnailFile": f"assets/{asset_id}.thumb.jpg" if thumb_path.is_file() else None,
             "url": f"/api/projects/{project_id}/assets/{asset_id}/file",
             "thumbnailUrl": f"/api/projects/{project_id}/assets/{asset_id}/thumbnail" if thumb_path.is_file() else None,
@@ -1334,18 +2022,28 @@ async def upload_project_asset(project_id: str, file: Annotated[UploadFile, File
         def append_asset(p):
             if "mediaAssets" not in p or not isinstance(p["mediaAssets"], list):
                 p["mediaAssets"] = []
+            if len(p["mediaAssets"]) >= MAX_PROJECT_ASSETS:
+                raise HTTPException(429, "This project has reached its media asset limit.")
             p["mediaAssets"].append(asset)
+        check_storage_budget(owner_of(request))
         update_project(project_id, append_asset)
         return asset
     except HTTPException:
         dest_path.unlink(missing_ok=True)
         thumb_path.unlink(missing_ok=True)
+        preview_path.unlink(missing_ok=True)
         raise
+    except ValueError as exc:
+        dest_path.unlink(missing_ok=True)
+        thumb_path.unlink(missing_ok=True)
+        preview_path.unlink(missing_ok=True)
+        raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
         dest_path.unlink(missing_ok=True)
         thumb_path.unlink(missing_ok=True)
+        preview_path.unlink(missing_ok=True)
         LOGGER.exception("Asset upload failed")
-        raise HTTPException(500, f"Upload failed: {exc}")
+        raise HTTPException(500, "Upload failed. Check available disk space and retry.")
     finally:
         await file.close()
 
@@ -1360,12 +2058,7 @@ def get_asset_file(project_id: str, asset_id: str):
             raise HTTPException(404, "Primary media file not found.")
         return FileResponse(path, media_type="video/mp4" if project["mediaType"] == "video" else "audio/mp4")
 
-    # Look in assets directory
-    assets_dir = directory / "assets"
-    matching = list(assets_dir.glob(f"{asset_id}.*"))
-    file_path = next((p for p in matching if not p.name.endswith(".thumb.jpg")), None)
-    if not file_path or not file_path.is_file():
-        raise HTTPException(404, "Asset file not found.")
+    _, file_path = manifest_asset_path(project_id, asset_id, preview=True)
 
     ext = file_path.suffix.lower()
     mime = "application/octet-stream"
@@ -1385,8 +2078,9 @@ def get_asset_thumbnail(project_id: str, asset_id: str):
     if asset_id == "primary":
         return project_media_thumbnail(project_id)
     
+    manifest_asset_path(project_id, asset_id)
     thumb_path = directory / "assets" / f"{asset_id}.thumb.jpg"
-    if thumb_path.is_file():
+    if thumb_path.is_file() and thumb_path.resolve().parent == (directory / "assets").resolve():
         return FileResponse(thumb_path, media_type="image/jpeg")
     raise HTTPException(404, "Thumbnail not found.")
 
@@ -1404,20 +2098,14 @@ def download_asset_file(project_id: str, asset_id: str):
             raise HTTPException(404, "Primary media file not found.")
         return FileResponse(path, filename=project.get("filename", "clip.mp4"))
 
-    matching = list((directory / "assets").glob(f"{asset_id}.*"))
-    file_path = next((p for p in matching if not p.name.endswith(".thumb.jpg")), None)
-    if not file_path or not file_path.is_file():
-        raise HTTPException(404, "Asset file not found.")
-
-    # Find filename in mediaAssets
-    asset = next((a for a in project.get("mediaAssets", []) if a.get("id") == asset_id), None)
-    filename = asset.get("filename", file_path.name) if asset else file_path.name
+    asset, file_path = manifest_asset_path(project_id, asset_id)
+    filename = asset.get("filename", file_path.name)
     return FileResponse(file_path, filename=filename)
 
 
-class AssetPatchRequest(BaseModel):
-    name: str | None = None
-    greenScreen: dict | None = None
+class AssetPatchRequest(ValidatedModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    greenScreen: GreenScreenSettings | None = None
 
 
 @app.patch("/api/projects/{project_id}/assets/{asset_id}")
@@ -1429,7 +2117,7 @@ def patch_asset(project_id: str, asset_id: str, request: AssetPatchRequest):
                 ext = Path(p.get("filename", "")).suffix
                 p["filename"] = f"{request.name.strip()}{ext}"
             if request.greenScreen is not None:
-                p["greenScreen"] = request.greenScreen
+                p["greenScreen"] = request.greenScreen.model_dump()
             return
 
         assets = p.get("mediaAssets", [])
@@ -1441,12 +2129,32 @@ def patch_asset(project_id: str, asset_id: str, request: AssetPatchRequest):
             ext = Path(asset.get("filename", "")).suffix
             asset["filename"] = f"{request.name.strip()}{ext}"
         if request.greenScreen is not None:
-            asset["greenScreen"] = request.greenScreen
+            asset["greenScreen"] = request.greenScreen.model_dump()
     return update_project(project_id, mutate)
 
 
 @app.post("/api/projects/{project_id}/assets/{asset_id}/duplicate")
-def duplicate_asset(project_id: str, asset_id: str):
+def duplicate_asset(project_id: str, asset_id: str, request: Request):
+    project = load_project(project_id)
+    if len(project.get("mediaAssets", [])) >= MAX_PROJECT_ASSETS:
+        raise HTTPException(429, "This project has reached its media asset limit.")
+    directory = project_dir(project_id)
+    if asset_id == "primary":
+        source = directory / "source.bin"
+        if not source.is_file():
+            source = playable_media(project)
+    else:
+        asset = next((a for a in project.get("mediaAssets", []) if a.get("id") == asset_id), None)
+        if not asset:
+            raise HTTPException(404, "Asset not found.")
+        _, source = manifest_asset_path(project_id, asset_id)
+    if not source.is_file():
+        raise HTTPException(404, "Source file not found.")
+    with storage_reservation(owner_of(request), source.stat().st_size + UPLOAD_MULTIPART_OVERHEAD):
+        return _duplicate_asset(project_id, asset_id, owner_of(request))
+
+
+def _duplicate_asset(project_id: str, asset_id: str, owner: str):
     directory = project_dir(project_id)
     project = load_project(project_id)
     
@@ -1475,48 +2183,60 @@ def duplicate_asset(project_id: str, asset_id: str):
         orig_height = asset.get("height")
         orig_greenscreen = asset.get("greenScreen")
         
-        matching = list((directory / "assets").glob(f"{asset_id}.*"))
-        source_file = next((p for p in matching if not p.name.endswith(".thumb.jpg")), None)
-        if not source_file or not source_file.is_file():
-            raise HTTPException(404, "Asset file not found.")
+        _, source_file = manifest_asset_path(project_id, asset_id)
 
     new_id = str(uuid.uuid4())
     ext = Path(orig_filename).suffix.lower()
     new_assets_dir = directory / "assets"
     new_assets_dir.mkdir(parents=True, exist_ok=True)
     new_dest = new_assets_dir / f"{new_id}{ext}"
-    shutil.copy2(source_file, new_dest)
-
     new_thumb = new_assets_dir / f"{new_id}.thumb.jpg"
-    generate_asset_thumb(new_dest, new_thumb, orig_type)
+    new_preview = new_assets_dir / f"{new_id}.preview.mp4"
+    try:
+        shutil.copy2(source_file, new_dest)
 
-    stem = Path(orig_filename).stem
-    new_name = f"{orig_name} copy"
-    new_filename = f"{stem} copy{ext}"
+        new_thumb = new_assets_dir / f"{new_id}.thumb.jpg"
+        metadata = {"mediaType": orig_type, "duration": orig_duration, "width": orig_width, "height": orig_height}
+        normalized = prepare_asset_preview(new_dest, new_preview, metadata, project)
+        generate_asset_thumb(new_preview if normalized else new_dest, new_thumb, orig_type)
 
-    new_asset = {
-        "id": new_id,
-        "name": new_name,
-        "filename": new_filename,
-        "mediaType": orig_type,
-        "size": new_dest.stat().st_size,
-        "duration": orig_duration,
-        "width": orig_width,
-        "height": orig_height,
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        "sourceFile": f"assets/{new_id}{ext}",
-        "thumbnailFile": f"assets/{new_id}.thumb.jpg" if new_thumb.is_file() else None,
-        "url": f"/api/projects/{project_id}/assets/{new_id}/file",
-        "thumbnailUrl": f"/api/projects/{project_id}/assets/{new_id}/thumbnail" if new_thumb.is_file() else None,
-        "greenScreen": copy.deepcopy(orig_greenscreen) if orig_greenscreen else None,
-    }
+        stem = Path(orig_filename).stem
+        new_name = f"{orig_name} copy"
+        new_filename = f"{stem} copy{ext}"
 
-    def append(p):
-        if "mediaAssets" not in p or not isinstance(p["mediaAssets"], list):
-            p["mediaAssets"] = []
-        p["mediaAssets"].append(new_asset)
-    update_project(project_id, append)
-    return new_asset
+        new_asset = {
+            "id": new_id,
+            "name": new_name,
+            "filename": new_filename,
+            "mediaType": orig_type,
+            "size": new_dest.stat().st_size,
+            "duration": orig_duration,
+            "width": orig_width,
+            "height": orig_height,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "sourceFile": f"assets/{new_id}{ext}",
+            "previewFile": f"assets/{new_id}.preview.mp4" if normalized else None,
+            "previewNormalized": normalized,
+            "thumbnailFile": f"assets/{new_id}.thumb.jpg" if new_thumb.is_file() else None,
+            "url": f"/api/projects/{project_id}/assets/{new_id}/file",
+            "thumbnailUrl": f"/api/projects/{project_id}/assets/{new_id}/thumbnail" if new_thumb.is_file() else None,
+            "greenScreen": copy.deepcopy(orig_greenscreen) if orig_greenscreen else None,
+        }
+
+        def append(p):
+            if "mediaAssets" not in p or not isinstance(p["mediaAssets"], list):
+                p["mediaAssets"] = []
+            if len(p["mediaAssets"]) >= MAX_PROJECT_ASSETS:
+                raise HTTPException(429, "This project has reached its media asset limit.")
+            p["mediaAssets"].append(new_asset)
+        check_storage_budget(owner)
+        update_project(project_id, append)
+        return new_asset
+    except Exception:
+        new_dest.unlink(missing_ok=True)
+        new_thumb.unlink(missing_ok=True)
+        new_preview.unlink(missing_ok=True)
+        raise
 
 
 @app.delete("/api/projects/{project_id}/assets/{asset_id}")

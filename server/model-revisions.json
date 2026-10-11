@@ -1,0 +1,8 @@
+{
+  "mlx-community/whisper-large-v3-turbo": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb",
+  "mlx-community/whisper-large-v3-mlx": "49e6aa286ad60c14352c404340ded53710378a11",
+  "Systran/faster-whisper-large-v3": "edaa852ec7e145841d8ffdb056a99866b5f0a478",
+  "parismitaglobalsolutions/indicconformer-sherpa-onnx": "9721eb71eea141fae0982cfcdb9dd2e3d4953c4a",
+  "Trelis/whisper-hinglish-preview": "eab1188fd2d0e91f2584229b32b3bfe1901c896c",
+  "mobiuslabsgmbh/faster-whisper-large-v3-turbo": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"
+}

@@ -1,3 +1,6 @@
+import { MediaCredentials, unsignedMediaPath } from './media-credentials';
+import { fetchProtectedResource } from './protected-fetch';
+export { ApiError } from './protected-fetch';
 import type { MediaAsset, Project } from './types';
 import { AUTH_ENABLED, currentAccessToken, currentUserId, supabase } from './auth';
 
@@ -31,37 +34,29 @@ export const API = (import.meta.env.VITE_API_BASE || defaultBase).replace(/\/$/,
  */
 export const API_KEY = (import.meta.env.VITE_API_KEY || '').trim();
 
-/**
- * Which workspace this browser's projects belong to.
- *
- * Without it every visitor to a shared deployment sees every other visitor's
- * uploads, because projects were keyed by id alone. This is a random id kept in
- * localStorage, sent on every request, and stored on each project the browser
- * creates.
- *
- * It is separation, not authentication: it lives in the browser and rides in a
- * header, so anyone can change it to anything. It keeps a group of people out
- * of each other's work by default; it does not stop someone who looks.
- *
- * This is now the signed-out path only. With accounts configured the server
- * ignores the header entirely and takes the owner from the verified token, so a
- * client cannot use it to claim a workspace.
+/** Temporary editor identity. Nothing is written to browser project storage.
+ * A new page creates a fresh workspace; authentication remains independent.
+ * Persistent project discovery can be reintroduced behind this boundary later.
  */
-const OWNER_STORAGE_KEY = 'bol.workspace-id';
+const localWorkspaceId = crypto.randomUUID();
 
-const localWorkspaceId = (() => {
-  try {
-    const existing = localStorage.getItem(OWNER_STORAGE_KEY);
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    localStorage.setItem(OWNER_STORAGE_KEY, created);
-    return created;
-  } catch {
-    // Private windows and blocked storage throw. A per-session id still keeps
-    // this tab's work separate; it just will not survive a reload.
-    return crypto.randomUUID();
+// This registry exists only in the current page. Never restore an old upload.
+const temporaryProjects = new Set<string>();
+function renewTemporaryProjects(closing = false) {
+  for (const id of temporaryProjects) {
+    void fetch(`${API}/api/projects/${id}/temporary-session${closing ? '?closing=true' : ''}`, {
+      method: 'POST', headers: authHeaders(), keepalive: closing,
+    }).catch(() => { /* The server lease also expires after an abrupt close. */ });
   }
-})();
+}
+if (typeof window !== 'undefined') {
+  window.setInterval(() => renewTemporaryProjects(), 60_000);
+  window.addEventListener('pagehide', () => renewTemporaryProjects(true));
+  window.addEventListener('pageshow', () => renewTemporaryProjects());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') renewTemporaryProjects();
+  });
+}
 
 /**
  * Who the app is acting as. A function rather than the constant this used to be:
@@ -74,7 +69,7 @@ export function getOwner(): string {
 
 /** Header form, for anything that goes through fetch or XHR. */
 export function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = { ...extra, 'X-Bol-Owner': getOwner() };
+  const headers: Record<string, string> = { ...extra, 'X-Bol-Owner': getOwner(), 'X-Bol-Temporary-Session': localWorkspaceId };
   if (API_KEY) headers['X-API-Key'] = API_KEY;
   const token = currentAccessToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -89,13 +84,15 @@ export function authHeaders(extra?: Record<string, string>): Record<string, stri
  * Signed in, that credential is a media token and not the access token: an
  * access token is good for an hour and for everything, and a query string ends
  * up in proxy logs, browser history and Referer headers. A media token opens one
- * project's media for fifteen minutes and nothing else.
+ * project's media for two hours and nothing else.
  *
  * Signed out, the workspace id rides here as before — without it the browser
  * asks for its own project's video as a stranger and is correctly refused.
  */
 export function mediaUrl(path: string): string {
-  const base = path.startsWith('http') ? path : `${API}${path}`;
+  const route = unsignedMediaPath(path);
+  if (!route) return '';
+  const base = `${API}${route}`;
   const query = new URLSearchParams();
   if (API_KEY) query.set('key', API_KEY);
   if (AUTH_ENABLED) {
@@ -105,7 +102,7 @@ export function mediaUrl(path: string): string {
     // moment before the token lands reports that the media cannot be played,
     // which is both alarming and untrue. An empty string instead: callers hand
     // the element nothing until there is something worth loading.
-    const token = mediaTokens.get(projectIdIn(base))?.token;
+    const token = mediaCredentials.token(projectIdIn(base));
     if (!token) return '';
     query.set('t', token);
   } else {
@@ -128,70 +125,39 @@ function projectIdIn(url: string): string {
  * with nothing to say. Concurrent callers share one request, because the editor
  * asks for the video, the thumbnail and the waveform at once.
  *
- * The token is part of the URL, so replacing one reloads the player and rejects
- * any pending play(). The server's two-hour lifetime and this margin are chosen
- * together so that an ordinary session never reaches the point of needing a new
- * one.
+ * Replacing a token changes media URLs. The editor updates cached overlay
+ * sources and restores the primary player's position and playback state.
  */
-const REMINT_WITHIN_MS = 15 * 60 * 1000;
-const mediaTokens = new Map<string, { token: string; expiresAt: number }>();
-const mintingNow = new Map<string, Promise<string>>();
-
+const mediaCredentials = new MediaCredentials(id => request<{ token: string; expiresIn: number }>(
+  `/projects/${id}/media-token`, { method: 'POST' },
+));
 export async function ensureMediaToken(projectId: string): Promise<string> {
-  if (!AUTH_ENABLED) return '';
-  const held = mediaTokens.get(projectId);
-  if (held && held.expiresAt - Date.now() > REMINT_WITHIN_MS) return held.token;
-  const already = mintingNow.get(projectId);
-  if (already) return already;
-  const minting = request<{ token: string; expiresIn: number }>(
-    `/projects/${projectId}/media-token`, { method: 'POST' },
-  ).then(result => {
-    mediaTokens.set(projectId, {
-      token: result.token,
-      expiresAt: Date.now() + result.expiresIn * 1000,
-    });
-    return result.token;
-  }).finally(() => { mintingNow.delete(projectId); });
-  mintingNow.set(projectId, minting);
-  return minting;
+  return AUTH_ENABLED ? mediaCredentials.ensure(projectId) : '';
+}
+/** Sign-out also invalidates mint requests that have not finished. */
+export function forgetMediaTokens(): void { mediaCredentials.clear(); }
+/** Share authentication and one-shot session refresh between JSON and file requests. */
+async function apiResponse(path: string, options?: RequestInit): Promise<Response> {
+  return fetchProtectedResource(`${API}/api${path}`, options, {
+    headers: extra => authHeaders(extra),
+    authEnabled: AUTH_ENABLED && !!supabase,
+    refresh: async () => {
+      const { data } = await supabase!.auth.refreshSession();
+      return !!data.session;
+    },
+    signOut: async () => { await supabase!.auth.signOut(); },
+  });
 }
 
-/** Drop every media token, so signing out cannot leave one usable. */
-export function forgetMediaTokens(): void {
-  mediaTokens.clear();
-  mintingNow.clear();
-}
-export async function request<T>(path: string, options?: RequestInit, retried = false): Promise<T> {
-  const response = await fetch(`${API}/api${path}`, {
-    ...options,
-    headers: authHeaders(options?.headers as Record<string, string> | undefined),
-  });
-  // A session that ended has to be told apart from a request that failed. An
-  // expired token means the account is fine and the token is stale, so refresh
-  // and try once — exactly once, because the editor polls every seven seconds
-  // and a loop here would be expensive before anybody noticed. Anything else
-  // means the session is not coming back, so sign out and let the gate appear.
-  if (response.status === 401 && AUTH_ENABLED && supabase) {
-    const body = await response.clone().json().catch(() => ({} as { code?: string }));
-    if (body.code === 'token_expired' && !retried) {
-      const { data } = await supabase.auth.refreshSession();
-      if (data.session) return request<T>(path, options, true);
-    }
-    await supabase.auth.signOut();
-    throw new Error('Please sign in to continue.');
-  }
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try { const error = await response.json(); message = typeof error.detail === 'string' ? error.detail : JSON.stringify(error.detail ?? error); } catch { /* Preserve status when the worker is offline. */ }
-    throw new Error(message);
-  }
-  // 204 means the server did the thing and has nothing to say about it, which
-  // is the honest shape for a delete. It also means an empty body, and
-  // res.json() on an empty body throws a SyntaxError — so a successful delete
-  // would have surfaced as "Unexpected end of JSON input" and the caller would
-  // have cleared nothing. Read as void instead of inventing a body to parse.
+export async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await apiResponse(path, options);
   if (response.status === 204) return undefined as T;
   return response.json();
+}
+
+export async function downloadAudioBlob(projectId: string): Promise<Blob> {
+  const response = await apiResponse(`/projects/${projectId}/audio`);
+  return response.blob();
 }
 /**
  * Upload without starting recognition.
@@ -211,7 +177,7 @@ export function upload(file: File, script: string, language: string, onProgress:
     xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100)); };
     xhr.onerror = () => reject(new Error('The studio backend is unavailable. Please check your connection or try again.'));
     xhr.onload = () => {
-      try { const data = JSON.parse(xhr.responseText); if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(new Error(typeof data.detail === 'string' ? data.detail : 'This file could not be uploaded.')); }
+      try { const data = JSON.parse(xhr.responseText); if (xhr.status >= 200 && xhr.status < 300) { temporaryProjects.add(data.id); resolve(data); } else reject(new Error(typeof data.detail === 'string' ? data.detail : 'This file could not be uploaded.')); }
       catch { reject(new Error('The upload could not be completed. Please try again.')); }
     };
     xhr.send(body);

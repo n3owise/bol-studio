@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, FileAudio, Film, ChevronRight, FolderOpen, MonitorPlay, Search } from 'lucide-react';
+import { Plus, FileAudio, Film, ChevronRight, FolderOpen, MonitorPlay, Search, Sparkles } from 'lucide-react';
 import { Modal } from './Modal';
 import { ShortcutModal } from './ShortcutModal';
-import type { Project, Word } from '../lib/types';
+import { matchesCaptionWord } from '../lib/captions';
+import type { Project } from '../lib/types';
 
 export interface StudioModalsProps {
   modal: 'projects' | 'help' | 'search-replace' | 'shortcuts' | null;
@@ -21,6 +22,7 @@ export interface StudioModalsProps {
   setSearchCaseSensitive: (val: boolean) => void;
   onReplaceNext: () => void;
   onReplaceAll: () => void;
+  onStartTour?: () => void;
 }
 
 export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
@@ -40,6 +42,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
   setSearchCaseSensitive,
   onReplaceNext,
   onReplaceAll,
+  onStartTour,
 }) => {
   const [projectSearch, setProjectSearch] = useState('');
   const [projectSort, setProjectSort] = useState<'newest' | 'oldest' | 'name' | 'duration'>('newest');
@@ -90,6 +93,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
             <Search size={14} />
             <input
               type="text"
+              aria-label="Search projects"
               placeholder="Search projects..."
               value={projectSearch}
               onChange={e => setProjectSearch(e.target.value)}
@@ -117,7 +121,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
                 <span>
                   <strong>{p.name}</strong>
                   <small>
-                    {timecode(p.duration)} · {p.status === 'ready' ? `${p.words?.length ?? 0} words` : p.status}
+                    {timecode(p.duration)} · {p.status === 'ready' ? `${p.words?.length ?? ('wordCount' in p && typeof p.wordCount === 'number' ? p.wordCount : 0)} words` : p.status}
                   </small>
                 </span>
                 <ChevronRight size={17} />
@@ -167,6 +171,25 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
             </p>
           </div>
         </div>
+        {onStartTour && (
+          <div className="tour-trigger-banner" style={{ marginTop: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--color-bg-secondary, rgba(255,255,255,0.04))', border: '1px solid var(--color-border)', borderRadius: '8px' }}>
+            <div>
+              <strong style={{ display: 'block', fontSize: '13px', marginBottom: '2px' }}>New to Bol Studio?</strong>
+              <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Take a quick 3-step interactive tour of the stage, styling, and timeline.</span>
+            </div>
+            <button
+              type="button"
+              className="button secondary compact"
+              onClick={() => {
+                onClose();
+                onStartTour();
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+            >
+              <Sparkles size={14} color="#10b981" /> Launch Tour
+            </button>
+          </div>
+        )}
         <div className="guide-note">
           <MonitorPlay size={22} />
           <p>
@@ -182,19 +205,15 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
   }
 
   if (modal === 'search-replace') {
-    const matchCount = searchFindText.trim() && project
-      ? project.words.filter((w: Word) =>
-          searchCaseSensitive
-            ? w.text.includes(searchFindText)
-            : w.text.toLowerCase().includes(searchFindText.toLowerCase())
-        ).length
+    const matchCount = project
+      ? project.words.filter(w => matchesCaptionWord(w.text, searchFindText, searchCaseSensitive)).length
       : 0;
 
     return (
       <Modal title="Search & Replace" onClose={onClose}>
         <div className="search-replace-modal-body">
           <div className="search-replace-field">
-            <label>
+            <label htmlFor="caption-find-word">
               <span>Find</span>
               {searchFindText.trim() && project && (
                 <span style={{ color: 'var(--color-emphasis-text)' }}>
@@ -204,6 +223,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
             </label>
             <input
               autoFocus
+              id="caption-find-word"
               type="text"
               placeholder="Word to find..."
               value={searchFindText}
@@ -212,9 +232,10 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
           </div>
 
           <div className="search-replace-field">
-            <label><span>Replace with</span></label>
+            <label htmlFor="caption-replacement-word"><span>Replace with</span></label>
             <input
               type="text"
+              id="caption-replacement-word"
               placeholder="Replacement text..."
               value={searchReplaceText}
               onChange={e => setSearchReplaceText(e.target.value)}
@@ -230,6 +251,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
             <span>Match case</span>
           </label>
 
+          <p className="muted">Matches complete words, ignoring trailing punctuation. Enter replacement text; blank replacements are disabled.</p>
           <div className="search-replace-actions">
             <button
               type="button"
@@ -241,7 +263,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
             <button
               type="button"
               className="button secondary compact"
-              disabled={!searchFindText.trim() || !project}
+              disabled={!matchCount || !searchReplaceText.trim() || !project}
               onClick={onReplaceNext}
             >
               Replace Next
@@ -249,7 +271,7 @@ export const StudioModals: React.FC<StudioModalsProps> = React.memo(({
             <button
               type="button"
               className="button primary compact"
-              disabled={!searchFindText.trim() || !project}
+              disabled={!matchCount || !searchReplaceText.trim() || !project}
               onClick={onReplaceAll}
             >
               Replace All

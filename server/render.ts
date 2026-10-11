@@ -1,8 +1,11 @@
-import { spawn } from 'node:child_process';
-import { readFile, access, mkdir, rm, readdir } from 'node:fs/promises';
+import { fitDecodedVideo, renderResourceLimits, validateRenderResources, RenderResourceError } from './render-resources.ts';
+import { spawn, execFile } from 'node:child_process';
+import { readFile, access, mkdir, rm, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
+import { promisify } from 'node:util';
+import { orderedElements } from '../src/lib/media-scene.ts';
 import { pathToFileURL } from 'node:url';
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import { dimensions, templates } from '../src/lib/captions.ts';
@@ -25,6 +28,22 @@ const FPS = 60;
 const BACKGROUND = '#111315';
 export type RenderMode = 'burned' | 'green';
 let fontsRegistered = false;
+
+/** Resolve only registered visual assets, and reject symlinks outside this project. */
+export async function resolveCanvasAssetPath(project: Project, projectDir: string, assetId: string): Promise<string | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(assetId)) return null;
+  const asset = project.mediaAssets?.find(a => a.id === assetId);
+  if (!asset || !['image', 'video'].includes(asset.mediaType)) return null;
+  const source = (asset as typeof asset & { sourceFile?: string }).sourceFile;
+  if (!source || !new RegExp(`^assets/${assetId}\\.[a-zA-Z0-9]+$`).test(source)) return null;
+  try {
+    const root = await realpath(projectDir);
+    const assets = await realpath(resolve(root, 'assets'));
+    if (assets !== resolve(root, 'assets')) return null;
+    const path = await realpath(resolve(root, source));
+    return path.startsWith(assets + sep) ? path : null;
+  } catch { return null; }
+}
 
 /** Use the same bundled font files as the browser, including Hindi glyphs. */
 export function registerRenderFonts() {
@@ -100,7 +119,7 @@ export function validateRenderProject(value: unknown): Project {
   return value as unknown as Project;
 }
 
-export function ffmpegArguments(project: Project, input: string, output: string, mode: RenderMode, resolution: number, fps: number = 60): string[] {
+export function ffmpegArguments(project: Project, input: string, output: string, mode: RenderMode, resolution: number, fps: number = 60, composited = false): string[] {
   const { width, height } = dimensions(project.settings, project.width, project.height, resolution);
   const frameCount = Math.ceil(project.duration * fps);
   const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
@@ -108,7 +127,7 @@ export function ffmpegArguments(project: Project, input: string, output: string,
     '-framerate', String(fps), '-i', 'pipe:0'];
   if (mode === 'burned') {
     args.push('-i', input);
-    if (project.mediaType.startsWith('video') && project.videoEnabled !== false) {
+    if (!composited && project.mediaType.startsWith('video') && project.videoEnabled !== false) {
       // Match the preview's contain behavior, preserving the complete source image.
       args.push('-filter_complex',
         `[1:v:0]setpts=PTS-STARTPTS,scale=${width}:${height}:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${BACKGROUND},fps=${fps},tpad=stop_mode=clone:stop_duration=1[base];[base][0:v:0]overlay=shortest=1:format=auto,format=yuv420p[out]`,
@@ -124,6 +143,52 @@ export function ffmpegArguments(project: Project, input: string, output: string,
     '-r', String(fps), '-frames:v', String(frameCount), '-t', String(frameCount / fps),
     '-movflags', '+faststart', '-f', 'mp4', output);
   return args;
+}
+
+/** A bounded frame stream; backpressure keeps long clips out of memory. */
+async function probeVideo(path: string) {
+  const { stdout } = await promisify(execFile)(process.env.FFPROBE_PATH || 'ffprobe',
+    ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', path], { timeout: 15000, maxBuffer: 1024 * 1024 });
+  const source = JSON.parse(stdout).streams?.[0];
+  if (!source?.width || !source?.height) throw new Error('Media has no decodable video track.');
+  return { width: Number(source.width), height: Number(source.height) };
+}
+export async function openVideoFrames(path: string, fps: number, maxWidth: number, loop = true, maxHeight = maxWidth, sourceDimensions?: { width: number; height: number }) {
+  const source = sourceDimensions ?? await probeVideo(path);
+  const { width, height } = fitDecodedVideo(source.width, source.height, maxWidth, maxHeight);
+  const canvas = createCanvas(width, height), ctx = canvas.getContext('2d');
+  const decoder = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ['-v', 'error', '-nostdin',
+    ...(loop ? ['-stream_loop', '-1'] : []), '-i', path, '-an', '-vf', `fps=${fps},scale=${width}:${height}`,
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const closed = new Promise<void>(resolve => decoder.once('close', () => resolve()));
+  let diagnostic = '', failure: Error | undefined;
+  decoder.stderr.on('data', b => { diagnostic = (diagnostic + b).slice(-2000); });
+  decoder.on('error', e => { failure = e; });
+  const iterator = decoder.stdout[Symbol.asyncIterator]();
+  let pending = Buffer.alloc(0), index = -1;
+  return { canvas, async at(frame: number) {
+    while (index < frame) {
+      const bytes = width * height * 4, data = Buffer.allocUnsafe(bytes);
+      let filled = 0;
+      while (filled < bytes) {
+        if (!pending.length) {
+          const next = await iterator.next();
+          if (next.done) {
+            if (!loop && index >= 0 && !filled) return canvas;
+            throw failure ?? new Error(`Video decoding failed: ${diagnostic}`);
+          }
+          pending = Buffer.from(next.value);
+        }
+        const count = Math.min(bytes - filled, pending.length);
+        pending.copy(data, filled, 0, count); filled += count; pending = pending.subarray(count);
+      }
+      const image = ctx.createImageData(width, height); image.data.set(data); ctx.putImageData(image, 0, 0); index++;
+    }
+    return canvas;
+  }, async close() { decoder.stdout.destroy(); decoder.kill('SIGTERM');
+    const timer = setTimeout(() => decoder.kill('SIGKILL'), 2000);
+    try { await closed; } finally { clearTimeout(timer); }
+  } };
 }
 
 export async function renderCaptionVideo(options: {
@@ -149,10 +214,46 @@ export async function renderCaptionVideo(options: {
   await mkdir(dirname(output), { recursive: true });
   registerRenderFonts();
   const { width, height } = dimensions(project.settings, project.width, project.height, resolution);
+  const frameCount = Math.ceil(project.duration * fps);
+  const selectedAsset = project.mediaAssets?.find(a => a.id === project.activeMediaAssetId);
+  if (project.activeMediaAssetId && project.activeMediaAssetId !== 'primary' && !selectedAsset) throw new Error('The selected primary media is missing.');
+  const selectedPath = selectedAsset ? await resolveCanvasAssetPath(project, dirname(input), selectedAsset.id) : input;
+  if (!selectedPath) throw new Error('The selected primary media is unavailable.');
+  const elements = orderedElements(project.canvasElements ?? []);
+  const videoSpecs = new Map<string, { path: string; source: { width: number; height: number }; width: number; height: number; startFrame: number; endFrame: number }>();
+  const resourceLimits = renderResourceLimits();
+  const primaryEnabled = mode === 'burned' && project.videoEnabled !== false && project.mediaType.startsWith('video');
+  const visibleAssets = elements.filter(element => element.visible !== false).length + (primaryEnabled ? 1 : 0);
+  if (visibleAssets > (resourceLimits.visualAssets ?? 64)) throw new RenderResourceError('visual_assets', `This export has ${visibleAssets} visual assets; the limit is ${resourceLimits.visualAssets ?? 64}. Remove unused layers or split the scene.`);
+  const imageSpecs: Array<{ width: number; height: number }> = [];
+  for (const element of elements) {
+    if (element.visible === false) continue;
+    if (element.type !== 'video') {
+      const path = element.assetId === 'primary' ? input : await resolveCanvasAssetPath(project, dirname(input), element.assetId);
+      if (!path) throw new Error('An overlay image is missing or unregistered. Re-add the media and export again.');
+      imageSpecs.push(await probeVideo(path));
+      continue;
+    }
+    const startFrame = Math.max(0, Math.ceil((element.start ?? 0) * fps));
+    const endFrame = Math.min(frameCount, Math.floor((element.end ?? project.duration) * fps) + 1);
+    if (endFrame <= startFrame) continue;
+    const path = element.assetId === 'primary' ? input : await resolveCanvasAssetPath(project, dirname(input), element.assetId);
+    if (!path) throw new Error('An overlay video is missing or unregistered. Re-add the media and export again.');
+    const source = await probeVideo(path);
+    const decoded = fitDecodedVideo(source.width, source.height, Math.min(width, width * .32 * (element.scale || 1)), height);
+    videoSpecs.set(element.id, { path, source, ...decoded, startFrame, endFrame });
+  }
+  const primarySource = mode === 'burned' && project.videoEnabled !== false && project.mediaType.startsWith('video')
+    ? await probeVideo(selectedPath) : undefined;
+  const primaryDecoded = primarySource ? fitDecodedVideo(primarySource.width, primarySource.height, width, height) : undefined;
+  validateRenderResources(width, height, [
+    ...[...videoSpecs].map(([id, spec]) => ({ id, ...spec })),
+    ...(primaryDecoded ? [{ id: 'primary', ...primaryDecoded, startFrame: 0, endFrame: frameCount }] : []),
+  ], resourceLimits, imageSpecs);
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  const frameCount = Math.ceil(project.duration * fps);
-  const ffmpeg = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArguments(project, input, output, mode, resolution, fps), {
+
+  const ffmpeg = spawn(process.env.FFMPEG_PATH || 'ffmpeg', ffmpegArguments(project, selectedPath, output, mode, resolution, fps, true), {
     stdio: ['pipe', 'ignore', 'pipe'],
   });
   let errorOutput = '';
@@ -169,32 +270,22 @@ export async function renderCaptionVideo(options: {
     if (value > lastProgress) { lastProgress = value; options.onProgress?.(value); }
   };
   progress(0);
-  // Pre-load visual elements (images) from project assets
-  const loadedCanvasImages = new Map<string, any>();
-  if (project.canvasElements && project.canvasElements.length > 0) {
-    const projectDir = dirname(input);
-    const assetsDir = resolve(projectDir, 'assets');
-    for (const el of project.canvasElements) {
-      if (el.assetId) {
-        try {
-          const ext = el.name ? (el.name.split('.').pop() || 'png') : 'png';
-          let img = null;
-          try {
-            img = await loadImage(resolve(assetsDir, `${el.assetId}.${ext}`));
-          } catch {
-            try {
-              const files = await readdir(assetsDir);
-              const match = files.find(f => f.startsWith(`${el.assetId}.`) && !f.endsWith('.thumb.jpg'));
-              if (match) img = await loadImage(resolve(assetsDir, match));
-            } catch {}
-          }
-          if (img) loadedCanvasImages.set(el.id, img);
-        } catch {}
-      }
-    }
-  }
-
+  const decoders = new Set<Awaited<ReturnType<typeof openVideoFrames>>>();
+  const visuals = new Map<string, { image?: Awaited<ReturnType<typeof loadImage>>; video?: Awaited<ReturnType<typeof openVideoFrames>> }>();
   try {
+    for (const el of elements) {
+      if (el.visible === false) continue;
+      const path = el.assetId === 'primary' ? input : await resolveCanvasAssetPath(project, dirname(input), el.assetId);
+      if (!path) throw new Error(`Missing or unregistered media: ${el.name}`);
+      if (el.type !== 'video') visuals.set(el.id, { image: await loadImage(path) });
+    }
+    const selected = selectedAsset;
+    let primary: Awaited<ReturnType<typeof openVideoFrames>> | undefined;
+    if (mode === 'burned' && project.videoEnabled !== false && project.mediaType.startsWith('video')) {
+      const path = selectedPath;
+      if (!path) throw new Error('The selected primary media is unavailable.');
+      primary = await openVideoFrames(path, fps, width, false, height, primarySource); decoders.add(primary);
+    }
     // Captions are a React composition rendered by Remotion. Each transparent
     // frame is streamed straight into this compositor and on to FFmpeg, so a
     // long export never stages thousands of PNGs on disk. The browser preview
@@ -210,15 +301,38 @@ export async function renderCaptionVideo(options: {
         }
         // Every frame uses an explicit media timestamp, independent of render speed.
         const currentTime = frame / fps;
+        // Stop expired processes before starting this frame's layers, so sequential clips share the budget.
+        for (const [id, spec] of videoSpecs) {
+          const visual = visuals.get(id);
+          if (frame >= spec.endFrame && visual?.video) {
+            await visual.video.close(); decoders.delete(visual.video); visuals.delete(id);
+          }
+        }
+        for (const [id, spec] of videoSpecs) {
+          if (frame >= spec.startFrame && frame < spec.endFrame && !visuals.has(id)) {
+            const video = await openVideoFrames(spec.path, fps, spec.width, true, spec.height, spec.source);
+            decoders.add(video); visuals.set(id, { video });
+          }
+        }
+
         ctx.clearRect(0, 0, width, height);
 
+        ctx.fillStyle = mode === 'green' ? '#00ff00' : BACKGROUND;
+        ctx.fillRect(0, 0, width, height);
+        if (primary) {
+          const base = await primary.at(frame);
+          const ratio = Math.min(width / base.width, height / base.height);
+          const w = base.width * ratio, h = base.height * ratio;
+          drawKeyedMedia(ctx as any, base as any, (width-w)/2, (height-h)/2, w, h, selected ? selected.greenScreen : project.greenScreen);
+        }
         // Draw placed visual elements on canvas
         if (project.canvasElements && project.canvasElements.length > 0) {
-          for (const el of project.canvasElements) {
+          for (const el of elements) {
             if (el.visible === false) continue;
             if (el.start !== undefined && currentTime < el.start) continue;
             if (el.end !== undefined && currentTime > el.end) continue;
-            const img = loadedCanvasImages.get(el.id);
+            const visual = visuals.get(el.id);
+            const img = visual?.video ? await visual.video.at(Math.max(0, Math.floor((currentTime - (el.start || 0)) * fps + 1e-7))) : visual?.image;
             if (img) {
               const elW = (width * 0.32) * (el.scale || 1.0);
               const elH = (img.height / (img.width || 1)) * elW;
@@ -266,7 +380,7 @@ export async function renderCaptionVideo(options: {
     await rm(output, { force: true }).catch(() => undefined);
     const explanation = error instanceof Error ? error.message : String(error);
     throw new Error(`Video export failed: ${errorOutput.trim() || explanation}`);
-  }
+  } finally { await Promise.all([...decoders].map(decoder => decoder.close())); }
 }
 
 async function main() {
@@ -286,6 +400,7 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch(error => {
+    if (error instanceof RenderResourceError) process.stdout.write(`${JSON.stringify({ errorCode: 'render_resource_limit' })}\n`);
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });

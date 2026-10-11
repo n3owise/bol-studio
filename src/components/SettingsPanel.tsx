@@ -199,7 +199,7 @@ export function SettingsPanel({
             {accountName && <p className="settings-figure">{accountName}</p>}
             <p className="settings-figure small">{accountEmail}</p>
             <p className="setting-note">
-              Signed in. Your projects follow this account, on any browser. Changed your mind
+              Signed in. Editing is temporary; export your work before closing or refreshing this page. Changed your mind
               about your password? Sign out and use “Forgot your password?”.
             </p>
             <button type="button" className="button secondary full" onClick={onSignOut}>

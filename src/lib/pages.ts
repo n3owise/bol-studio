@@ -200,7 +200,7 @@ function lineCost(length: number): number {
  * been committed. This weighs every legal arrangement of the segment and keeps
  * the cheapest, so an earlier break is accepted when it pays for itself later.
  */
-function breakSegment(words: Word[], maxWords: number): Word[][] {
+function breakSegment(words: Word[], maxWords: number, relaxJoins = false): Word[][] {
   const n = words.length;
   if (n <= 1) return n ? [words] : [];
 
@@ -212,9 +212,10 @@ function breakSegment(words: Word[], maxWords: number): Word[][] {
   for (let end = 1; end <= n; end++) {
     for (let start = Math.max(0, end - maxWords); start < end; start++) {
       if (best[start] === Infinity) continue;
-      // The creator joined these two words; the breaker may not part them.
-      if (start > 0 && words[start - 1].lineBreak === false) continue;
+      // Honor joins unless no partition fits the page ceiling.
+      if (!relaxJoins && start > 0 && words[start - 1].lineBreak === false) continue;
       let cost = best[start] + lineCost(end - start);
+      if (relaxJoins && start > 0 && words[start - 1].lineBreak === false) cost += 10000;
       if (start > 0) {
         const prev = words[start - 1];
         const next = words[start];
@@ -224,6 +225,8 @@ function breakSegment(words: Word[], maxWords: number): Word[][] {
     }
   }
 
+  // The ceiling wins when a joined chain has no legal partition. Minimize broken joins.
+  if (!Number.isFinite(best[n])) return breakSegment(words, maxWords, true);
   const bounds: number[] = [];
   for (let at = n; at > 0; at = from[at]) bounds.unshift(at);
   const runs: Word[][] = [];

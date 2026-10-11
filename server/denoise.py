@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import tempfile
+import os
 from pathlib import Path
 
 import numpy as np
@@ -92,7 +93,9 @@ def isolate_vocals_from_source(source: Path, out_rate: int, samples: int, progre
         from scipy.io import wavfile
 
         # Decode at the model's own rate, in stereo, straight from the original.
-        tmp = Path(tempfile.mkstemp(suffix=".wav")[1])
+        descriptor, filename = tempfile.mkstemp(suffix=".wav")
+        os.close(descriptor)
+        tmp = Path(filename)
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", str(source),
              "-vn", "-ac", "2", "-ar", str(MODEL_RATE), "-c:a", "pcm_s16le", str(tmp)],

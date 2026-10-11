@@ -18,6 +18,13 @@ from server import transcription as transcription_module
 from server.transcription import (_sherpa_tokens_to_words, merge_code_mixed_english, model_config,
                                   normalize_words, refine_word_boundaries_with_vad, romanize_hinglish, suggest_emphasis, transcribe)
 
+@pytest.fixture(autouse=True)
+def stub_model_downloads_and_provenance(monkeypatch):
+    # Decoder tests use synthetic checkpoints; provenance is covered separately.
+    monkeypatch.setattr(transcription_module, "mlx_model_path", lambda model: model)
+    monkeypatch.setattr(transcription_module, "model_provenance", lambda model: {"testCheckpoint": True})
+
+
 
 class FakeQueue:
     def __init__(self):
@@ -71,19 +78,20 @@ def test_upload_valid_audio_persists_and_queues_once(client):
     # Playable straight away: the upload is served as-is rather than waiting for
     # a re-encoded preview, which most uploads no longer need at all.
     assert client.get(f"/api/projects/{project['id']}/media").status_code == 200
+    assert client.get(f"/api/projects/{project['id']}/audio").status_code == 200
 
 
 def test_upload_invalid_media_is_rejected_and_cleaned(client):
     response = client.post("/api/projects", files={"file": ("fake.mp4", b"this is not media", "video/mp4")})
     assert response.status_code == 422
-    assert list(backend.DATA_DIR.iterdir()) == []
+    assert [p for p in backend.DATA_DIR.iterdir() if p.name != ".bol-process.lock"] == []
 
 
 def test_empty_and_oversize_upload(client, monkeypatch):
     assert client.post("/api/projects", files={"file": ("empty.wav", b"", "audio/wav")}).status_code == 422
     monkeypatch.setattr(backend, "MAX_BYTES", 10)
     assert client.post("/api/projects", files={"file": ("large.wav", audio_bytes(), "audio/wav")}).status_code == 413
-    assert list(backend.DATA_DIR.iterdir()) == []
+    assert [p for p in backend.DATA_DIR.iterdir() if p.name != ".bol-process.lock"] == []
 
 
 @pytest.mark.parametrize("words", [
@@ -181,8 +189,8 @@ def test_concurrent_atomic_updates_keep_all_changes(client, project):
 
 def test_restart_marks_interrupted_jobs_retryable(client, project):
     backend.update_project(project["id"], lambda p: p.update(status="processing", exports=[{"id": str(uuid.uuid4()), "status": "queued"}]))
-    with TestClient(backend.app):
-        restored = backend.load_project(project["id"])
+    backend.recover_interrupted_jobs()
+    restored = backend.load_project(project["id"])
     assert restored["status"] == "error"
     assert "restart" in restored["message"]
     assert restored["exports"][0]["status"] == "error"
@@ -669,6 +677,17 @@ def test_post_upload_language_choices_are_all_accepted(client, project, label, s
     saved = response.json()
     assert saved["script"] == script
     assert saved["language"] == language
+
+
+def test_transcribe_request_saves_auto_highlight(client, project):
+    """Importing or transcribing with autoHighlight=False stores the setting on the project."""
+    response = client.post(
+        f"/api/projects/{project['id']}/transcribe",
+        json={"autoHighlight": False},
+    )
+    assert response.status_code == 200
+    p = client.get(f"/api/projects/{project['id']}").json()
+    assert p["settings"]["autoHighlight"] is False
 
 
 def test_emoji_matches_meaning_and_leaves_ordinary_words_alone():
@@ -1601,3 +1620,350 @@ def test_cancel_transcription_endpoint_and_job_abortion(client, project):
     stored = backend.load_project(project["id"])
     assert stored["status"] == "ready"
     assert stored["progress"] == 0
+
+
+def test_cancel_retry_fences_old_results_and_progress(client, project, monkeypatch):
+    project_id = project['id']
+    first = backend.retry_transcription(project_id)
+    old_generation = first['transcriptionGeneration']
+    monkeypatch.setattr(backend, 'prepare_media', lambda p: None)
+
+    def stale_recognizer(*args, **kwargs):
+        backend.cancel_transcription(project_id)
+        retry = backend.retry_transcription(project_id)
+        assert retry['transcriptionGeneration'] > old_generation
+        assert kwargs['is_cancelled']()
+        with pytest.raises(backend.TranscriptionCancelled):
+            args[4](99, 'Stale progress')
+        return {'words': [], 'waveform': []}
+
+    monkeypatch.setattr(backend, 'transcribe', stale_recognizer)
+    backend.transcription_job(project_id, old_generation)
+    latest = backend.load_project(project_id)
+    assert latest['status'] == 'queued'
+    assert latest['words'] == project['words']
+    monkeypatch.setattr(backend, 'transcribe', lambda *a, **k: {'words': []})
+    backend.transcription_job(project_id, latest['transcriptionGeneration'])
+    assert backend.load_project(project_id)['status'] == 'ready'
+
+
+def test_stale_queued_job_cannot_start_after_cancel_retry(client, project, monkeypatch):
+    first = backend.retry_transcription(project['id'])
+    backend.cancel_transcription(project['id'])
+    latest = backend.retry_transcription(project['id'])
+    monkeypatch.setattr(backend, 'prepare_media', lambda p: pytest.fail('Stale job prepared media'))
+    backend.transcription_job(project['id'], first['transcriptionGeneration'])
+    assert backend.load_project(project['id']) == latest
+
+
+def test_canvas_rejects_unregistered_asset_and_stale_save(client, project):
+    url = f"/api/projects/{project['id']}"
+    assert client.patch(url, json={'canvasElements': [{'assetId': '../../outside'}]}).status_code == 422
+    first = client.patch(url, json={'name': 'First tab', 'revision': project['revision']})
+    assert first.status_code == 200
+    stale = client.patch(url, json={'name': 'Second tab', 'revision': project['revision']})
+    assert stale.status_code == 409
+    assert backend.load_project(project['id'])['name'] == 'First tab'
+
+
+def test_cancelled_worker_error_cannot_fail_retry(client, project, monkeypatch):
+    first = backend.retry_transcription(project['id'])
+    monkeypatch.setattr(backend, 'prepare_media', lambda p: None)
+    def fail_after_retry(*args, **kwargs):
+        backend.cancel_transcription(project['id'])
+        backend.retry_transcription(project['id'])
+        raise ValueError('Old failure')
+    monkeypatch.setattr(backend, 'transcribe', fail_after_retry)
+    backend.transcription_job(project['id'], first['transcriptionGeneration'])
+    stored = backend.load_project(project['id'])
+    assert stored['status'] == 'queued'
+    assert 'Old failure' not in stored['message']
+
+
+def test_retry_waits_for_cancelled_worker_media_cleanup(client, project, monkeypatch):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    first = backend.retry_transcription(project['id'])
+    monkeypatch.setattr(backend, 'prepare_media', lambda p: calls.append(p['transcriptionGeneration']))
+    def recognize(*args, **kwargs):
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(5)
+        return {'words': []}
+    monkeypatch.setattr(backend, 'transcribe', recognize)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        old = workers.submit(backend.transcription_job, project['id'], first['transcriptionGeneration'])
+        try:
+            assert entered.wait(5)
+            backend.cancel_transcription(project['id'])
+            latest = backend.retry_transcription(project['id'])
+            retry = workers.submit(backend.transcription_job, project['id'], latest['transcriptionGeneration'])
+            assert calls == [first['transcriptionGeneration']]
+        finally:
+            release.set()
+        old.result(timeout=5)
+        retry.result(timeout=5)
+    assert calls == [first['transcriptionGeneration'], latest['transcriptionGeneration']]
+    assert backend.load_project(project['id'])['status'] == 'ready'
+
+
+@pytest.mark.parametrize('system,machine,mlx_installed,expected', [
+    ('Linux', 'x86_64', False, 'faster-whisper'),
+    ('Linux', 'aarch64', True, 'faster-whisper'),
+    ('Darwin', 'arm64', True, 'mlx'),
+    ('Darwin', 'arm64', False, 'faster-whisper'),
+    ('Darwin', 'x86_64', True, 'faster-whisper'),
+])
+def test_native_hindi_fallback_matches_platform_and_engine(monkeypatch, system, machine, mlx_installed, expected):
+    monkeypatch.setattr(transcription_module.platform, 'system', lambda: system)
+    monkeypatch.setattr(transcription_module.platform, 'machine', lambda: machine)
+    monkeypatch.setattr(transcription_module.importlib.util, 'find_spec', lambda name: object() if name != 'mlx_whisper' or mlx_installed else None)
+    monkeypatch.delenv('BOL_FALLBACK_MODEL', raising=False)
+    assert transcription_module.decode_plan('sherpa-hinglish', 'hinglish', 'native', False)[0] == expected
+    assert transcription_module.decode_plan('sherpa-hinglish', 'hinglish', 'roman', False) == ('sherpa-hinglish', 'hinglish', 'roman')
+
+
+@pytest.mark.parametrize('engine,model,expected', [
+    ('faster-whisper', 'large-v3-turbo', 'large-v3'),
+    ('faster-whisper', 'turbo', 'large-v3'),
+    ('faster-whisper', 'small.en', 'large-v3'),
+    ('faster-whisper', 'distil-large-v3', 'large-v3'),
+    ('faster-whisper', 'medium', 'medium'),
+    ('mlx', 'mlx-community/whisper-large-v3-turbo', transcription_module.DEFAULT_MLX_TRANSLATION_MODEL),
+])
+def test_translation_uses_only_supported_multilingual_models(monkeypatch, engine, model, expected):
+    monkeypatch.delenv('BOL_TRANSLATION_MODEL', raising=False)
+    assert transcription_module.decode_plan(engine, model, 'roman', True) == (engine, expected, 'native')
+    assert transcription_module.decode_plan(engine, model, 'roman', False) == (engine, model, 'roman')
+
+
+def test_unavailable_native_engine_rejected_before_queue(client, project, monkeypatch):
+    monkeypatch.setattr(transcription_module, 'model_config', lambda: ('sherpa-hinglish', 'hinglish'))
+    monkeypatch.setattr(transcription_module.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(transcription_module.importlib.util, 'find_spec', lambda _: None)
+    response = client.post(f"/api/projects/{project['id']}/transcribe", json={'script': 'native'})
+    assert response.status_code == 422
+    assert 'faster-whisper' in response.json()['detail']
+    assert backend.EXECUTOR.jobs == []
+    assert backend.load_project(project['id']) == project
+
+
+def test_invalid_translation_override_rejected_without_mutation(client, project, monkeypatch):
+    monkeypatch.setenv('BOL_TRANSLATION_MODEL', 'large-v3-turbo')
+    response = client.post(f"/api/projects/{project['id']}/transcribe", json={'translate': True})
+    assert response.status_code == 422
+    assert 'BOL_TRANSLATION_MODEL' in response.json()['detail']
+    assert backend.EXECUTOR.jobs == []
+    assert backend.load_project(project['id']) == project
+
+
+@pytest.mark.parametrize('option', ['translate', 'emoji'])
+def test_declared_generation_options_round_trip(client, project, option):
+    url = f"/api/projects/{project['id']}"
+    for enabled in [True, False]:
+        response = client.patch(url, json={option: enabled})
+        assert response.status_code == 200
+        assert response.json()[option] is enabled
+        assert client.get(url).json()[option] is enabled
+
+
+def test_audio_download_requires_owner_and_valid_session(accounts, project):
+    client, sign, _ = accounts
+    backend.update_project(project['id'], lambda p: p.update(owner='alice'))
+    (backend.project_dir(project['id']) / 'source.bin').write_bytes(audio_bytes())
+    url = f"/api/projects/{project['id']}/audio"
+    assert client.get(url).status_code == 401
+    expired = client.get(url, headers={'Authorization': f'Bearer {sign(sub="alice", expires_in=-7200)}'})
+    assert expired.status_code == 401 and expired.json()['code'] == 'token_expired'
+    assert client.get(url, headers={'Authorization': f'Bearer {sign(sub="bob")}'}).status_code == 404
+    downloaded = client.get(url, headers={'Authorization': f'Bearer {sign(sub="alice")}'} )
+    assert downloaded.status_code == 200
+    assert len(downloaded.content) > 200
+    assert downloaded.headers['content-type'] == 'audio/mp4'
+
+
+@pytest.mark.parametrize('engine', ['mlx', 'faster-whisper'])
+def test_translation_decoder_receives_supported_model_and_translate_task(monkeypatch, tmp_path, engine):
+    import sys
+    from types import SimpleNamespace
+    monkeypatch.delenv('BOL_TRANSLATION_MODEL', raising=False)
+    default = transcription_module.DEFAULT_MLX_MODEL if engine == 'mlx' else 'large-v3-turbo'
+    monkeypatch.setattr(transcription_module, 'model_config', lambda: (engine, default))
+    monkeypatch.setattr(transcription_module, 'read_audio', lambda _: (np.full(16000, .1, dtype=np.float32), 16000))
+    monkeypatch.setattr(transcription_module, 'refine_word_boundaries_with_vad', lambda words, *args: words)
+    monkeypatch.setattr(transcription_module, 'suggest_emphasis', lambda *args: None)
+    captured = {}
+    if engine == 'mlx':
+        def decode(path, **options):
+            captured.update(options)
+            return {'language': 'hi', 'segments': [{'words': [{'word': 'Hello', 'start': 0, 'end': .5, 'probability': .9}]}]}
+        monkeypatch.setitem(sys.modules, 'mlx_whisper', SimpleNamespace(transcribe=decode))
+    else:
+        def model(name):
+            captured['model'] = name
+            def decode(path, **options):
+                captured.update(options)
+                word = SimpleNamespace(word='Hello', start=0, end=.5, probability=.9)
+                return iter([SimpleNamespace(words=[word], end=.5)]), SimpleNamespace(language='hi')
+            return SimpleNamespace(transcribe=decode)
+        monkeypatch.setattr(transcription_module, '_faster_model', model)
+    result = transcription_module.transcribe(tmp_path / 'synthetic.wav', 1, 'roman', 'hi', lambda *args: None, translate=True)
+    assert captured['task'] == 'translate'
+    assert captured['language'] == 'hi'
+    assert captured['initial_prompt'] is None
+    assert 'turbo' not in result['model']
+    assert [w['text'] for w in result['words']] == ['Hello']
+
+
+def test_linux_native_request_queues_installed_portable_engine(client, project, monkeypatch):
+    monkeypatch.setattr(transcription_module, 'model_config', lambda: ('sherpa-hinglish', 'hinglish'))
+    monkeypatch.setattr(transcription_module.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(transcription_module.importlib.util, 'find_spec', lambda name: object() if name == 'faster_whisper' else None)
+    response = client.post(f"/api/projects/{project['id']}/transcribe", json={'script': 'native', 'translate': True})
+    assert response.status_code == 200
+    assert len(backend.EXECUTOR.jobs) == 1
+    assert transcription_module.validate_transcription_request('native', True) == ('faster-whisper', 'large-v3', 'native')
+
+
+def test_unavailable_autostart_cleans_upload_and_does_not_queue(client, monkeypatch):
+    monkeypatch.setattr(transcription_module, 'model_config', lambda: ('faster-whisper', 'large-v3-turbo'))
+    monkeypatch.setattr(transcription_module.importlib.util, 'find_spec', lambda _: None)
+    response = client.post('/api/projects', files={'file': ('clip.wav', audio_bytes(), 'audio/wav')})
+    assert response.status_code == 422
+    assert backend.EXECUTOR.jobs == []
+    assert list(backend.DATA_DIR.glob('*/project.json')) == []
+    assert list(backend.DATA_DIR.glob('*/source.bin')) == []
+    # Upload-only remains usable even when a speech engine is not yet installed.
+    upload_only = client.post('/api/projects', files={'file': ('clip.wav', audio_bytes(), 'audio/wav')}, data={'autostart': 'false'})
+    assert upload_only.status_code == 201
+    assert backend.EXECUTOR.jobs == []
+
+
+def test_authenticated_audio_download_serves_playable_m4a(accounts, tmp_path):
+    client, sign, _ = accounts
+    headers = {'Authorization': f'Bearer {sign(sub="alice")}'}
+    uploaded = client.post('/api/projects', files={'file': ('tone.wav', audio_bytes(), 'audio/wav')},
+                           data={'autostart': 'false'}, headers=headers)
+    assert uploaded.status_code == 201
+    response = client.get(f"/api/projects/{uploaded.json()['id']}/audio", headers=headers)
+    assert response.status_code == 200
+    downloaded = tmp_path / 'downloaded.m4a'
+    downloaded.write_bytes(response.content)
+    metadata = json.loads(subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(downloaded)],
+                                       check=True, capture_output=True, text=True).stdout)
+    assert any(s['codec_type'] == 'audio' and s['codec_name'] == 'aac' for s in metadata['streams'])
+    assert '.m4a' in response.headers['content-disposition']
+    cached = client.get(f"/api/projects/{uploaded.json()['id']}/audio", headers=headers)
+    assert cached.content == response.content
+
+
+def test_audio_download_serializes_encoding_and_caches_result(client, project, monkeypatch):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+    directory = backend.project_dir(project['id'])
+    (directory / 'source.bin').write_bytes(audio_bytes())
+    def encode(args, timeout):
+        calls.append(args)
+        Path(args[-1]).write_bytes(b'encoded fixture')
+        entered.set()
+        assert release.wait(5)
+    monkeypatch.setattr(backend, 'run_process', encode)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        first = workers.submit(backend.audio_track, project['id'])
+        try:
+            assert entered.wait(5)
+            second = workers.submit(backend.audio_track, project['id'])
+        finally:
+            release.set()
+        assert first.result(timeout=5).path == second.result(timeout=5).path
+    assert len(calls) == 1
+    assert (directory / 'audio.m4a').read_bytes() == b'encoded fixture'
+    assert not (directory / 'audio.tmp.m4a').exists()
+
+
+def test_failed_audio_download_cleans_partial_file_and_can_retry(client, project, monkeypatch):
+    directory = backend.project_dir(project['id'])
+    (directory / 'source.bin').write_bytes(audio_bytes())
+    def fail(args, timeout):
+        Path(args[-1]).write_bytes(b'partial')
+        raise ValueError('Synthetic encode failure')
+    monkeypatch.setattr(backend, 'run_process', fail)
+    with pytest.raises(ValueError, match='Synthetic encode failure'):
+        backend.audio_track(project['id'])
+    assert not (directory / 'audio.tmp.m4a').exists()
+    assert not (directory / 'audio.m4a').exists()
+    monkeypatch.setattr(backend, 'run_process', lambda args, timeout: Path(args[-1]).write_bytes(b'complete'))
+    result = backend.audio_track(project['id'])
+    assert Path(result.path).read_bytes() == b'complete'
+
+
+def test_primary_media_selection_is_saved_and_rejects_foreign_assets(client, project):
+    asset_id = str(uuid.uuid4())
+    project['mediaType'] = 'video'
+    project['mediaAssets'] = [{'id': asset_id, 'mediaType': 'video'}]
+    backend.write_project(project)
+    route = f"/api/projects/{project['id']}"
+    saved = client.patch(route, json={'activeMediaAssetId': asset_id})
+    assert saved.status_code == 200
+    assert backend.load_project(project['id'])['activeMediaAssetId'] == asset_id
+    assert client.patch(route, json={'activeMediaAssetId': str(uuid.uuid4())}).status_code == 422
+    assert client.patch(route, json={'activeMediaAssetId': 'primary'}).json()['activeMediaAssetId'] == 'primary'
+
+
+@pytest.mark.parametrize('font,hero,position', [(20,200,10),(100,20,90),(92,200,10),(20,20,90)])
+def test_shared_caption_bounds_round_trip(client, project, font, hero, position):
+    settings = {**project['settings'], 'fontSize': font, 'heroFontSize': hero, 'position': position}
+    result = client.patch(f"/api/projects/{project['id']}", json={'settings': settings})
+    assert result.status_code == 200, result.text
+    saved = backend.load_project(project['id'])['settings']
+    assert (saved['fontSize'],saved['heroFontSize'],saved['position']) == (font,hero,position)
+
+
+@pytest.mark.parametrize('route,payload',[('transcribe',{}),('exports',{'mode':'burned','resolution':720,'fps':24})])
+def test_queue_capacity_rejection_keeps_project_unchanged(client,project,monkeypatch,route,payload):
+    from server.jobs import BoundedExecutor
+    queue=BoundedExecutor(1,queued=0,per_owner=3)
+    monkeypatch.setattr(backend,'EXECUTOR',queue)
+    try:
+        with queue.admission('another-owner'):
+            before=backend.load_project(project['id'])
+            response=client.post(f"/api/projects/{project['id']}/{route}",json=payload)
+            assert response.status_code==503 and response.headers['Retry-After']=='30'
+            assert backend.load_project(project['id'])==before
+    finally:queue.shutdown()
+
+
+def test_upload_rejected_by_capacity_removes_partial_directory(client,monkeypatch):
+    from server.jobs import BoundedExecutor
+    queue=BoundedExecutor(1,queued=0,per_owner=3)
+    monkeypatch.setattr(backend,'EXECUTOR',queue)
+    try:
+        with queue.admission('another-owner'):
+            response=client.post('/api/projects',files={'file':('clip.wav',audio_bytes(),'audio/wav')})
+            assert response.status_code==503
+            assert not list(backend.DATA_DIR.glob('*/project.json'))
+            assert not [p for p in backend.DATA_DIR.iterdir() if p.is_dir()]
+    finally:queue.shutdown()
+
+
+def test_restart_fences_stale_transcription_generation(client,project):
+    backend.update_project(project['id'],lambda p:p.update(status='processing',transcriptionGeneration=7))
+    backend.recover_interrupted_jobs()
+    restored=backend.load_project(project['id'])
+    assert restored['status']=='error' and restored['transcriptionGeneration']==8
+    assert backend.transcription_cancelled(project['id'],7)
+
+
+def test_owner_job_limit_returns_retryable_error_without_mutation(client,project,monkeypatch):
+    from server.jobs import BoundedExecutor
+    queue=BoundedExecutor(1,queued=4,per_owner=1)
+    monkeypatch.setattr(backend,'EXECUTOR',queue)
+    try:
+        with queue.admission(project.get('owner','local')):
+            before=backend.load_project(project['id'])
+            response=client.post(f"/api/projects/{project['id']}/transcribe",json={})
+            assert response.status_code==429 and response.headers['Retry-After']=='30'
+            assert backend.load_project(project['id'])==before
+    finally:queue.shutdown()

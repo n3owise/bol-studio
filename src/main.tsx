@@ -1,3 +1,7 @@
+import { canvasKeyboardChange, editSnapshot, isBrowserZoomKey, playbackFrame, activeCaptionIndex, captionTimeIndex, timeIntervalIndex, timelineGroupWindow, timelineWindowIndices } from './lib/frontend-reliability';
+import { assetMediaPath, syncMediaSource } from './lib/media-credentials';
+import { editCaptionGroup } from './lib/caption-edit';
+import { captionBounds } from './lib/caption-settings';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Move, AudioLines, Ban, Bold, Camera, Captions, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clapperboard, Clock, Download, Edit3, FileAudio, Film, Folder, FolderOpen, GripHorizontal, Headphones, Image as ImageIcon, Italic, Layers, Link2, LoaderCircle, LogOut, Maximize2, Minus, MonitorPlay, Moon, MoreHorizontal, Palette, Pause, Pencil, Play, Plus, Redo2, Replace, RotateCcw, Rows2, Scan, Scissors, Search, Settings as SettingsIcon, Settings2, SlidersHorizontal, Smile, Sparkles, Split, SquarePlay, Star, Subtitles, Sun, Trash2, Type, Undo2, Upload, UploadCloud, Video, Volume2, VolumeX, Wand2, WandSparkles, X, Zap, ZoomIn, ZoomOut } from 'lucide-react';
@@ -11,10 +15,11 @@ import '@fontsource/noto-sans-devanagari/700.css';
 import '@fontsource/montserrat/800.css';
 import '@fontsource/montserrat/900.css';
 import './styles.css';
-import { API, deleteProject, fetchLimits, fetchMediaAssets, request, upload, mediaUrl, type Limits } from './lib/api';
+import { ApiError, API, deleteProject, downloadAudioBlob, fetchLimits, fetchMediaAssets, request, upload, mediaUrl, type Limits } from './lib/api';
 import { defaults, type CanvasVisualElement, type ExportJob, type GreenScreenSettings, type MediaAsset, type Project, type Settings, type Word } from './lib/types';
-import { appendWord, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, plainTranscript, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
+import { appendWord, csvTranscript, dimensions, ensureValidIntervals, getContrastColor, insertWord, mergeLines, moveWordToLine, moveWordsToLine, moveWordsToNewLine, moveWordToNextLine, moveWordToPreviousLine, plainTranscript, matchesCaptionWord, replaceAllOccurrences, splitLineAtWord, subtitleText, templates } from './lib/captions';
 import { MAX_WORDS_PER_PAGE, buildPages, groupWords } from './lib/pages';
+import { saveWithRevision } from './lib/revision-save';
 import { UNSAVED, type Health, type NavPanelId } from './lib/shell';
 import { Modal } from './components/Modal';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -26,6 +31,7 @@ import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
 import { treatmentFor } from './remotion/treatments';
 import { CAPTION_FPS } from './remotion/Root';
+import { orderedElements } from './lib/media-scene';
 import { drawKeyedMedia } from './lib/chromakey';
 import { MediaPanel, GreenScreenModal } from './components/MediaPanel';
 import { CaptionsPanel } from './components/CaptionsPanel';
@@ -33,6 +39,8 @@ import { WordInspector, recase, type WordCase } from './components/WordInspector
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 import { StudioNavbar } from './components/StudioNavbar';
 import { StudioModals } from './components/StudioModals';
+import { OnboardingTour } from './components/OnboardingTour';
+import { CommandPalette } from './components/CommandPalette';
 import { LiveAnnouncer } from './components/LiveAnnouncer';
 import { TimelineRuler } from './components/TimelineRuler';
 import { AuthScreen } from './components/AuthScreen';
@@ -41,7 +49,7 @@ import type { Session } from '@supabase/supabase-js';
 import { ensureMediaToken, forgetMediaTokens } from './lib/api';
 
 const timecode = (s: number) => `${Math.floor(Math.max(0,s)/60).toString().padStart(2,'0')}:${(Math.max(0,s)%60).toFixed(1).padStart(4,'0')}`;
-type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled'> & {
+type EditState = Pick<Project, 'words' | 'settings' | 'name' | 'videoEnabled' | 'activeMediaAssetId'> & {
   canvasElements?: CanvasVisualElement[];
 };
 
@@ -191,13 +199,14 @@ function App() {
   const [editingWordId, setEditingWordId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [captionToolsOpen, setCaptionToolsOpen] = useState(false);
-  const [showSearchBar, setShowSearchBar] = useState(false);
   const [searchFindText, setSearchFindText] = useState('');
   const [searchReplaceText, setSearchReplaceText] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | 'shortcuts' | null>(null);
+  const [showTour, setShowTour] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [accountEmail, setAccountEmail] = useState('');
   /** What sign-up asked for, when it was asked. Blank for accounts made before
    *  the field existed, so every reader of it falls back to the email. */
@@ -212,6 +221,7 @@ function App() {
    * setting to nudge afterwards — it means transcribing again from scratch.
    */
   const [languagePrompt, setLanguagePrompt] = useState<'open' | null>(null);
+  const [importAutoHighlight, setImportAutoHighlight] = useState<boolean>(true);
   const [exportMode, setExportMode] = useState<'burned' | 'green'>('burned');
   const [resolution, setResolution] = useState<720 | 1080 | 2160>(720);
   const [exportFps, setExportFps] = useState<24 | 25 | 30 | 50 | 60>(30);
@@ -233,10 +243,20 @@ function App() {
    */
   const [limits, setLimits] = useState<Limits | null>(null);
   const maxExportSeconds = limits?.maxExportSeconds ?? null;
-  const [saveStatus, setSaveStatus] = useState(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
+  const [saveStatus, setSaveStatus] = useState('Temporary session');
   const [dirty, setDirty] = useState(0);
-  const [history, setHistory] = useState<EditState[]>([]);
-  const [future, setFuture] = useState<EditState[]>([]);
+  const [history, updateHistory] = useState<EditState[]>([]);
+  const [future, updateFuture] = useState<EditState[]>([]);
+  const historyRef = useRef<EditState[]>([]);
+  const futureRef = useRef<EditState[]>([]);
+  function setHistory(next: React.SetStateAction<EditState[]>) {
+    historyRef.current = typeof next === 'function' ? next(historyRef.current) : next;
+    updateHistory(historyRef.current);
+  }
+  function setFuture(next: React.SetStateAction<EditState[]>) {
+    futureRef.current = typeof next === 'function' ? next(futureRef.current) : next;
+    updateFuture(futureRef.current);
+  }
   const [projectAssets, setProjectAssets] = useState<MediaAsset[]>([]);
   const [activeMediaAsset, setActiveMediaAsset] = useState<MediaAsset | null>(null);
   const [canvasElements, setCanvasElements] = useState<CanvasVisualElement[]>([]);
@@ -246,27 +266,52 @@ function App() {
   const [captionSnap, setCaptionSnap] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const [snapGuideX, setSnapGuideX] = useState(false);
   const [snapGuideY, setSnapGuideY] = useState(false);
+  const [mediaFrameVersion, setMediaFrameVersion] = useState(0);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const videoCacheRef = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   const handleSelectMediaForCanvas = useCallback((asset: MediaAsset) => {
-    if (asset.id === 'primary') {
-      setActiveMediaAsset(null);
-      setVideoEnabled(true);
-    } else {
-      setActiveMediaAsset(asset);
-      if (asset.mediaType === 'video') setVideoEnabled(true);
-    }
+    if (!projectRef.current || projectRef.current.mediaType !== 'video' || (asset.id !== 'primary' && asset.mediaType !== 'video')) return;
+    setActiveMediaAsset(asset.id === 'primary' ? null : asset);
+    markEdit({ ...projectRef.current, activeMediaAssetId: asset.id, videoEnabled: true });
   }, []);
 
   const handleUpdateProjectAssets = useCallback((newAssets: MediaAsset[]) => {
     setProjectAssets(newAssets);
+    const current = projectRef.current;
+    if (current) {
+      const updatedProject = { ...current, mediaAssets: newAssets.filter(a => a.id !== 'primary'), greenScreen: newAssets.find(a => a.id === 'primary')?.greenScreen ?? current.greenScreen };
+      projectRef.current = updatedProject; setProject(updatedProject);
+    }
     if (activeMediaAsset) {
       const updated = newAssets.find(a => a.id === activeMediaAsset.id);
       if (updated) setActiveMediaAsset(updated);
+      else setActiveMediaAsset(null);
     }
   }, [activeMediaAsset]);
 
+  const handleCloseTour = useCallback(() => {
+    setShowTour(false);
+    try {
+      localStorage.setItem('bol_tour_completed', 'true');
+    } catch {
+      // localStorage disabled or unavailable
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (project && project.status === 'ready' && !localStorage.getItem('bol_tour_completed')) {
+        setShowTour(true);
+      }
+    } catch {
+      // localStorage disabled or unavailable
+    }
+  }, [project?.id, project?.status]);
+
+  const [saveConflict, setSaveConflict] = useState<Project | null>(null);
+  const savedProjectRef = useRef<Project | null>(null);
+  const conflictRef = useRef<string | null>(null);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
   const savedDirty = useRef(0);
   const dirtyRef = useRef(0);
@@ -294,10 +339,9 @@ function App() {
   );
   const groups = useMemo(() => pages.map(page => page.words), [pages]);
   /** The caption line on screen right now — what the preview overlay acts on. */
-  const activePage = useMemo(
-    () => pages.find(page => time >= page.start && time < page.end) ?? null,
-    [pages, time],
-  );
+  const pageTimeIndex = useMemo(() => timeIntervalIndex(pages.map((page, index) => ({ index, start: page.start, end: page.end }))), [pages]);
+  const activePage = pages[activeCaptionIndex(pageTimeIndex, time)] ?? null;
+  const groupTimeIndex = useMemo(() => captionTimeIndex(groups), [groups]);
   /** Words the renderer will enlarge, whether chosen by the creator or by score. */
   const safeArea = useMemo(() => safeAreaFor(settings.safeArea), [settings.safeArea]);
   /** The strip a caption at the current vertical position would land behind. */
@@ -322,7 +366,8 @@ function App() {
   const hasVideoLayer = project?.mediaType === 'video';
   const videoEnabled = hasVideoLayer && project?.videoEnabled !== false;
   const selected = project?.words.find(w => w.id === selectedWord);
-  const activeWord = words.find(w => time >= w.start && time < w.end);
+  const wordTimeIndex = useMemo(() => timeIntervalIndex(words.map((word, index) => ({ index, start: word.start, end: word.end }))), [words]);
+  const activeWord = words[activeCaptionIndex(wordTimeIndex, time)];
   /**
    * Position controls over the preview, shown only while the pointer is there.
    *
@@ -347,7 +392,7 @@ function App() {
     if (!p) return;
     const clamp = (v: number) => Math.max(4, Math.min(96, Math.round(v)));
     const nx = clamp(x);
-    const ny = clamp(y);
+    const ny = thisLineOnly ? clamp(y) : Math.max(captionBounds.position.min, Math.min(captionBounds.position.max, clamp(y)));
     if (thisLineOnly && activePage) {
       const anchor = activePage.words[0];
       if (!anchor) return;
@@ -399,6 +444,32 @@ function App() {
   }, []);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const timelineViewportRef = useRef<HTMLDivElement>(null);
+  const [timelineWindow, setTimelineWindow] = useState({ start: 0, end: 1 });
+  const readTimelineWindow = useCallback(() => {
+    const viewport = timelineViewportRef.current;
+    if (!viewport) return;
+    const width = Math.max(1, viewport.scrollWidth);
+    const overscan = viewport.clientWidth * .2;
+    const start = Math.max(0, (viewport.scrollLeft - overscan) / width);
+    const end = Math.min(1, (viewport.scrollLeft + viewport.clientWidth + overscan) / width);
+    setTimelineWindow(previous => previous.start === start && previous.end === end ? previous : { start, end });
+  }, []);
+  useEffect(() => {
+    const viewport = timelineViewportRef.current;
+    if (!viewport) return;
+    const observer = new ResizeObserver(readTimelineWindow);
+    observer.observe(viewport);
+    if (timelineTrackRef.current) observer.observe(timelineTrackRef.current);
+    readTimelineWindow();
+    return () => observer.disconnect();
+  }, [project?.id, timelineZoom, readTimelineWindow]);
+  const timelineVisibleWindow = useMemo(() => timelineGroupWindow(groups,
+    timelineWindow.start * duration, timelineWindow.end * duration),
+    [groups, timelineWindow, duration]);
+  const activeTimelineIndex = activeCaptionIndex(groupTimeIndex, time, { inclusiveEnd: true, preferLast: true });
+  const visibleTimelineIndices = useMemo(() => timelineWindowIndices(timelineVisibleWindow, activeTimelineIndex),
+    [timelineVisibleWindow, activeTimelineIndex]);
+
   const timelineTrackRef = useRef<HTMLDivElement>(null);
   const timelineContainerRef = useRef<HTMLDivElement>(null);
   const timelineZoomRef = useRef(timelineZoom);
@@ -432,9 +503,13 @@ function App() {
     else if (duration <= 60) majorInterval = 5;
     else majorInterval = 10;
 
+    const visibleStart = timelineWindow.start * duration;
+    const visibleEnd = timelineWindow.end * duration;
+    // At most 60 labelled positions in the viewport, even for multi-hour media.
+    majorInterval = Math.max(majorInterval, (visibleEnd - visibleStart) / 60);
     const ticks: { time: number; label: string; isMajor: boolean }[] = [];
-    const count = Math.ceil(duration / majorInterval);
-    for (let i = 0; i <= count; i++) {
+    const count = Math.ceil(visibleEnd / majorInterval);
+    for (let i = Math.floor(visibleStart / majorInterval); i <= count; i++) {
       const t = Number((i * majorInterval).toFixed(2));
       if (t > duration + 0.05) break;
       ticks.push({ time: t, label: timecode(t), isMajor: true });
@@ -450,7 +525,7 @@ function App() {
       }
     }
     return ticks;
-  }, [duration, timelineZoom]);
+  }, [duration, timelineZoom, timelineWindow]);
 
   useEffect(() => {
     if (!playing || timelineZoom <= 1 || !timelineViewportRef.current) return;
@@ -601,48 +676,6 @@ function App() {
     };
   }, []);
 
-  // Disable browser website zoom globally (trackpad pinch, Ctrl/Cmd+wheel, Cmd+plus/minus)
-  useEffect(() => {
-    const onGlobalWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-      }
-    };
-
-    const onGlobalGesture = (e: Event) => {
-      e.preventDefault();
-    };
-
-    const onGlobalKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === '=' || e.key === '+' || e.code === 'NumpadAdd') {
-          e.preventDefault();
-          setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2))));
-        } else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
-          e.preventDefault();
-          setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2))));
-        } else if (e.key === '0' || e.code === 'Numpad0') {
-          e.preventDefault();
-          setTimelineZoom(1);
-        }
-      }
-    };
-
-    window.addEventListener('wheel', onGlobalWheel, { passive: false });
-    window.addEventListener('gesturestart', onGlobalGesture, { passive: false });
-    window.addEventListener('gesturechange', onGlobalGesture, { passive: false });
-    window.addEventListener('gestureend', onGlobalGesture, { passive: false });
-    window.addEventListener('keydown', onGlobalKeyDown);
-
-    return () => {
-      window.removeEventListener('wheel', onGlobalWheel);
-      window.removeEventListener('gesturestart', onGlobalGesture);
-      window.removeEventListener('gesturechange', onGlobalGesture);
-      window.removeEventListener('gestureend', onGlobalGesture);
-      window.removeEventListener('keydown', onGlobalKeyDown);
-    };
-  }, []);
-
   useEffect(() => () => { if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current); }, []);
 
   const notify = useCallback((message: string) => setNotice(message), []);
@@ -659,19 +692,30 @@ function App() {
   // <video src> is built and be replaced before it lapses. The counter is what
   // makes the tree re-read it: mediaUrl looks the token up when it runs, so the
   // URLs built before it arrived have to be built again.
-  const [, setMediaTokenTick] = useState(0);
+  const [mediaTokenTick, setMediaTokenTick] = useState(0);
+  const mediaResumeRef = useRef<{ projectId: string; assetId: string; time: number; playing: boolean } | null>(null);
   useEffect(() => {
     const id = project?.id;
     if (!AUTH_ENABLED || !id) return;
     let live = true;
+    let lastToken = '';
     const mint = () => {
       ensureMediaToken(id)
-        .then(() => { if (live) setMediaTokenTick(n => n + 1); })
+        .then(token => {
+          if (!live || token === lastToken) return;
+          const element = media.current;
+          if (lastToken && element) mediaResumeRef.current = { projectId: id,
+            assetId: projectRef.current?.activeMediaAssetId ?? 'primary', time: element.currentTime, playing: !element.paused };
+          lastToken = token; setMediaTokenTick(n => n + 1);
+        })
         .catch(() => { /* request() has already handled a dead session. */ });
     };
     mint();
-    const timer = setInterval(mint, 10 * 60 * 1000);
-    return () => { live = false; clearInterval(timer); };
+    const timer = setInterval(mint, 60 * 1000);
+    const visible = () => { if (document.visibilityState === 'visible') mint(); };
+    document.addEventListener('visibilitychange', visible);
+    window.addEventListener('focus', mint);
+    return () => { live = false; mediaResumeRef.current = null; clearInterval(timer); document.removeEventListener('visibilitychange', visible); window.removeEventListener('focus', mint); };
   }, [project?.id]);
   // Fit the timeline to its words the moment there are words to fit — on upload,
   // when a transcript arrives, and when a project is opened. Keyed on that
@@ -687,6 +731,7 @@ function App() {
   }, [project, fittedZoomFor]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 6500); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { projectRef.current = project; }, [project]);
+  useEffect(() => { savedProjectRef.current = project; conflictRef.current = null; setSaveConflict(null); }, [project?.id]);
   // Re-read rather than polled: the storage figure only moves when this browser
   // uploads or deletes something, and walking every project directory to answer
   // it is not work to repeat every seven seconds beside the health check.
@@ -705,8 +750,8 @@ function App() {
     let closed = false;
     async function check() {
       try {
-        const [h, list] = await Promise.all([request<Health>('/health'), request<Project[]>('/projects')]);
-        if (!closed) { setHealth(h); setProjects(Array.isArray(list) ? list : []); }
+        const h = await request<Health>('/health');
+        if (!closed) setHealth(h);
       } catch { if (!closed) setHealth(null); }
     }
     void check(); const timer = setInterval(check, 7000); return () => { closed = true; clearInterval(timer); };
@@ -717,10 +762,29 @@ function App() {
     let cancelled = false;
     const timer = setInterval(async () => {
       try {
-        const current = await request<Project>(`/projects/${project.id}`);
-        if (cancelled) return;
-        if (busy) { setProject(current); projectRef.current = current; if (current.status === 'ready') { setSettings(current.settings); notify(`${current.words.length} words, ready for your finishing touch.`); } }
-        else setProject(p => p?.id === current.id ? { ...p, exports: current.exports, revision: current.revision } : p);
+        if (busy) {
+          const progress = await request<Pick<Project, 'id' | 'status' | 'progress' | 'message'>>(`/projects/${project.id}?summary=true`);
+          if (cancelled) return;
+          if (progress.status === 'queued' || progress.status === 'processing') {
+            setProject(p => p?.id === project.id ? { ...p, status: progress.status, progress: progress.progress, message: progress.message } : p);
+            return;
+          }
+          const current = await request<Project>(`/projects/${project.id}`);
+          if (cancelled) return;
+          setProject(current); projectRef.current = current;
+          if (current.status === 'ready') {
+            // Recognition establishes a new editing baseline; old snapshots must
+            // never replace these generated words with the pre-generation scene.
+            setHistory([]); setFuture([]);
+            setSelectedWord(null); setSelectedWordIds(new Set());
+            savedProjectRef.current = current; setSettings(current.settings);
+            notify(`${current.words.length} words, ready for your finishing touch.`);
+          }
+        } else {
+          const exports = await request<Project['exports']>(`/projects/${project.id}/exports`);
+          if (cancelled) return;
+          setProject(p => p?.id === project.id ? { ...p, exports } : p);
+        }
       } catch (e) { if (!cancelled) notify((e as Error).message); }
     }, 1400);
     return () => { cancelled = true; clearInterval(timer); };
@@ -768,25 +832,32 @@ function App() {
     const action = saveChain.current.catch(() => {}).then(async () => {
       const p = projectRef.current; const generation = dirtyRef.current;
       if (!p || generation <= savedDirty.current) return;
-      setSaveStatus('Saving…');
+      if (conflictRef.current === p.id) { setSaveConflict(p); throw new Error('Resolve the save conflict before continuing.'); }
+      setSaveStatus('Updating session…');
       try {
-        const result = await request<Project>(`/projects/${p.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            words: p.words,
-            settings: p.settings,
-            name: p.name,
-            videoEnabled: p.videoEnabled,
-            canvasElements: p.canvasElements,
+        const result = await saveWithRevision(p, savedProjectRef.current,
+          body => request<Project>(`/projects/${p.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
           }),
-        });
+          () => request<Project>(`/projects/${p.id}`),
+          error => error instanceof ApiError && error.status === 409,
+        );
         if (projectRef.current?.id === p.id) {
+          projectRef.current = { ...projectRef.current, revision: result.revision };
+          savedProjectRef.current = result;
           savedDirty.current = generation;
-          setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
+          setSaveStatus('Temporary session');
           setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous);
         }
-      } catch (e) { setSaveStatus(UNSAVED); notify((e as Error).message); throw e; }
+      } catch (e) {
+        setSaveStatus(UNSAVED);
+        if (e instanceof ApiError && e.status === 409 && projectRef.current?.id === p.id) {
+          conflictRef.current = p.id;
+          const remote = await request<Project>(`/projects/${p.id}`).catch(() => null);
+          if (projectRef.current?.id === p.id) setSaveConflict(remote || p);
+        }
+        notify((e as Error).message); throw e;
+      }
     });
     saveChain.current = action; return action;
   }, [notify]);
@@ -827,20 +898,30 @@ function App() {
         name: previous.name,
         videoEnabled: previous.videoEnabled,
         canvasElements: previous.canvasElements,
+        activeMediaAssetId: previous.activeMediaAssetId,
       }]);
       setFuture([]);
     }
     projectRef.current = next;
     setProject(next);
     setSettings(next.settings);
+    setActiveMediaAsset((next.mediaAssets ?? projectAssets).find(a => a.id === next.activeMediaAssetId) ?? null);
     if (false) {
     }
     if (next.canvasElements !== undefined) {
       setCanvasElements(next.canvasElements);
     }
-    setSaveStatus('Saving…');
+    setSaveStatus('Updating session…');
     dirtyRef.current += 1;
     setDirty(dirtyRef.current);
+  }
+  function commitDrag(before: Project, after: Project) {
+    if (before.id !== projectRef.current?.id) return;
+    if (JSON.stringify(before.words) !== JSON.stringify(after.words)) {
+      setHistory(h => [...h.slice(-39), editSnapshot(before)]);
+      setFuture([]);
+      markEdit(after, false);
+    }
   }
   function updateSettings(update: Partial<Settings>) {
     const next = { ...settings, ...update }; setSettings(next);
@@ -849,56 +930,31 @@ function App() {
 
 
   const handleUpdateCanvasElement = useCallback((id: string, updates: Partial<CanvasVisualElement>) => {
-    setCanvasElements(prev => {
-      const next = prev.map(item => item.id === id ? { ...item, ...updates } : item);
-      if (projectRef.current && !busy) {
-        markEdit({ ...projectRef.current, canvasElements: next });
-      }
-      return next;
-    });
+    const current = projectRef.current;
+    if (!current || busy) return;
+    const next = (current.canvasElements ?? []).map(item => item.id === id ? { ...item, ...updates } : item);
+    markEdit({ ...current, canvasElements: next });
   }, [busy]);
 
   const handleDeleteCanvasElement = useCallback((id: string) => {
-    setCanvasElements(prev => {
-      const next = prev.filter(item => item.id !== id);
-      if (projectRef.current && !busy) {
-        markEdit({ ...projectRef.current, canvasElements: next });
-      }
-      return next;
-    });
+    const current = projectRef.current;
+    if (!current || busy) return;
+    markEdit({ ...current, canvasElements: (current.canvasElements ?? []).filter(item => item.id !== id) });
     setSelectedCanvasElementId(prev => (prev === id ? null : prev));
   }, [busy]);
 
   const handleAddMediaToCanvas = useCallback((asset: MediaAsset) => {
-    const url = asset.url || `/api/projects/${projectRef.current?.id}/assets/${asset.id}/file`;
-    const fullUrl = mediaUrl(url);
-    const totalDuration = projectRef.current?.duration || duration || 5;
-
-    if (asset.mediaType === 'image') {
-      if (!imageCacheRef.current.has(fullUrl)) {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = fullUrl;
-        imageCacheRef.current.set(fullUrl, img);
-      }
-    } else if (asset.mediaType === 'video') {
-      if (!videoCacheRef.current.has(fullUrl)) {
-        const vid = document.createElement('video');
-        vid.crossOrigin = 'anonymous';
-        vid.muted = true;
-        vid.playsInline = true;
-        vid.preload = 'auto';
-        vid.src = fullUrl;
-        videoCacheRef.current.set(fullUrl, vid);
-      }
-    }
+    const current = projectRef.current;
+    if (!current) return;
+    const url = assetMediaPath(current.id, asset.id);
+    const totalDuration = current.duration || duration || 5;
 
     const newEl: CanvasVisualElement = {
       id: `canvas-${asset.mediaType}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       assetId: asset.id,
       name: asset.name,
       type: asset.mediaType === 'video' ? 'video' : 'image',
-      url: fullUrl,
+      url,
       x: 50,
       y: 50,
       scale: 1.0,
@@ -909,13 +965,7 @@ function App() {
       greenScreen: asset.greenScreen,
     };
 
-    setCanvasElements(prev => {
-      const updated = [...prev, newEl];
-      if (projectRef.current && !busy) {
-        markEdit({ ...projectRef.current, canvasElements: updated });
-      }
-      return updated;
-    });
+    if (!busy) markEdit({ ...current, canvasElements: [...(current.canvasElements ?? []), newEl] });
     setSelectedCanvasElementId(newEl.id);
   }, [duration, busy]);
 
@@ -1241,61 +1291,16 @@ function App() {
     if (groupIdx < 0 || groupIdx >= currentGroups.length) return;
 
     const oldGroup = currentGroups[groupIdx];
-    const oldGroupIds = new Set(oldGroup.map(w => w.id));
-    const rawTokens = newText.trim().split(/\s+/).filter(Boolean);
-    const tokens = rawTokens.length > 0 ? rawTokens : ['caption'];
-
-    const durationPerWord = Math.max(0.04, (newEnd - newStart) / tokens.length);
-    const newWordsForGroup: Word[] = tokens.map((token, i) => {
-      const existing = oldGroup[i];
-      const wordStart = Number((newStart + i * durationPerWord).toFixed(3));
-      const wordEnd = Number((newStart + (i + 1) * durationPerWord - 0.005).toFixed(3));
-      return {
-        id: existing?.id || `w-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-        text: token,
-        original: token,
-        start: wordStart,
-        end: Math.max(wordStart + 0.03, wordEnd),
-        confidence: existing?.confidence ?? 1,
-        emphasis: existing?.emphasis ?? false,
-        emphasisScore: existing?.emphasisScore ?? 0.5,
-        spotlight: existing?.spotlight,
-        behind: existing?.behind,
-      };
-    });
-
-    const otherWords = p.words
-      .filter(w => !oldGroupIds.has(w.id))
-      .map(w => {
-        if (w.end <= newStart || w.start >= newEnd) {
-          return { ...w };
-        }
-        if (w.start < newStart) {
-          const clampedEnd = Number(Math.max(w.start + 0.03, newStart - 0.005).toFixed(3));
-          return { ...w, end: clampedEnd };
-        }
-        if (w.end > newEnd) {
-          const clampedStart = Number((newEnd + 0.005).toFixed(3));
-          const clampedEnd = Number(Math.max(clampedStart + 0.03, w.end).toFixed(3));
-          return { ...w, start: clampedStart, end: clampedEnd };
-        }
-        const mid = (newStart + newEnd) / 2;
-        if (w.start < mid) {
-          const clampedEnd = Number(Math.max(0.04, newStart - 0.005).toFixed(3));
-          const clampedStart = Number(Math.max(0, clampedEnd - (w.end - w.start)).toFixed(3));
-          return { ...w, start: clampedStart, end: clampedEnd };
-        } else {
-          const clampedStart = Number((newEnd + 0.005).toFixed(3));
-          const clampedEnd = Number((clampedStart + Math.max(0.03, w.end - w.start)).toFixed(3));
-          return { ...w, start: clampedStart, end: clampedEnd };
-        }
-      });
-
-    const updatedWords = [...otherWords, ...newWordsForGroup];
-    updatedWords.sort((a, b) => a.start - b.start);
-    ensureValidIntervals(updatedWords, p.duration || 60);
-
-    markEdit({ ...p, words: updatedWords }, true);
+    try {
+      const first = p.words.findIndex(w => w.id === oldGroup[0].id);
+      const last = first + oldGroup.length;
+      if ((newStart !== oldGroup[0].start || newEnd !== oldGroup.at(-1)!.end) && (newStart < (p.words[first - 1]?.end ?? 0) || newEnd > (p.words[last]?.start ?? p.duration))) {
+        throw new Error('Keep this line between its neighboring captions and within the media duration.');
+      }
+      const edited = editCaptionGroup(oldGroup, newText, newStart, newEnd);
+      markEdit({ ...p, words: [...p.words.slice(0, first), ...edited, ...p.words.slice(last)] }, true);
+      return undefined;
+    } catch (error) { return (error as Error).message; }
   }, [settings.template, settings.wordsPerLine]);
 
   const handleDuplicateGroup = useCallback((group: Word[]) => {
@@ -1644,7 +1649,7 @@ function App() {
         w.id === word.id ? { ...w, start: currentStart, end: currentEnd } : w
       );
       ensureValidIntervals(finalWords, duration);
-      markEdit({ ...latestProj, words: finalWords }, true);
+      commitDrag(p, { ...latestProj, words: finalWords });
       notify(`Adjusted "${word.text}" timing: ${timecode(currentStart)} - ${timecode(currentEnd)} (${(currentEnd - currentStart).toFixed(2)}s)`);
     };
 
@@ -1721,7 +1726,7 @@ function App() {
         return w;
       });
       ensureValidIntervals(finalWords, duration);
-      markEdit({ ...latestProj, words: finalWords }, true);
+      commitDrag(p, { ...latestProj, words: finalWords });
       notify(`Adjusted boundary between "${wordA.text}" and "${wordB.text}" to ${currentSplit.toFixed(2)}s`);
     };
 
@@ -1773,6 +1778,7 @@ function App() {
         setTimelinePopover(null);
       }
 
+      if (!hasMoved) return;
       const dt = (deltaX / scrollWidth) * duration;
       const targetStart = origStart + dt;
       clampedStart = Number(Math.max(minStart, Math.min(maxStart, targetStart)).toFixed(3));
@@ -1813,7 +1819,7 @@ function App() {
         w.id === word.id ? { ...w, start: clampedStart, end: clampedEnd } : w
       );
       ensureValidIntervals(finalWords, duration);
-      markEdit({ ...latestProj, words: finalWords }, true);
+      commitDrag(p, { ...latestProj, words: finalWords });
       notify(`Shifted "${word.text}" timing to ${timecode(clampedStart)}`);
     };
 
@@ -1954,7 +1960,7 @@ function App() {
       });
 
       ensureValidIntervals(finalWords, duration);
-      markEdit({ ...latestProj, words: finalWords }, true);
+      commitDrag(p, { ...latestProj, words: finalWords });
       notify(`Adjusted sentence length: ${(currentGEnd - currentGStart).toFixed(2)}s`);
     };
 
@@ -2074,7 +2080,7 @@ function App() {
       });
 
       ensureValidIntervals(finalWords, duration);
-      markEdit({ ...latestProj, words: finalWords }, true);
+      commitDrag(p, { ...latestProj, words: finalWords });
       notify(`Shifted caption line timing by ${clampedDt >= 0 ? '+' : ''}${clampedDt.toFixed(2)}s`);
     };
 
@@ -2171,13 +2177,48 @@ function App() {
     updateWord(word.id,{ [key]: value });
   }
   function undo() {
-    const p = projectRef.current; const previous = history.at(-1); if (!p || !previous) return;
-    setFuture(f => [...f,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,canvasElements:p.canvasElements }]); setHistory(h => h.slice(0,-1)); markEdit({ ...p,...previous },false);
+    const p = projectRef.current; const previous = historyRef.current.at(-1); if (!p || !previous || ['queued', 'processing', 'transcribing', 'extracting'].includes(p.status)) return;
+    setFuture(f => [...f,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,canvasElements:p.canvasElements,activeMediaAssetId:p.activeMediaAssetId }]); setHistory(h => h.slice(0,-1)); markEdit({ ...p,...previous },false);
   }
   function redo() {
-    const p = projectRef.current; const next = future.at(-1); if (!p || !next) return;
-    setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,canvasElements:p.canvasElements }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
+    const p = projectRef.current; const next = futureRef.current.at(-1); if (!p || !next || ['queued', 'processing', 'transcribing', 'extracting'].includes(p.status)) return;
+    setHistory(h => [...h,{ words:p.words,settings:p.settings,name:p.name,videoEnabled:p.videoEnabled,canvasElements:p.canvasElements,activeMediaAssetId:p.activeMediaAssetId }]); setFuture(f => f.slice(0,-1)); markEdit({ ...p,...next },false);
   }
+  const pendingCaptionRange = useRef<{ start: number; end: number } | null>(null);
+  const [captionNavigation, setCaptionNavigation] = useState(0);
+  useEffect(() => {
+    const range = pendingCaptionRange.current;
+    const viewport = timelineViewportRef.current;
+    if (!range || !viewport || !duration) return;
+    const frame = requestAnimationFrame(() => {
+      pendingCaptionRange.current = null;
+      const width = viewport.scrollWidth;
+      const startPx = range.start / duration * width;
+      const endPx = range.end / duration * width;
+      const padding = Math.min(32, viewport.clientWidth * .1);
+      viewport.scrollLeft = Math.max(0, Math.min(width - viewport.clientWidth,
+        endPx - viewport.clientWidth + padding));
+      // If the group is short, keep both its first and final words in view.
+      if (startPx < viewport.scrollLeft + padding)
+        viewport.scrollLeft = Math.max(0, startPx - padding);
+      readTimelineWindow();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [captionNavigation, timelineZoom, duration, readTimelineWindow]);
+
+  function focusCaptionGroup(group: Word[]) {
+    const viewport = timelineViewportRef.current;
+    if (!group.length || !viewport || !duration) return;
+    const start = Math.max(0, group[0].start);
+    const end = Math.min(duration, group[group.length - 1].end);
+    pendingCaptionRange.current = { start, end };
+    setCaptionNavigation(value => value + 1);
+    // Fit wide groups into the timeline instead of hiding their opening words.
+    const fitZoom = Math.max(1, Math.min(32, duration * .8 / Math.max(.01, end - start)));
+    setTimelineZoom(zoom => Math.min(zoom, fitZoom));
+    seek(end);
+  }
+
   function seek(value: number) { if (!project) return; const t = Math.max(0,Math.min(duration,value)); setTime(t); if (media.current) media.current.currentTime=t; }
   const togglePlay = useCallback(() => {
     if (!project || !media.current) return;
@@ -2214,9 +2255,16 @@ function App() {
   useEffect(() => {
     if (!playing || !project) return;
     let frame = 0;
-    const tick = () => { if (media.current) setTime(media.current.currentTime); frame = requestAnimationFrame(tick); };
+    let previousFrame = -1;
+    const tick = () => {
+      const current = media.current?.currentTime;
+      if (current !== undefined && playbackFrame(current, CAPTION_FPS) !== previousFrame) {
+        previousFrame = playbackFrame(current, CAPTION_FPS); setTime(current);
+      }
+      frame = requestAnimationFrame(tick);
+    };
     frame = requestAnimationFrame(tick); return () => cancelAnimationFrame(frame);
-  }, [playing, project]);
+  }, [playing, project?.id]);
   useEffect(() => {
     if (media.current) media.current.playbackRate = playbackRate;
   }, [playbackRate]);
@@ -2235,28 +2283,37 @@ function App() {
     ctx.clearRect(0, 0, size.width, size.height);
     if (!project) return;
 
+    const redraw = () => setMediaFrameVersion(v => v + 1);
     // 1. If active media has greenScreen enabled, render keyed video frame
-    if (activeMediaAsset?.greenScreen?.enabled && media.current && hasVideoLayer && videoEnabled) {
-      drawKeyedMedia(ctx, media.current, 0, 0, size.width, size.height, activeMediaAsset.greenScreen);
+    const primaryKey = activeMediaAsset ? activeMediaAsset.greenScreen : project.greenScreen;
+    if (primaryKey?.enabled && media.current && hasVideoLayer && videoEnabled && media.current.readyState >= 2) {
+      const video = media.current;
+      const ratio = Math.min(size.width / video.videoWidth, size.height / video.videoHeight);
+      const w = video.videoWidth * ratio, h = video.videoHeight * ratio;
+      drawKeyedMedia(ctx, video, (size.width-w)/2, (size.height-h)/2, w, h, primaryKey);
     }
 
     // 2. Draw canvas overlay image & video elements
-    for (const el of canvasElements) {
+    for (const el of orderedElements(canvasElements)) {
       if (el.visible === false) continue;
       if (el.start !== undefined && time < el.start) continue;
       if (el.end !== undefined && time > el.end) continue;
 
+      const sourceUrl = mediaUrl(assetMediaPath(project.id, el.assetId));
+      if (!sourceUrl) continue;
       if (el.type === 'video') {
-        let vid = videoCacheRef.current.get(el.url);
+        let vid = videoCacheRef.current.get(`${project.id}:${el.id}`);
         if (!vid) {
           vid = document.createElement('video');
           vid.crossOrigin = 'anonymous';
           vid.muted = true;
           vid.playsInline = true;
           vid.preload = 'auto';
-          vid.src = el.url;
-          videoCacheRef.current.set(el.url, vid);
+          vid.onloadeddata = redraw; vid.onseeked = redraw;
+          vid.src = sourceUrl;
+          videoCacheRef.current.set(`${project.id}:${el.id}`, vid);
         }
+        syncMediaSource(vid, sourceUrl);
         if (vid.readyState >= 2) {
           const elW = (size.width * 0.32) * (el.scale || 1.0);
           const elH = (vid.videoHeight / (vid.videoWidth || 1)) * elW;
@@ -2266,24 +2323,26 @@ function App() {
           if (Math.abs(vid.currentTime - (elementTime % (vid.duration || 1))) > 0.1) {
             vid.currentTime = elementTime % (vid.duration || 1);
           }
-          drawKeyedMedia(ctx, vid, elX, elY, elW, elH, el.greenScreen);
+          ctx.save(); ctx.translate(elX + elW / 2, elY + elH / 2); ctx.rotate((el.rotation || 0) * Math.PI / 180);
+          drawKeyedMedia(ctx, vid, -elW/2, -elH/2, elW, elH, el.greenScreen); ctx.restore();
         }
       } else {
-        let img = imageCacheRef.current.get(el.url);
+        let img = imageCacheRef.current.get(`${project.id}:${el.assetId}`);
         if (!img) {
           img = new Image();
           img.crossOrigin = 'anonymous';
-          img.src = el.url;
-          img.onload = () => {
-          };
-          imageCacheRef.current.set(el.url, img);
+          img.src = sourceUrl;
+          img.onload = redraw;
+          imageCacheRef.current.set(`${project.id}:${el.assetId}`, img);
         }
+        syncMediaSource(img, sourceUrl);
         if (img.complete && img.naturalWidth > 0) {
           const elW = (size.width * 0.32) * (el.scale || 1.0);
           const elH = (img.naturalHeight / (img.naturalWidth || 1)) * elW;
           const elX = (el.x / 100) * size.width - elW / 2;
           const elY = (el.y / 100) * size.height - elH / 2;
-          drawKeyedMedia(ctx, img, elX, elY, elW, elH, el.greenScreen);
+          ctx.save(); ctx.translate(elX + elW / 2, elY + elH / 2); ctx.rotate((el.rotation || 0) * Math.PI / 180);
+          drawKeyedMedia(ctx, img, -elW/2, -elH/2, elW, elH, el.greenScreen); ctx.restore();
         }
       }
     }
@@ -2292,22 +2351,35 @@ function App() {
     // Remotion <Player> using the exact composition the exporter renders, so the
     // preview cannot drift from the finished file.
 
-  }, [project, words, settings, time, size.width, size.height, groups, activeMediaAsset, canvasElements, selectedCanvasElementId, hasVideoLayer, videoEnabled]);
+  }, [project, words, settings, time, size.width, size.height, groups, activeMediaAsset, canvasElements, selectedCanvasElementId, hasVideoLayer, videoEnabled, mediaFrameVersion, mediaTokenTick]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
+      if (isBrowserZoomKey(e)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (!showCommandPalette && document.querySelector('[aria-modal="true"], dialog[open]')) return;
+        setShowCommandPalette(prev => !prev);
+        return;
+      }
       if (e.key === 'Escape') {
+        if (showCommandPalette) { setShowCommandPalette(false); return; }
         if (modal) { setModal(null); return; }
         if (timelinePopover) { setTimelinePopover(null); return; }
         if (captionToolsOpen) { setCaptionToolsOpen(false); return; }
         if (editingWordId) { setEditingWordId(null); return; }
       }
+      // Save and palette are intentional inside text fields; punctuation,
+      // native undo and formatting belong to the focused editor.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); void flushSave().catch(()=>{}); return; }
+      if ((e.target as HTMLElement)?.closest('[aria-modal="true"], dialog[open]')) return;
+      if ((e.target as HTMLElement)?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
       if (e.key === '?' || (e.shiftKey && e.key === '/') || ((e.ctrlKey || e.metaKey) && e.key === '/')) {
         e.preventDefault();
         setModal(m => m === 'shortcuts' ? null : 'shortcuts');
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); void flushSave().catch(()=>{}); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -2323,20 +2395,9 @@ function App() {
       }
       if (selectedCanvasElementId && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
         e.preventDefault();
-        const step = e.shiftKey ? 5 : 1;
-        setCanvasElements(prev => {
-          const el = prev.find(t => t.id === selectedCanvasElementId);
-          if (!el || el.locked) return prev;
-          let nx = el.x;
-          let ny = el.y;
-          if (e.key === 'ArrowLeft') nx = Math.max(0, nx - step);
-          if (e.key === 'ArrowRight') nx = Math.min(100, nx + step);
-          if (e.key === 'ArrowUp') ny = Math.max(0, ny - step);
-          if (e.key === 'ArrowDown') ny = Math.min(100, ny + step);
-          const updated = prev.map(t => t.id === selectedCanvasElementId ? { ...t, x: nx, y: ny } : t);
-          if (projectRef.current && !busy) markEdit({ ...projectRef.current, canvasElements: updated });
-          return updated;
-        });
+        const element = projectRef.current?.canvasElements?.find(t => t.id === selectedCanvasElementId);
+        const changes = element ? canvasKeyboardChange(element, e.key, e.shiftKey) : null;
+        if (changes) handleUpdateCanvasElement(selectedCanvasElementId, changes);
         return;
       }
       if (selectedWord && !selectedCanvasElementId) {
@@ -2449,12 +2510,39 @@ function App() {
         notify(`Playback speed: ${prev}x`);
         return;
       }
+      if (e.key === 'ArrowLeft' && !selectedCanvasElementId && !e.altKey) {
+        e.preventDefault();
+        const step = e.shiftKey ? 1.0 : (1 / 30);
+        seek(Math.max(0, time - step));
+        return;
+      }
+      if (e.key === 'ArrowRight' && !selectedCanvasElementId && !e.altKey) {
+        e.preventDefault();
+        const step = e.shiftKey ? 1.0 : (1 / 30);
+        seek(Math.min(duration, time + step));
+        return;
+      }
       if (e.key === 'ArrowUp') { e.preventDefault(); setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2)))); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2)))); return; }
-      if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     };
-    window.addEventListener('keydown',onKey); return () => window.removeEventListener('keydown',onKey);
-  },[togglePlay,flushSave,timelinePopover,captionToolsOpen,editingWordId,selectedWord,time,project,selectedCanvasElementId,handleDeleteCanvasElement,busy,groups,duration,modal,playbackRate,notify]);
+    // Capture Space before a focused button can activate itself. Text editors
+    // and dialogs keep their native keyboard behavior; Enter still activates buttons.
+    const onPlaybackSpace = (e: KeyboardEvent) => {
+      if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey || (e.code !== 'Space' && e.key !== ' ')) return;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      if (document.querySelector('[aria-modal="true"], dialog[open]') ||
+          target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) togglePlay();
+    };
+    window.addEventListener('keydown', onPlaybackSpace, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onPlaybackSpace, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  },[togglePlay,flushSave,timelinePopover,captionToolsOpen,editingWordId,selectedWord,time,project,selectedCanvasElementId,handleDeleteCanvasElement,busy,groups,duration,modal,playbackRate,notify,showCommandPalette]);
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
@@ -2465,8 +2553,9 @@ function App() {
       const result = await upload(file,script,language,setUploadProgress);
       result.name = file.name || result.filename || result.name;
       result.settings = result.settings || defaults;
-      setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setSaveStatus('Saved locally');
+      setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setCaptionToolsOpen(false); setSaveStatus('Temporary session');
            setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
+      setImportAutoHighlight(result.settings.autoHighlight !== false);
       setLanguagePrompt('open');
       void refreshLimits();
     } catch(e) { notify((e as Error).message); }
@@ -2535,8 +2624,8 @@ function App() {
       // picks a hero per line on its own when asked to; nothing needs writing
       // down for that to work.
       const normalized = { ...result, words: result.words || [], script: projectScript, language: projectLanguage };
-      setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setShowSearchBar(false); setCaptionToolsOpen(false); setModal(null);
-      setActiveMediaAsset(null); setCanvasElements(result.canvasElements || []); setSelectedCanvasElementId(null);
+      setPlaying(false); setTime(0); setProject(normalized); projectRef.current=normalized; setSettings(normalized.settings); setScript(projectScript); setLanguage(projectLanguage); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setCaptionToolsOpen(false); setModal(null);
+      setActiveMediaAsset(result.mediaAssets?.find(a => a.id === result.activeMediaAssetId) ?? null); setCanvasElements(result.canvasElements || []); setSelectedCanvasElementId(null);
          }
     catch(e) { notify((e as Error).message); }
   }
@@ -2576,7 +2665,7 @@ function App() {
     // The media token for a deleted project opens nothing, and keeping it would
     // have the next project's URLs built against a stale entry.
     forgetMediaTokens();
-    setSaveStatus(import.meta.env.DEV ? 'Saved locally' : 'Saved to cloud');
+    setSaveStatus('Temporary session');
     void refreshLimits();
     notify(`Deleted “${target.name || target.filename}”.`);
     setActiveNavPanel('caption');
@@ -2606,14 +2695,22 @@ function App() {
       setExporting(false);
     }
   }
-  function downloadTranscript(format: 'srt' | 'vtt' | 'json' | 'txt') {
+  function downloadTranscript(format: 'srt' | 'vtt' | 'json' | 'txt' | 'csv') {
     if(!project) return;
     const text = format === 'json'
       ? JSON.stringify({ name: project.name, words: project.words, settings }, null, 2)
       : format === 'txt'
       ? plainTranscript(project.words, settings.wordsPerLine)
+      : format === 'csv'
+      ? csvTranscript(project.words)
       : subtitleText(project.words, settings.wordsPerLine, format);
-    const blob = new Blob([text], { type: format === 'json' ? 'application/json' : 'text/plain;charset=utf-8' });
+    const blob = new Blob([text], {
+      type: format === 'json'
+        ? 'application/json'
+        : format === 'csv'
+        ? 'text/csv;charset=utf-8'
+        : 'text/plain;charset=utf-8'
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -2631,6 +2728,21 @@ function App() {
       notify('Could not copy to clipboard.');
     });
   }
+  async function downloadAudioTrack() {
+    const target = projectRef.current;
+    if (!target) return;
+    try {
+      const blob = await downloadAudioBlob(target.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${target.name.replace(/[^\p{L}\p{N}_-]/gu, '_')}.m4a`;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notify('Audio download started.');
+    } catch (error) { notify((error as Error).message); }
+  }
+
   /**
    * Start recognition, optionally overriding what the project currently says.
    *
@@ -2639,9 +2751,10 @@ function App() {
    * starts a run would send the previous values and transcribe in the wrong
    * language without ever saying so.
    */
-  async function startTranscription(overrides?: { script?: string; language?: string; emoji?: boolean; translate?: boolean }) {
+  async function startTranscription(overrides?: { script?: string; language?: string; emoji?: boolean; translate?: boolean; autoHighlight?: boolean }) {
     const currentProject = projectRef.current;
     if(!currentProject) return;
+    const highlightChoice = overrides?.autoHighlight !== undefined ? overrides.autoHighlight : (settings.autoHighlight !== false);
     const body = {
       script: overrides?.script ?? currentProject.script,
       language: overrides?.language ?? currentProject.language,
@@ -2649,11 +2762,23 @@ function App() {
       isolateVocals: !!currentProject.isolateVocals,
       emoji: overrides?.emoji ?? !!currentProject.emoji,
       translate: overrides?.translate ?? !!currentProject.translate,
+      autoHighlight: highlightChoice,
     };
+    if (highlightChoice !== undefined) {
+      updateSettings({ autoHighlight: highlightChoice });
+    }
     try {
       await flushSave();
       const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-      if (projectRef.current?.id === currentProject.id) { setProject(result); projectRef.current=result; setScript(result.script); setLanguage(result.language); }
+      if (projectRef.current?.id === currentProject.id) {
+        // Accepted generation invalidates Undo and Redo from the prior transcript.
+        setHistory([]); setFuture([]);
+        setProject(result);
+        projectRef.current=result;
+        setScript(result.script);
+        setLanguage(result.language);
+        if (result.settings) setSettings(result.settings);
+      }
     }
     catch(e){notify((e as Error).message);}
   }
@@ -2674,7 +2799,6 @@ function App() {
       accountEmail={accountEmail}
       accountName={accountName}
       accountMenuOpen={accountMenu !== null}
-      onOpenProjects={() => setModal('projects')}
       onRenameProject={name => project && markEdit({ ...project, name })}
       onUndo={undo}
       onRedo={redo}
@@ -2752,6 +2876,7 @@ function App() {
             busy={busy}
             onSelectWord={selectWord}
             onSeek={seek}
+            onFocusGroup={focusCaptionGroup}
             onTogglePlay={togglePlay}
             onUpdateSettings={updateSettings}
             onUpdateWord={updateWord}
@@ -2847,13 +2972,8 @@ function App() {
             onAddImageToCanvas={handleAddMediaToCanvas}
             onAddMediaToCanvas={handleAddMediaToCanvas}
             onRemoveMediaAsset={(assetId) => {
-              setCanvasElements(prev => {
-                const updated = prev.filter(el => el.assetId !== assetId);
-                if (projectRef.current && !busy) {
-                  markEdit({ ...projectRef.current, canvasElements: updated });
-                }
-                return updated;
-              });
+              const current = projectRef.current;
+              if (current && !busy) markEdit({ ...current, canvasElements: (current.canvasElements ?? []).filter(el => el.assetId !== assetId) });
             }}
             onUpdateProjectAssets={handleUpdateProjectAssets}
             notify={notify}
@@ -2959,7 +3079,7 @@ function App() {
                     <p className="upload-dropzone-desc">
                       {uploadProgress !== null
                         ? 'Syncing audio waveform and transcribing speech…'
-                        : 'Supports MP4, MOV, WebM, MP3, WAV, M4A up to 1 GB'}
+                        : 'Supports MP4, MOV, WebM, MP3, WAV, M4A up to 1 GB. Temporary session — export before closing or refreshing.'}
                     </p>
                   </div>
                   {uploadProgress !== null ? (
@@ -3001,12 +3121,21 @@ function App() {
               >
                 <video
                   ref={media}
-                  className={`${project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''} ${activeMediaAsset?.greenScreen?.enabled ? 'video-keyed' : ''}`}
+                  className={`${project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''} ${(activeMediaAsset ? activeMediaAsset.greenScreen : project.greenScreen)?.enabled ? 'video-keyed' : ''}`}
                   key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}-${activeMediaAsset?.id || 'primary'}`}
-                  src={busy ? undefined : (mediaUrl(activeMediaAsset ? (activeMediaAsset.url || '') : `/api/projects/${project.id}/media`) || undefined)}
+                  src={busy ? undefined : (mediaUrl(assetMediaPath(project.id, activeMediaAsset?.id ?? 'primary')) || undefined)}
                   playsInline
                   preload="metadata"
                   muted={muted}
+                  onLoadedMetadata={() => {
+                    const resume = mediaResumeRef.current, element = media.current;
+                    if (!resume || !element) return;
+                    mediaResumeRef.current = null;
+                    if (resume.projectId !== project.id || resume.assetId !== (project.activeMediaAssetId ?? 'primary')) return;
+                    element.currentTime = Math.min(resume.time, element.duration || resume.time);
+                    element.playbackRate = playbackRate;
+                    if (resume.playing) void element.play().catch(() => notify('Media access refreshed. Press play to continue.'));
+                  }}
                   onPlay={() => {
                     if (media.current) media.current.playbackRate = playbackRate;
                     setPlaying(true);
@@ -3228,7 +3357,7 @@ function App() {
                       type="button"
                       className="canvas-delete-element-btn"
                       onClick={() => {
-                        setCanvasElements(prev => prev.filter(el => el.id !== selectedCanvasElementId));
+                        handleDeleteCanvasElement(selectedCanvasElementId);
                         setSelectedCanvasElementId(null);
                         notify('Removed visual element from canvas');
                       }}
@@ -3256,6 +3385,16 @@ function App() {
                     <div
                       key={el.id}
                       className={`canvas-media-box-wrapper ${isSelected ? 'selected' : ''} ${el.locked ? 'locked' : ''}`}
+                      role="group"
+                      tabIndex={0}
+                      aria-label={`${el.name} canvas layer${el.locked ? ', locked' : '. Arrow keys move, plus or minus resizes, brackets rotate.'}`}
+                      onFocus={e => { if (e.target === e.currentTarget) setSelectedCanvasElementId(el.id); }}
+                      onKeyDown={e => {
+                        if (e.target !== e.currentTarget || isBrowserZoomKey(e) || e.ctrlKey || e.metaKey || e.nativeEvent.isComposing) return;
+                        const changes = canvasKeyboardChange(el, e.key, e.shiftKey);
+                        if (changes) { e.preventDefault(); e.stopPropagation(); handleUpdateCanvasElement(el.id, changes); }
+                        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setSelectedCanvasElementId(el.id); }
+                      }}
                       style={{
                         left: `${el.x}%`,
                         top: `${el.y}%`,
@@ -3307,6 +3446,8 @@ function App() {
                               className="floating-tool-btn"
                               onClick={() => handleUpdateCanvasElement(el.id, { scale: 1.0 })}
                               title="Reset Size"
+                              aria-label="Reset layer size"
+                              disabled={el.locked}
                             >
                               <RotateCcw size={13} />
                             </button>
@@ -3316,6 +3457,7 @@ function App() {
                               className="floating-tool-btn danger"
                               onClick={() => handleDeleteCanvasElement(el.id)}
                               title="Remove from Canvas"
+                              aria-label="Remove layer from canvas"
                             >
                               <Trash2 size={13} />
                             </button>
@@ -3450,10 +3592,10 @@ function App() {
 
                 <button
                   type="button"
-                  className={`icon-button tiny ${showSearchBar ? 'active' : ''}`}
+                  className={`icon-button tiny ${modal === 'search-replace' ? 'active' : ''}`}
                   aria-label="Search and replace"
                   title="Find & Replace"
-                  onClick={() => setShowSearchBar(s => !s)}
+                  onClick={() => setModal('search-replace')}
                   disabled={!project}
                 >
                   <Search size={15} />
@@ -3473,7 +3615,7 @@ function App() {
             </div>
 
             {/* Viewport with Waveform & Clean White Caption Cards */}
-            <div ref={timelineViewportRef} className="timeline-viewport">
+            <div ref={timelineViewportRef} className="timeline-viewport" onScroll={readTimelineWindow}>
               <div
                 ref={timelineTrackRef}
                 className="timeline-track-content"
@@ -3509,23 +3651,29 @@ function App() {
                   </div>
                 )}
 
-                {/* 2. Waveform track with green progress bars */}
-                {project?.waveform?.length ? (
-                  <div className="timeline-waveform" aria-hidden="true">
-                    {project.waveform.map((v, i) => {
-                      const isPlayed = i / project.waveform!.length <= (duration ? time / duration : 0);
-                      return (
-                        <i
-                          key={i}
-                          className={isPlayed ? 'is-played' : ''}
-                          style={{
-                            height: `${Math.max(14, v * 100)}%`,
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                ) : null}
+                {/* 2. Waveform track with green progress bars & dynamic normalization */}
+                {project?.waveform?.length ? (() => {
+                  const wf = project.waveform;
+                  const maxAmp = Math.max(0.08, ...wf);
+                  return (
+                    <div className="timeline-waveform" aria-hidden="true">
+                      {wf.map((v, i) => {
+                        const isPlayed = i / wf.length <= (duration ? time / duration : 0);
+                        const normalized = Math.min(1, Math.max(0.12, v / maxAmp));
+                        const heightPct = Math.pow(normalized, 0.72) * 100;
+                        return (
+                          <i
+                            key={i}
+                            className={isPlayed ? 'is-played' : ''}
+                            style={{
+                              height: `${Math.max(14, heightPct)}%`,
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })() : null}
 
                 {/* 2.5. Text Elements Lane */}
 
@@ -3584,7 +3732,8 @@ function App() {
 
                 {/* 3. Clean White Caption Cards Lane */}
                 <div className="timeline-groups-lane">
-                  {project && duration > 0 && groups.map((g, gIdx) => {
+                  {project && duration > 0 && visibleTimelineIndices.map(gIdx => {
+                    const g = groups[gIdx];
                     const gStart = g[0].start;
                     const gEnd = g.at(-1)!.end;
                     const isCurrentGroup = time >= gStart && time <= gEnd;
@@ -3601,6 +3750,7 @@ function App() {
                           width: `calc(${widthPct}% - 2px)`,
                         }}
                         title={`Caption line: "${g.map(w => w.text).join(' ')}"`}
+                        onClick={() => seek(gStart)}
                       >
                         {/* Group Left Trim Bracket */}
                         <div
@@ -3611,7 +3761,7 @@ function App() {
 
                         {/* Words inside this sentence card */}
                         <div className="timeline-group-words">
-                          {g.map((w, wIdx) => {
+                          {(widthPct * (timelineViewportRef.current?.scrollWidth ?? 1000) / 100 >= 24 ? g : []).map((w, wIdx) => {
                             const isCurrentWord = time >= w.start && time < w.end;
                             const wDur = Math.max(0.01, w.end - w.start);
                             const wLeftPct = ((w.start - gStart) / gDur) * 100;
@@ -3780,6 +3930,26 @@ function App() {
       </main>
     </div>
 
+    {saveConflict && project?.id === saveConflict.id && <Modal title="This project changed elsewhere" onClose={() => setSaveConflict(null)}>
+      <p>Your edits are still in this tab. Download a copy before loading the latest session version.</p>
+      <button className="secondary-button" onClick={() => {
+        const local = projectRef.current; if (!local) return;
+        const url = URL.createObjectURL(new Blob([JSON.stringify(local, null, 2)], { type: 'application/json' }));
+        const link = document.createElement('a'); link.href = url; link.download = `${local.name}-unsaved.json`; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }}>Download my edits</button>
+      <button className="secondary-button" onClick={async () => {
+        const id = saveConflict.id;
+        try {
+          const latest = await request<Project>(`/projects/${id}`);
+          if (projectRef.current?.id !== id) return;
+          projectRef.current = latest; savedProjectRef.current = latest; setProject(latest); setSettings(latest.settings); setCanvasElements(latest.canvasElements ?? []);
+          setHistory([]); setFuture([]); savedDirty.current = dirtyRef.current;
+          conflictRef.current = null; setSaveConflict(null);
+          setSaveStatus('Temporary session');
+        } catch (e) { notify((e as Error).message); }
+      }}>Discard my edits and load latest</button>
+    </Modal>}
     <LiveAnnouncer notice={notice} saveStatus={saveStatus} uploadProgress={uploadProgress} busy={busy} />
     {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
     {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
@@ -3986,12 +4156,14 @@ function App() {
         )}
 
         <div className="subtitle-downloads">
-          <span>Need text subtitles only?</span>
+          <span>Need text subtitles or audio?</span>
           <div>
             <button type="button" onClick={() => downloadTranscript('srt')}>.SRT</button>
             <button type="button" onClick={() => downloadTranscript('vtt')}>.VTT</button>
             <button type="button" onClick={() => downloadTranscript('txt')}>.TXT</button>
-            <button type="button" onClick={() => downloadTranscript('json')}>Word timings .JSON</button>
+            <button type="button" onClick={() => downloadTranscript('json')}>Timings .JSON</button>
+            <button type="button" onClick={() => downloadTranscript('csv')}>Spreadsheet .CSV</button>
+            <button type="button" onClick={downloadAudioTrack} title="Download dialogue audio (.m4a)">Audio .M4A</button>
             <button type="button" onClick={copyTranscript} title="Copy plain text to clipboard">Copy Text</button>
           </div>
         </div>
@@ -4010,8 +4182,12 @@ function App() {
       three-second decision into a form. They live with the rest of the
       generation options in the Captions panel.
     */}
-    {languagePrompt && project && <Modal title="What's spoken in this clip?" onClose={()=>setLanguagePrompt(null)}>
-      <p className="modal-lede">This sets how the recogniser listens and how words are spelled.</p>
+    {languagePrompt && project && <Modal title="Import Video & Caption Setup" onClose={()=>setLanguagePrompt(null)}>
+      <p className="modal-lede">Set spoken language and choose whether to emphasize keywords in your captions.</p>
+
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary, #09090b)', marginTop: 4, marginBottom: 8 }}>
+        1. Spoken Language &amp; Script
+      </div>
       <div className="language-choice-grid" role="radiogroup" aria-label="Spoken language">
         {([
           { id: 'hinglish', label: 'Hinglish', sample: 'aap kaise ho', note: 'Hindi and English mixed, in Latin letters', script: 'roman', language: 'auto' },
@@ -4038,29 +4214,28 @@ function App() {
           );
         })}
       </div>
-      {/* Shown here rather than in the Captions panel because it changes how
-          every caption looks, which is a first-run decision in a way the
-          optional passes are not. The mockup is the explanation: "highlight
-          key words" describes two quite different results depending on what
-          someone pictures, and one glance settles it. */}
-      <div className="highlight-choice">
+
+      <div className="highlight-choice" style={{ marginTop: 16 }}>
         <div className="highlight-choice-head">
-          <strong>Make one word stand out on each line?</strong>
-          <em>
-            Bol grows the strongest word in your accent colour. Turn it off for interviews or
-            lectures, where even captions read better — you can still highlight a word yourself.
+          <strong style={{ fontSize: 13, fontWeight: 700 }}>2. Emphasized Words Option</strong>
+          <em style={{ fontSize: 11.5, opacity: 0.75 }}>
+            Choose whether key words should pop in your template&apos;s accent color &amp; motion, or keep all caption words normal and even.
           </em>
         </div>
-        {/* The two miniatures are the control, not an illustration beside one.
-            A checkbox made you read the label, decide what it meant, and then
-            check the pictures agreed; picking the picture you want is the same
-            decision with the reading removed. */}
-        <div className="highlight-mockups" role="radiogroup" aria-label="Highlight one word per line">
+        <div className="highlight-mockups" role="radiogroup" aria-label="Emphasized words option">
           {([
-            { on: true, label: 'Highlight one word' },
-            { on: false, label: 'Keep every word even' },
+            {
+              on: true,
+              label: 'Emphasize keywords',
+              desc: 'One key word per line grows in accent color with motion pop',
+            },
+            {
+              on: false,
+              label: 'No emphasized words',
+              desc: 'Normal captions with full template style & motion (no highlight)',
+            },
           ] as const).map(choice => {
-            const selected = (settings.autoHighlight !== false) === choice.on;
+            const selected = importAutoHighlight === choice.on;
             return (
               <button
                 key={choice.label}
@@ -4069,7 +4244,10 @@ function App() {
                 aria-checked={selected}
                 aria-label={choice.label}
                 className={selected ? 'is-chosen' : ''}
-                onClick={() => updateSettings({ autoHighlight: choice.on })}
+                onClick={() => {
+                  setImportAutoHighlight(choice.on);
+                  updateSettings({ autoHighlight: choice.on });
+                }}
               >
                 <span className="mock">
                   {choice.on ? (
@@ -4084,7 +4262,10 @@ function App() {
                 </span>
                 <span className="highlight-mock-label">
                   <span className="highlight-mock-tick" aria-hidden="true"><Check size={12}/></span>
-                  {choice.label}
+                  <span className="highlight-mock-text-col">
+                    <span className="highlight-mock-main-title">{choice.label}</span>
+                    <span className="highlight-mock-sub-desc">{choice.desc}</span>
+                  </span>
                 </span>
               </button>
             );
@@ -4101,8 +4282,10 @@ function App() {
           className="button primary"
           disabled={busy}
           onClick={() => {
+            const chosenHighlight = importAutoHighlight;
+            updateSettings({ autoHighlight: chosenHighlight });
             setLanguagePrompt(null);
-            void startTranscription({ script, language });
+            void startTranscription({ script, language, autoHighlight: chosenHighlight });
           }}
         >
           <WandSparkles size={15}/> Generate captions
@@ -4110,7 +4293,7 @@ function App() {
       </div>
     </Modal>}
     <StudioModals
-      modal={modal === 'projects' || modal === 'help' || modal === 'search-replace' || modal === 'shortcuts' ? modal : null}
+      modal={modal === 'help' || modal === 'search-replace' || modal === 'shortcuts' ? modal : null}
       onClose={() => setModal(null)}
       authEnabled={AUTH_ENABLED}
       projects={projects}
@@ -4125,36 +4308,50 @@ function App() {
       searchCaseSensitive={searchCaseSensitive}
       setSearchCaseSensitive={setSearchCaseSensitive}
       onReplaceNext={() => {
-        if (!project || !searchFindText.trim()) return;
-        const idx = project.words.findIndex(w =>
-          searchCaseSensitive
-            ? w.text.includes(searchFindText)
-            : w.text.toLowerCase().includes(searchFindText.toLowerCase())
-        );
+        if (!project || !searchFindText.trim() || !searchReplaceText.trim()) return;
+        const idx = project.words.findIndex(w => matchesCaptionWord(w.text, searchFindText, searchCaseSensitive));
         if (idx === -1) {
           notify(`No occurrences found for "${searchFindText}"`);
           return;
         }
         const target = project.words[idx];
-        const updated = searchCaseSensitive
-          ? target.text.replace(searchFindText, searchReplaceText)
-          : target.text.replace(new RegExp(searchFindText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), searchReplaceText);
+        const updated = replaceAllOccurrences([target], searchFindText, searchReplaceText, searchCaseSensitive)[0].text;
         updateWord(target.id, { text: updated });
         seek(target.start);
         notify(`Replaced occurrence at ${target.start.toFixed(2)}s`);
       }}
       onReplaceAll={() => {
-        if (!project || !searchFindText.trim()) return;
-        const count = project.words.filter(w =>
-          searchCaseSensitive
-            ? w.text.includes(searchFindText)
-            : w.text.toLowerCase().includes(searchFindText.toLowerCase())
-        ).length;
+        if (!project || !searchFindText.trim() || !searchReplaceText.trim()) return;
+        const count = project.words.filter(w => matchesCaptionWord(w.text, searchFindText, searchCaseSensitive)).length;
         const updatedWords = replaceAllOccurrences(project.words, searchFindText, searchReplaceText, searchCaseSensitive);
         markEdit({ ...project, words: updatedWords });
         notify(`Replaced ${count} occurrence${count === 1 ? '' : 's'}.`);
         setModal(null);
       }}
+      onStartTour={() => setShowTour(true)}
+    />
+
+    <OnboardingTour
+      isOpen={showTour}
+      onClose={handleCloseTour}
+    />
+
+    <CommandPalette
+      isOpen={showCommandPalette}
+      onClose={() => setShowCommandPalette(false)}
+      projects={projects}
+      onOpenProject={p => void openProject(p)}
+      onNewUpload={() => input.current?.click()}
+      onOpenModal={m => setModal(m)}
+      onStartTour={() => setShowTour(true)}
+      onToggleTheme={toggleTheme}
+      currentTheme={theme}
+      settings={settings}
+      onUpdateSettings={updateSettings}
+      downloadTranscript={downloadTranscript}
+      downloadAudioTrack={downloadAudioTrack}
+      copyTranscript={copyTranscript}
+      currentProject={project}
     />
 
     {hasExportRunning && modal !== 'export' && latestExport && (
@@ -4261,7 +4458,7 @@ function App() {
           size: 0,
           duration: duration,
           createdAt: '',
-          url: greenScreenTargetEl.url,
+          url: project ? assetMediaPath(project.id, greenScreenTargetEl.assetId) : '',
           greenScreen: greenScreenTargetEl.greenScreen,
         }}
         onClose={() => setGreenScreenTargetEl(null)}

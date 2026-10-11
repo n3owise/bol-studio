@@ -1,0 +1,1114 @@
+{
+  "date": "2026-10-10",
+  "scope": "Application source/config/tests; generated audit/brain documents, dependencies, model weights, user media and secrets are outside line-review scope. Focused review is not a claim of complete new line coverage.",
+  "files": [
+    {
+      "path": ".claude/launch.json",
+      "sha256": "3aa38da346ce96a67d5589b38640504e5f06005df2f655b8a94f7b566622e522",
+      "bytes": 1271,
+      "baselineSha256": "3aa38da346ce96a67d5589b38640504e5f06005df2f655b8a94f7b566622e522",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 27
+    },
+    {
+      "path": ".dockerignore",
+      "sha256": "fbfaa0031d9d2cb55cbbf1ee70f41b4a5ab3acf3f8879b78898d9b339b924df4",
+      "bytes": 93,
+      "baselineSha256": "fbfaa0031d9d2cb55cbbf1ee70f41b4a5ab3acf3f8879b78898d9b339b924df4",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 9
+    },
+    {
+      "path": ".env.example",
+      "disposition": "environment_values_withheld",
+      "baselineDisposition": "EXCLUDED WITH JUSTIFICATION"
+    },
+    {
+      "path": ".env.production",
+      "disposition": "environment_values_withheld",
+      "baselineDisposition": "EXCLUDED WITH JUSTIFICATION"
+    },
+    {
+      "path": ".github/workflows/supabase-keepalive.yml",
+      "sha256": "bfef26daa41d7a6a1d6a3af32ae08301394f0aca3964c9d811bc498c167d2e24",
+      "bytes": 1870,
+      "baselineSha256": "bfef26daa41d7a6a1d6a3af32ae08301394f0aca3964c9d811bc498c167d2e24",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 43
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "d2b1a6477b11771f1ffecd3e7a95d082f57defea16d12b1045708e9d153b7ab1",
+      "bytes": 950,
+      "baselineSha256": "d2b1a6477b11771f1ffecd3e7a95d082f57defea16d12b1045708e9d153b7ab1",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 33
+    },
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "c875230a736e4cc3df95305cb62f13f200c4ac26970e37001aa717ab8824f532",
+      "bytes": 23064,
+      "baselineSha256": "4c96a80b941ff5aae7c47e29ee7fb41e323dbfb332b83a9c44cd4cc1d46d634f",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 417
+    },
+    {
+      "path": "DESIGN.md",
+      "sha256": "459b6e415c2f51f11f277031b18b99e1561ada056bb2a6f61ff81524775e919a",
+      "bytes": 14542,
+      "baselineSha256": "b05b93d27e7509d513e0a235c75256f9e655fe514b209bb697c18cdee277cdc8",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 323
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "b6ca6830bd2310d6df28893e7da0152f32bfb3b2b80d024572cb0c16a7c08832",
+      "bytes": 1239,
+      "baselineSha256": "b6ca6830bd2310d6df28893e7da0152f32bfb3b2b80d024572cb0c16a7c08832",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 45
+    },
+    {
+      "path": "README.md",
+      "sha256": "59343fa5ec3846df38d7d4d262ccae2110de4245ad86aa8100dd23192b0b7165",
+      "bytes": 10047,
+      "baselineSha256": "a65766898c077969e04f203b8ce7d436fc46594ba6f4d84bf18143fab63a17d7",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 144
+    },
+    {
+      "path": "app.py",
+      "sha256": "9d0a7e7f81c1c93b8c2a1de49d5a4adf7afd8e397ee0ee8c14793f90683b3cca",
+      "bytes": 5563,
+      "baselineSha256": "9d0a7e7f81c1c93b8c2a1de49d5a4adf7afd8e397ee0ee8c14793f90683b3cca",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 129
+    },
+    {
+      "path": "docs/RESEARCH.md",
+      "sha256": "98a380d541e1babee422237aa188e7444eacae6f1ae17e20bd5642a860baf7fa",
+      "bytes": 23790,
+      "baselineSha256": "98a380d541e1babee422237aa188e7444eacae6f1ae17e20bd5642a860baf7fa",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 146
+    },
+    {
+      "path": "index.html",
+      "sha256": "d4b6f18dbc79fcc4839a6c1f1781345fde7c2e0d94f4020e375acb09b1872d86",
+      "bytes": 2265,
+      "baselineSha256": "d4b6f18dbc79fcc4839a6c1f1781345fde7c2e0d94f4020e375acb09b1872d86",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 49
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "2b32ebdb6e04fb4322dd6e007ade01ffdee1063372d39e9a7c1c7766a1702fe4",
+      "bytes": 197524,
+      "baselineSha256": "8cfd8e118ea3d3deaf0522262609ffb13a4e2540d1e169bb8a6ec3757d64dcf0",
+      "baselineChanged": true,
+      "disposition": "baseline_exclusion_retained",
+      "lines": 5554
+    },
+    {
+      "path": "package.json",
+      "sha256": "1fbbcb8e0e4c1e2288ae0523aa61e754176b8f08e6e4507c874cf70dd05df63d",
+      "bytes": 1430,
+      "baselineSha256": "3bd803d8deb78147d0a66886b7cffe2058f43a83aa8ea388958d2ffff75f5bcf",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 46
+    },
+    {
+      "path": "packages.txt",
+      "sha256": "925d23ad6a200b5716e3193a7f5041ae6d2ffda75757821e3cdbe94bb173c440",
+      "bytes": 18,
+      "baselineSha256": "925d23ad6a200b5716e3193a7f5041ae6d2ffda75757821e3cdbe94bb173c440",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 3
+    },
+    {
+      "path": "public/apple-touch-icon.png",
+      "sha256": "e595084759e3347a6ea48d287816f058e5f9509c9b74a4883e49f7ae002475eb",
+      "bytes": 8237,
+      "baselineSha256": "e595084759e3347a6ea48d287816f058e5f9509c9b74a4883e49f7ae002475eb",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/bol.studio-white.svg",
+      "sha256": "693d6c89741de0c7232804f43f7544e974325e5a227caa51c408388fbd087571",
+      "bytes": 11572,
+      "baselineSha256": "693d6c89741de0c7232804f43f7544e974325e5a227caa51c408388fbd087571",
+      "baselineChanged": false,
+      "disposition": "baseline_exclusion_retained",
+      "lines": 26
+    },
+    {
+      "path": "public/bol.studio.png",
+      "sha256": "1c074b3557a4fb0fc830ab1ddbfb3743a375b426cb889af73986a3b369fdb046",
+      "bytes": 4056,
+      "baselineSha256": "1c074b3557a4fb0fc830ab1ddbfb3743a375b426cb889af73986a3b369fdb046",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/bol.studio.svg",
+      "sha256": "feb06f0852f8ba919ffb987f16915ed2db93c09c212fc2c602229db3a66a252c",
+      "bytes": 11528,
+      "baselineSha256": "feb06f0852f8ba919ffb987f16915ed2db93c09c212fc2c602229db3a66a252c",
+      "baselineChanged": false,
+      "disposition": "baseline_exclusion_retained",
+      "lines": 26
+    },
+    {
+      "path": "public/bol.svg",
+      "sha256": "7db5cae550c13b6ee2652607abb9201f75f1509bcfddc69f9c4da70856b66a31",
+      "bytes": 1658,
+      "baselineSha256": "7db5cae550c13b6ee2652607abb9201f75f1509bcfddc69f9c4da70856b66a31",
+      "baselineChanged": false,
+      "disposition": "baseline_exclusion_retained",
+      "lines": 25
+    },
+    {
+      "path": "public/favicon-16x16.png",
+      "sha256": "7d665c05b2c5b83cc0145dda44ac677639c26792b4c4a8659f0e48f9d0bb2502",
+      "bytes": 780,
+      "baselineSha256": "7d665c05b2c5b83cc0145dda44ac677639c26792b4c4a8659f0e48f9d0bb2502",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/favicon-32x32.png",
+      "sha256": "2c60beaffae610b1bcd429955e24a637e50b8f9709d26b530fbecaeb34a160fa",
+      "bytes": 929,
+      "baselineSha256": "2c60beaffae610b1bcd429955e24a637e50b8f9709d26b530fbecaeb34a160fa",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/favicon-48x48.png",
+      "sha256": "ed600bbceec176356b173a1964a7dea4db1d81b251ed6895d336712c77ac69a0",
+      "bytes": 1993,
+      "baselineSha256": "ed600bbceec176356b173a1964a7dea4db1d81b251ed6895d336712c77ac69a0",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/favicon.ico",
+      "sha256": "a7068d365100e39cc8978b84b63af67cb343b6ba396678577bef4085eba52333",
+      "bytes": 4179,
+      "baselineSha256": "a7068d365100e39cc8978b84b63af67cb343b6ba396678577bef4085eba52333",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/favicon.png",
+      "sha256": "2c60beaffae610b1bcd429955e24a637e50b8f9709d26b530fbecaeb34a160fa",
+      "bytes": 929,
+      "baselineSha256": "2c60beaffae610b1bcd429955e24a637e50b8f9709d26b530fbecaeb34a160fa",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/favicon.svg",
+      "sha256": "a9b017e3730a72e3b2606a1d1fd0c8206cc0e1e9edaf249b27c16b9a567c5f47",
+      "bytes": 1602,
+      "baselineSha256": "a9b017e3730a72e3b2606a1d1fd0c8206cc0e1e9edaf249b27c16b9a567c5f47",
+      "baselineChanged": false,
+      "disposition": "baseline_exclusion_retained",
+      "lines": 19
+    },
+    {
+      "path": "public/icon-192.png",
+      "sha256": "3144514135b45373442920522fcd899d526367708274f690bee4f2a70bfbfcfb",
+      "bytes": 8810,
+      "baselineSha256": "3144514135b45373442920522fcd899d526367708274f690bee4f2a70bfbfcfb",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/icon-512.png",
+      "sha256": "907bf7f6265ff31b243cba192963599712cb042dd37cd8ea890386d7b2e17481",
+      "bytes": 24779,
+      "baselineSha256": "907bf7f6265ff31b243cba192963599712cb042dd37cd8ea890386d7b2e17481",
+      "baselineChanged": false,
+      "disposition": "binary_reference_review_only"
+    },
+    {
+      "path": "public/safari-pinned-tab.svg",
+      "sha256": "4a4f62680df41a51c663a0987082894736a147d4a162fa9f1be7c234bd5f42cf",
+      "bytes": 1381,
+      "baselineSha256": "4a4f62680df41a51c663a0987082894736a147d4a162fa9f1be7c234bd5f42cf",
+      "baselineChanged": false,
+      "disposition": "baseline_exclusion_retained",
+      "lines": 10
+    },
+    {
+      "path": "public/site.webmanifest",
+      "sha256": "ba1e28acd9856811e4ca9f715fba76b763961492f49bde9f4521b021693ac904",
+      "bytes": 345,
+      "baselineSha256": "ba1e28acd9856811e4ca9f715fba76b763961492f49bde9f4521b021693ac904",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 19
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "4981fe384e59c9e937bbfb88773bce4f5f24c0ab7da3d556679cb6f5ecf26e6c",
+      "bytes": 761,
+      "baselineSha256": "e3d3fde907e23f2261f64e607fc632f155805927e807f6c4df921bd4a81138ee",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 22
+    },
+    {
+      "path": "scripts/backfill-owner.py",
+      "sha256": "2acdecf5822b46942d5a5fe0e2202fbe7df3c613ba16d0f29ba23895a3aa674c",
+      "bytes": 3083,
+      "baselineSha256": "2acdecf5822b46942d5a5fe0e2202fbe7df3c613ba16d0f29ba23895a3aa674c",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 73
+    },
+    {
+      "path": "scripts/compare-models.py",
+      "sha256": "5fd68c6fcb2fa995e5408c9c0faf9808e2872f8db78f17dc0005a960e051c408",
+      "bytes": 21128,
+      "baselineSha256": "63939f74631d9eb20317f893d024813e5f9c1b1dcdc5d850b2e0005b5cc224c9",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 467
+    },
+    {
+      "path": "scripts/dev.mjs",
+      "sha256": "c61cc1376a55cb525d89ca7d905abca4dea9a9dabdffe38e6eb3c31c2b0b77eb",
+      "bytes": 2344,
+      "baselineSha256": "c61cc1376a55cb525d89ca7d905abca4dea9a9dabdffe38e6eb3c31c2b0b77eb",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 47
+    },
+    {
+      "path": "scripts/make-test-media.py",
+      "sha256": "a7da56261d8402e690df7e9a53f74af92755984353a036352f45b8583d008903",
+      "bytes": 4646,
+      "baselineSha256": "a7da56261d8402e690df7e9a53f74af92755984353a036352f45b8583d008903",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 76
+    },
+    {
+      "path": "scripts/prepare-hinglish-model.py",
+      "sha256": "0e91fd52c867b3e087830a5e4e9483b2810b70fd5692376251f5ec22f56e131c",
+      "bytes": 2703,
+      "baselineSha256": "c2b8074c5feed48efb557b7fef6c40dac3683d037cd86ed5ed8d8a0c392c6043",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 58
+    },
+    {
+      "path": "scripts/prepare-model.py",
+      "sha256": "38f902c6681752d3c1f24595d9db55fab1a458843750b38d7e67535cb3daa0e3",
+      "bytes": 2327,
+      "baselineSha256": "1dde35ec22983586654b52db36be377fd24d4f50a2e14485799b513729a7ec02",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 49
+    },
+    {
+      "path": "scripts/smoke-test.py",
+      "sha256": "aec56632bcf241013fae89073bcbcbd4e676409d939f9458f8372ef35c645a0a",
+      "bytes": 10004,
+      "baselineSha256": "aec56632bcf241013fae89073bcbcbd4e676409d939f9458f8372ef35c645a0a",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 187
+    },
+    {
+      "path": "server/app.py",
+      "sha256": "a3708e7a5f26fae0ac015e0276c46567eaba5c0432630519fde85fba016e3841",
+      "bytes": 110963,
+      "baselineSha256": "2bb96f87a1e5070455ad224a15e25fd2ed9f60dacc8648869d53e5ef2f632586",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 2217
+    },
+    {
+      "path": "server/auth.py",
+      "sha256": "bbf8e4045d44c2de798b0e461e764040cd6d19fce22bcb2f2a7a64d2610dc65c",
+      "bytes": 10463,
+      "baselineSha256": "bbf8e4045d44c2de798b0e461e764040cd6d19fce22bcb2f2a7a64d2610dc65c",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 252
+    },
+    {
+      "path": "server/denoise.py",
+      "sha256": "ec1d7e37dcdcb6da414dc97354d9eb5c881ea29f5cd4bf8100616d2aaeb9f9f4",
+      "bytes": 6299,
+      "baselineSha256": "b1499a756e1461b6a336c4e0948889f04c8192390bacecd85ba147e2a9c4c855",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 164
+    },
+    {
+      "path": "server/diagnostics.py",
+      "sha256": "b3e5f3b4b4d6e29d8c1e979a60b734796d83d4bd2b95289135430263c925a8f9",
+      "bytes": 2809,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 57
+    },
+    {
+      "path": "server/emoji.py",
+      "sha256": "59b8c0f5b4c08b257b3ecbb512b648e98cb15459cadfda39f006e3bb690fca02",
+      "bytes": 12864,
+      "baselineSha256": "59b8c0f5b4c08b257b3ecbb512b648e98cb15459cadfda39f006e3bb690fca02",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 268
+    },
+    {
+      "path": "server/glossary.py",
+      "sha256": "1688b0a5c081b990af1ac3358c64dd669722136deccc1e0724c04dfa25052c96",
+      "bytes": 6001,
+      "baselineSha256": "1688b0a5c081b990af1ac3358c64dd669722136deccc1e0724c04dfa25052c96",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 150
+    },
+    {
+      "path": "server/jobs.py",
+      "sha256": "caa91d4aeb237f4c1b8fa37556395abf8a97ea86827c01b0f68b73d629890657",
+      "bytes": 7486,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 184
+    },
+    {
+      "path": "server/model-revisions.json",
+      "sha256": "2f4f9def2857adabf4822729c85b135bf40c881b1ee8981ff118bc90d4283874",
+      "bytes": 530,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 8
+    },
+    {
+      "path": "server/model_provenance.py",
+      "sha256": "bd9e43e2ebabb6daaaa67c9362d4aa820ac610230c3ac5202049e294e915e313",
+      "bytes": 3414,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 72
+    },
+    {
+      "path": "server/remotion-captions.ts",
+      "sha256": "986b523c8742d38d9cad69a289dc496271a84935513d8a2e7fd506c25fd76231",
+      "bytes": 5631,
+      "baselineSha256": "986b523c8742d38d9cad69a289dc496271a84935513d8a2e7fd506c25fd76231",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 141
+    },
+    {
+      "path": "server/render-resources.ts",
+      "sha256": "373bf00ccba939293891785c3c2c9fcf82e16338734efd461ebeea3014459def",
+      "bytes": 3426,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 38
+    },
+    {
+      "path": "server/render.ts",
+      "sha256": "abba25573140f5087b08168d6d6e2acca5399b238a9e16c40a25271fe2ab25d0",
+      "bytes": 22887,
+      "baselineSha256": "c7be4454289a8091774465d08394ce6d8cd0debdbb02cf25be4577cbce593b0f",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 407
+    },
+    {
+      "path": "server/requirements-cpu.txt",
+      "sha256": "b9a2bf9419643a955a0c5a4b4002ecfc54f9762f4e7d2acc60c0ef15395eef41",
+      "bytes": 43,
+      "baselineSha256": "b9a2bf9419643a955a0c5a4b4002ecfc54f9762f4e7d2acc60c0ef15395eef41",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 2
+    },
+    {
+      "path": "server/requirements.txt",
+      "sha256": "5f2247c698b491760ca635b31f48b4f4a823704c113f1bbc460dfce01a12e4a3",
+      "bytes": 1384,
+      "baselineSha256": "840675107b7f45a0f67978cde360cd01fd468f6ba9661ed03dda8420ad539d54",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 34
+    },
+    {
+      "path": "server/transcription.py",
+      "sha256": "aac08d9506751dfc8f369307b0026bf21e3f5a8952cd0971ef4e48af2ba6f578",
+      "bytes": 48520,
+      "baselineSha256": "0fcaf8f87c26d7ec72113ca88c423c194247c0a457a416d14462873f1cd2bfe5",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 879
+    },
+    {
+      "path": "skills-lock.json",
+      "sha256": "592af9de31bdb3840854c87214fcac2568e4d16b0f96b4b89df7d7eb3875dfb5",
+      "bytes": 3268,
+      "baselineSha256": "592af9de31bdb3840854c87214fcac2568e4d16b0f96b4b89df7d7eb3875dfb5",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 83
+    },
+    {
+      "path": "src/components/AuthScreen.tsx",
+      "sha256": "c52b18c239766e5ab43ddeaf68746edaa8d3518655ded2f98c8767172754a564",
+      "bytes": 22718,
+      "baselineSha256": "c52b18c239766e5ab43ddeaf68746edaa8d3518655ded2f98c8767172754a564",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 527
+    },
+    {
+      "path": "src/components/CaptionsPanel.tsx",
+      "sha256": "8748908d2ef35b3a63cee6abe2da8a5d499a3c0f07bb36b7360aad2c0228fefb",
+      "bytes": 94325,
+      "baselineSha256": "d09249c966f19de9b95273ea8649204f35289f83d452049d0754f41660811d70",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 2240
+    },
+    {
+      "path": "src/components/CommandPalette.tsx",
+      "sha256": "5c69e30ba525f9fc9721003de03f4f470b0f5ada505ebee6d9db3db68f33fc5c",
+      "bytes": 13495,
+      "baselineSha256": "f4c05aaeb379995a6f14a4ca7667b757ea6fb5e05714dbcd0d7226742843d128",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 460
+    },
+    {
+      "path": "src/components/LiveAnnouncer.tsx",
+      "sha256": "566815b45d8bcbff713d20a258056acf9a6e6cebd3820b3a120455d0e9a552c1",
+      "bytes": 1615,
+      "baselineSha256": "566815b45d8bcbff713d20a258056acf9a6e6cebd3820b3a120455d0e9a552c1",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 68
+    },
+    {
+      "path": "src/components/MediaPanel.tsx",
+      "sha256": "e9b293423486b90a1867d1c770301ad817599aeead6a270ddefc17bada1ccc5e",
+      "bytes": 56422,
+      "baselineSha256": "67aabfd9a4d5a46da848c501effcb6887124f082d5bf3291c556469a6f03f191",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 1555
+    },
+    {
+      "path": "src/components/Modal.tsx",
+      "sha256": "de3ac86c655ea42044a135b7ef353568c3c48cf7f4bf9f7b2fdaaad865045adf",
+      "bytes": 1515,
+      "baselineSha256": "30ecc99f17e09ef028522f6f3328b2d70580cff9393279fe957df17200f478b6",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 33
+    },
+    {
+      "path": "src/components/OnboardingTour.tsx",
+      "sha256": "dbe8eee33b0794fc38a87f71adfb785529d483be2a1b85f7c63e75bccd27352a",
+      "bytes": 4717,
+      "baselineSha256": "0fd2fa8452bdff14264f245167c8a6f48c554e49a20dc7482247c2297a663254",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 149
+    },
+    {
+      "path": "src/components/SettingsPanel.tsx",
+      "sha256": "4550b29a31dc710ed20f8725a511b35932c6b065c06b7501ba5e77c6e65135eb",
+      "bytes": 19535,
+      "baselineSha256": "4550b29a31dc710ed20f8725a511b35932c6b065c06b7501ba5e77c6e65135eb",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 439
+    },
+    {
+      "path": "src/components/ShortcutModal.tsx",
+      "sha256": "b3b89d716d957862d5f20c9bff8f94c5d827c66df7060528d6fe8090031b1307",
+      "bytes": 3272,
+      "baselineSha256": "b3b89d716d957862d5f20c9bff8f94c5d827c66df7060528d6fe8090031b1307",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 89
+    },
+    {
+      "path": "src/components/StudioModals.tsx",
+      "sha256": "8b9b483c24dc11b6ae1c594bfeb779ee257e8e09c00ea182cdd19d3dd0b89a92",
+      "bytes": 10386,
+      "baselineSha256": "915ae5b3a7df042a43c7acee65b0377cec8b4464fe5325a5f72a3fd8f3e6034e",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 285
+    },
+    {
+      "path": "src/components/StudioNavbar.tsx",
+      "sha256": "c356241b51fd7ca8ee312f829d711a549ec2824b24fe17d4902ddd87606167f4",
+      "bytes": 5049,
+      "baselineSha256": "c356241b51fd7ca8ee312f829d711a549ec2824b24fe17d4902ddd87606167f4",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 166
+    },
+    {
+      "path": "src/components/StylePanel.tsx",
+      "sha256": "3e4f10cc5acd4778dd84c004596ddca9729881c5769b8c7910e5904057d76dea",
+      "bytes": 7802,
+      "baselineSha256": "3e4f10cc5acd4778dd84c004596ddca9729881c5769b8c7910e5904057d76dea",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 153
+    },
+    {
+      "path": "src/components/TemplateCard.tsx",
+      "sha256": "1814cddd08c51207ad96bc8c09288978ed07309a9f32e0f47b5eeb05caf3ccd4",
+      "bytes": 4163,
+      "baselineSha256": "1814cddd08c51207ad96bc8c09288978ed07309a9f32e0f47b5eeb05caf3ccd4",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 121
+    },
+    {
+      "path": "src/components/TextPanel.tsx",
+      "sha256": "afb281815ab9ba2ed9f9e58e79beccb52cd31b72b1db2bb2a76a04a7c6eb7106",
+      "bytes": 22902,
+      "baselineSha256": "df3cd3d38d1e99499ec8a0328fff7e3b094dd01fadbeaf8fced606c88de78f04",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 627
+    },
+    {
+      "path": "src/components/TimelineRuler.tsx",
+      "sha256": "cde70da284f7d2d65305c9ce9af40637b915d6c930f8fd5878caa640c8b3abb6",
+      "bytes": 896,
+      "baselineSha256": "cde70da284f7d2d65305c9ce9af40637b915d6c930f8fd5878caa640c8b3abb6",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 33
+    },
+    {
+      "path": "src/components/WordInspector.tsx",
+      "sha256": "9cdffd597efe49c4b8b8d39dcbd14384137fef071c5ac22c033ca81b945b8648",
+      "bytes": 6034,
+      "baselineSha256": "9cdffd597efe49c4b8b8d39dcbd14384137fef071c5ac22c033ca81b945b8648",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 159
+    },
+    {
+      "path": "src/components/useDialogFocus.ts",
+      "sha256": "5e9549ce9701be7a7e95254a177dbf2cf51203ddbbd80aa3cbe0a62a7c486571",
+      "bytes": 2476,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 55
+    },
+    {
+      "path": "src/fonts/local-faces.ts",
+      "sha256": "08cf9e09a9411c80331d25b4ee8eef68f4cb1674e0a20bdc3406dcebbaa07f39",
+      "bytes": 2640,
+      "baselineSha256": "08cf9e09a9411c80331d25b4ee8eef68f4cb1674e0a20bdc3406dcebbaa07f39",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 59
+    },
+    {
+      "path": "src/lib/api.ts",
+      "sha256": "284769e4dacb965e38541367e7236570b49e20d62870311e879d819f5067e7c6",
+      "bytes": 12662,
+      "baselineSha256": "9ff2b0e4e3bd58b8a15cea9f384c68f89894e97c95de284f20bdfe53e4af8f13",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 302
+    },
+    {
+      "path": "src/lib/auth.ts",
+      "sha256": "8175779032e845fc801239426d4d3216f5c234414cc840c6d67f9eaec5e476a5",
+      "bytes": 3990,
+      "baselineSha256": "8175779032e845fc801239426d4d3216f5c234414cc840c6d67f9eaec5e476a5",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 96
+    },
+    {
+      "path": "src/lib/caption-bounds.json",
+      "sha256": "a186bad8c53fa16001d37bdd11155fbe3886bd88bce15e52d8643bf4094618a4",
+      "bytes": 101,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 1
+    },
+    {
+      "path": "src/lib/caption-defaults.json",
+      "sha256": "51ecdafd4c704a357e849e73fb5199345c947b5375bd4e5b48648ea94e97b883",
+      "bytes": 172,
+      "baselineSha256": "51ecdafd4c704a357e849e73fb5199345c947b5375bd4e5b48648ea94e97b883",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 10
+    },
+    {
+      "path": "src/lib/caption-edit.ts",
+      "sha256": "c13959157e843bdedcc4bb7ebf52dc932869d2c10227df5748b8d0b5592169c2",
+      "bytes": 2981,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 49
+    },
+    {
+      "path": "src/lib/caption-fonts.json",
+      "sha256": "dd34baca11cf3bd0324fb9a921be6c369528bae412bde8757043269a09ccbb3d",
+      "bytes": 1290,
+      "baselineSha256": "dd34baca11cf3bd0324fb9a921be6c369528bae412bde8757043269a09ccbb3d",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 13
+    },
+    {
+      "path": "src/lib/caption-fonts.ts",
+      "sha256": "c627488fbc5ab2f7d2e3840975e97bea554bb805897b503bdc81b0c1d0d25d57",
+      "bytes": 2818,
+      "baselineSha256": "c627488fbc5ab2f7d2e3840975e97bea554bb805897b503bdc81b0c1d0d25d57",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 66
+    },
+    {
+      "path": "src/lib/caption-settings.ts",
+      "sha256": "53f3b3e161261bc88b9eb1b64997b33af5772f08f0a96ebf0a7e758984fbbb00",
+      "bytes": 770,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 11
+    },
+    {
+      "path": "src/lib/caption-templates.json",
+      "sha256": "b2777f03cc87ad3d5a15240dad5d6c2d254cf256aaa718c3ea7a0fec8bc9eed2",
+      "bytes": 4447,
+      "baselineSha256": "b2777f03cc87ad3d5a15240dad5d6c2d254cf256aaa718c3ea7a0fec8bc9eed2",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 170
+    },
+    {
+      "path": "src/lib/captions.ts",
+      "sha256": "9ec1d4bea5acd01ae52e50682a084f5b370894209f659b3be1c88f83815d65c8",
+      "bytes": 24709,
+      "baselineSha256": "65b8e7b537838cb28887a4694090ea96f99c262c21cb73e4408bd4feacb6e623",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 607
+    },
+    {
+      "path": "src/lib/chromakey.ts",
+      "sha256": "67d97b926b3472267e5604cb281eb406968aea847bbc494f4060fba0600a77df",
+      "bytes": 5245,
+      "baselineSha256": "67d97b926b3472267e5604cb281eb406968aea847bbc494f4060fba0600a77df",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 169
+    },
+    {
+      "path": "src/lib/frontend-reliability.ts",
+      "sha256": "d5b64e3733e53d8f4b62ffd3f19e575f5523798839a988ad45619f896f7bcbe2",
+      "bytes": 2600,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 52
+    },
+    {
+      "path": "src/lib/media-credentials.ts",
+      "sha256": "fc4cf9f85cb851fe978a504d2bd099420508fb75c71e3d4a421ee6df4cf32e61",
+      "bytes": 2231,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 42
+    },
+    {
+      "path": "src/lib/media-scene.ts",
+      "sha256": "2cb0ff724c716941f2721ef94f225d051e6fc30098eafd90cc55db121a530a2f",
+      "bytes": 291,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 5
+    },
+    {
+      "path": "src/lib/pages.ts",
+      "sha256": "e9d6d93f0c5a2ce1d17c0074f8bc15448f301c854ccec333564371e42971ee19",
+      "bytes": 19191,
+      "baselineSha256": "5c5bed8b5b0b5064b6539f66abc7427e61d556f1bb35744318c901b8d122f4da",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 436
+    },
+    {
+      "path": "src/lib/protected-fetch.ts",
+      "sha256": "831e66a18f89ef052dbebd9bbbebd9611593a3ff326592c214c0c36027ed1758",
+      "bytes": 1566,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 38
+    },
+    {
+      "path": "src/lib/revision-save.ts",
+      "sha256": "33c582c6f39f75b08f9df4e93c32f6aedf009e9930f558a8bfee005cbb06a0cf",
+      "bytes": 1347,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 24
+    },
+    {
+      "path": "src/lib/safe-area.ts",
+      "sha256": "375a050b12fea3709bd55f2fb4e993c8b010c5d7b1c5d5e208080e5ccd5176ec",
+      "bytes": 2956,
+      "baselineSha256": "375a050b12fea3709bd55f2fb4e993c8b010c5d7b1c5d5e208080e5ccd5176ec",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 77
+    },
+    {
+      "path": "src/lib/shell.ts",
+      "sha256": "030f09b9cec930daf57fb1a157dc63223058349747c9833b50f2a31e8d34b196",
+      "bytes": 1046,
+      "baselineSha256": "030f09b9cec930daf57fb1a157dc63223058349747c9833b50f2a31e8d34b196",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 28
+    },
+    {
+      "path": "src/lib/types.ts",
+      "sha256": "485a7f12ba015a90d5840218427bd9c0b553ee79e189fbd14714425b749bf44a",
+      "bytes": 7387,
+      "baselineSha256": "c830bb058ec1bf0eec935e110e70e4b4f62413dd2a454a5064c754faef9065fa",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 201
+    },
+    {
+      "path": "src/lib/utils.ts",
+      "sha256": "97a6bd26df6c3cc831a1f97b428ab04380d40245359a12371cf4e559c3c121a5",
+      "bytes": 3985,
+      "baselineSha256": "97a6bd26df6c3cc831a1f97b428ab04380d40245359a12371cf4e559c3c121a5",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 118
+    },
+    {
+      "path": "src/main.tsx",
+      "sha256": "e16edda7b6cd4af88ca966316976f406f9be8893b5bf572f8f73c498706c6d58",
+      "bytes": 201722,
+      "baselineSha256": "57617714795639954579ec52451b27d09bc8d18b83a85236b9e45f3a113d7495",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 4458
+    },
+    {
+      "path": "src/registry/magicui/animated-theme-toggler.tsx",
+      "sha256": "8c080997868b5d1ca018688f36930e9af674a01260109bcf143fab34db44e40f",
+      "bytes": 10880,
+      "baselineSha256": "8c080997868b5d1ca018688f36930e9af674a01260109bcf143fab34db44e40f",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 357
+    },
+    {
+      "path": "src/remotion/CaptionPage.tsx",
+      "sha256": "9ca567251a7d787c2f8cec78219ba5c206b4358d5dd07578d49b9b61f37be9e5",
+      "bytes": 14484,
+      "baselineSha256": "9ca567251a7d787c2f8cec78219ba5c206b4358d5dd07578d49b9b61f37be9e5",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 354
+    },
+    {
+      "path": "src/remotion/CaptionTrack.tsx",
+      "sha256": "11633d746c36780eb7aaa3fcd94ae158e00b57a3666d6cd80f2787915cabb8cd",
+      "bytes": 3627,
+      "baselineSha256": "11633d746c36780eb7aaa3fcd94ae158e00b57a3666d6cd80f2787915cabb8cd",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 88
+    },
+    {
+      "path": "src/remotion/CaptionWord.tsx",
+      "sha256": "8941cd7b5c72c4fcc41b64d1d57bfe984c02a16e0e47c24175b32e2ad9fbf2ed",
+      "bytes": 13596,
+      "baselineSha256": "8941cd7b5c72c4fcc41b64d1d57bfe984c02a16e0e47c24175b32e2ad9fbf2ed",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 338
+    },
+    {
+      "path": "src/remotion/Root.tsx",
+      "sha256": "a5fe4adb53c52c0cb8a304cccc5d9654832e9264ae08713dfa1e672a100b734a",
+      "bytes": 2740,
+      "baselineSha256": "a5fe4adb53c52c0cb8a304cccc5d9654832e9264ae08713dfa1e672a100b734a",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 55
+    },
+    {
+      "path": "src/remotion/index.ts",
+      "sha256": "8ad7cfb50e32546485a1a2ef5e468e5b6bdee2bc5c9b92d08882f96e3750b4a3",
+      "bytes": 109,
+      "baselineSha256": "8ad7cfb50e32546485a1a2ef5e468e5b6bdee2bc5c9b92d08882f96e3750b4a3",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 4
+    },
+    {
+      "path": "src/remotion/theme.ts",
+      "sha256": "13ac06dcd8ec1c1276e799bd645d815924c534544d805a8f3da2296783d89fc1",
+      "bytes": 2950,
+      "baselineSha256": "13ac06dcd8ec1c1276e799bd645d815924c534544d805a8f3da2296783d89fc1",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 80
+    },
+    {
+      "path": "src/remotion/treatments.ts",
+      "sha256": "4de739db3d294cf49876c56cced05843aaa04d04a1d35bb964727779331d97b6",
+      "bytes": 8133,
+      "baselineSha256": "4de739db3d294cf49876c56cced05843aaa04d04a1d35bb964727779331d97b6",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 181
+    },
+    {
+      "path": "src/styles.css",
+      "sha256": "4808b7f39104fea5ee74d3a6b497fa6cd175298797e044b8d3fb2424621db875",
+      "bytes": 277016,
+      "baselineSha256": "db01932db2b3b10a6754e7d1e02fe90d6f552f2bbe7eb425332dd22b00c3aebb",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 12339
+    },
+    {
+      "path": "tests/asset-containment.test.ts",
+      "sha256": "f511619aa3d0559ef318b605ee837b78ebbf3581b03e6f656290158f78b652b3",
+      "bytes": 1678,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 30
+    },
+    {
+      "path": "tests/caption-reliability.test.ts",
+      "sha256": "1fd83b18dee40217d06d5e95f92f94dfe84ca3a42e741ee83cbfd09f1480c8fd",
+      "bytes": 2989,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 45
+    },
+    {
+      "path": "tests/captions.test.ts",
+      "sha256": "6133113c884e4775a45ec4f8501cfefe8c631fa6efc94c3892e3ca7f63e683bf",
+      "bytes": 92383,
+      "baselineSha256": "f889e0bc3f48c795e45708929880eb41beb78478a9b73eb7addf1abc3d16dff5",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 1693
+    },
+    {
+      "path": "tests/frontend-reliability.test.ts",
+      "sha256": "e0c139543657d075c56b42af2a0470b3543c5b97ee04372a80461963685cff9b",
+      "bytes": 3982,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 66
+    },
+    {
+      "path": "tests/media-credentials.test.ts",
+      "sha256": "3047f4260e2227f991a151a0255d6b3423036db51bc40da92a5b6ce2cedd455a",
+      "bytes": 3229,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 50
+    },
+    {
+      "path": "tests/media-scene.test.ts",
+      "sha256": "cf458dbc7385224673125a8c9c8415f91f00a560445d2bca1d9186d95b402648",
+      "bytes": 1866,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 33
+    },
+    {
+      "path": "tests/protected-fetch.test.ts",
+      "sha256": "010c00812f99205c8fa36aec4cfe5b900dd466d198de61111b570af076cbf2a2",
+      "bytes": 3239,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 52
+    },
+    {
+      "path": "tests/render-resources.test.ts",
+      "sha256": "9408426173a5f01597ce1dc08d8ca7747e8ef8c0f88430622070bbbefee33c7c",
+      "bytes": 6780,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 104
+    },
+    {
+      "path": "tests/revision-save.test.ts",
+      "sha256": "108da9e1a43958e6958962381213859bcd1fa3f4a0b8c5a85276cdc19c0822b0",
+      "bytes": 1683,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 30
+    },
+    {
+      "path": "tests/test_admission.py",
+      "sha256": "d992e7a77226bf21f54f2c35e0d8c43776d6ca6bfa7f6529596ced3dc4c5d56d",
+      "bytes": 22279,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 454
+    },
+    {
+      "path": "tests/test_backend.py",
+      "sha256": "931a664609ff98797f6371bf9ba530b226aee7fdf759fe8c6f93c1207c643210",
+      "bytes": 96160,
+      "baselineSha256": "d8f565a5a766b97ec7a89ad3de9236b3b7282a8f58041f5997fe0a88ed34c095",
+      "baselineChanged": true,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 1969
+    },
+    {
+      "path": "tests/test_diagnostics.py",
+      "sha256": "5706a33d313fbb2865b5653e12cdaeb5ae5005a4bb018e48de32d6ca1fca3c0d",
+      "bytes": 1542,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 30
+    },
+    {
+      "path": "tests/test_durable_jobs.py",
+      "sha256": "72d4966ab292cf2ab6607b122966c67dd72475e2b72325802cd78adc9a8ff13f",
+      "bytes": 5437,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 130
+    },
+    {
+      "path": "tests/test_isolation_signal.py",
+      "sha256": "cd8fd0cf6799202c292ed7d2bc80cd7de8a24f8efe17c36b961e10ec81e9083e",
+      "bytes": 7758,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 156
+    },
+    {
+      "path": "tests/test_job_failures.py",
+      "sha256": "eafe29da8415afe00b03ab961f965471c8de6c3bd563c5dca2154d5959728653",
+      "bytes": 2553,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 50
+    },
+    {
+      "path": "tests/test_jobs.py",
+      "sha256": "310991e0656e0b7b3f74cf58f2366727bc55a1f149dc34e3c8f2b5753aeffcdc",
+      "bytes": 4234,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 90
+    },
+    {
+      "path": "tests/test_model_provenance.py",
+      "sha256": "035496528658ea5cadb920e9421dc5186ed6324eff20c7927e1d0e5c29736cd3",
+      "bytes": 5957,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 97
+    },
+    {
+      "path": "tests/text-exports.test.ts",
+      "sha256": "a5ace448a9f7e962d1f188e99f58be7da8414865b6ab561be02d147e34ac982c",
+      "bytes": 1979,
+      "baselineSha256": null,
+      "baselineChanged": null,
+      "disposition": "focused_team_review_and_regression",
+      "lines": 30
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "482071d971fc62ecf2ead84d4b73a2a84e6a61d6e27ec17f1fb9d5065251b7c9",
+      "bytes": 493,
+      "baselineSha256": "482071d971fc62ecf2ead84d4b73a2a84e6a61d6e27ec17f1fb9d5065251b7c9",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 14
+    },
+    {
+      "path": "vercel.json",
+      "sha256": "e7c0c4d1f68999a73f90a9e8a6aa8b0e37e88e4d6c47ff8f8068d2659491cb7e",
+      "bytes": 348,
+      "baselineSha256": "e7c0c4d1f68999a73f90a9e8a6aa8b0e37e88e4d6c47ff8f8068d2659491cb7e",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 16
+    },
+    {
+      "path": "vite.config.ts",
+      "sha256": "e51d15cb3484e7a49e0a843ad5fa412b763fb557fe070cd295b7b076cae935d0",
+      "bytes": 1993,
+      "baselineSha256": "e51d15cb3484e7a49e0a843ad5fa412b763fb557fe070cd295b7b076cae935d0",
+      "baselineChanged": false,
+      "disposition": "unchanged_original_review",
+      "lines": 64
+    }
+  ]
+}

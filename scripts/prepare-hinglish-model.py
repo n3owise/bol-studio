@@ -7,6 +7,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from server.model_provenance import model_revision, local_manifest
 
 
 REPO = "parismitaglobalsolutions/indicconformer-sherpa-onnx"
@@ -20,7 +23,8 @@ FILES = [
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--variant", choices=("swift", "apex"), default="swift",
-                        help="Swift is the small local/browser-friendly model; Apex is larger and more accurate.")
+                        help="Swift is the small local/browser-friendly model; Apex is larger; comparative accuracy requires held-out evaluation.")
+    parser.add_argument("--revision", default=None, help="Immutable commit SHA; defaults to the checked-in repository pin.")
     parser.add_argument("--offline", action="store_true", help="Check existing files without network access.")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
@@ -38,11 +42,15 @@ def main() -> None:
             if not target.is_file():
                 parser.exit(1, f"Missing {target}; rerun without --offline.")
             continue
-        downloaded = hf_hub_download(repo_id=REPO, filename=filename, local_dir=output.parent.parent)
+        downloaded = hf_hub_download(repo_id=REPO, filename=filename, revision=model_revision(REPO, args.revision), local_dir=output.parent.parent)
         source = Path(downloaded)
         if source.resolve() != target.resolve():
             target.write_bytes(source.read_bytes())
-    print(json.dumps({"repo": REPO, "variant": variant, "model": str(output.resolve()),
+    manifest = local_manifest(output, [Path(item).name for item in files])
+    if not args.offline:
+        manifest.update(repo=REPO, revision=model_revision(REPO, args.revision), sourceVerified=True)
+        (output / "provenance.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    print(json.dumps({"provenance": manifest, "repo": REPO, "variant": variant, "model": str(output.resolve()),
                       "ready": all((output / Path(item).name).is_file() for item in files)}, indent=2))
 
 

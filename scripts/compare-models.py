@@ -15,8 +15,8 @@ Romanisation is the real difficulty and worth being honest about. "jaate" and
 "jate" are the same spoken word, and a plain word-error rate calls one of them
 wrong. So two numbers are reported: the strict one, and a lenient one that
 folds common Hinglish spelling variation before comparing. Read them together —
-a model that only loses on the strict score is spelling differently, not
-mishearing.
+the lenient score can fold real phonetic differences as well as spelling
+variation. It is a heuristic, not proof that a model heard the right words.
 
 Usage:
     python scripts/compare-models.py clips/            # writes the report
@@ -37,6 +37,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -55,30 +56,13 @@ class Model:
     target: str
 
 
-# The repo these come from is named for IndicConformer and mostly contains
-# AI4Bharat Indic models, but the two Hinglish variants are Whisper fine-tunes —
-# their tokens files carry Whisper's 50,257-entry vocabulary, and the app loads
-# them through sherpa's `from_whisper`. Worth stating plainly, because the repo
-# name suggests otherwise and it changes how these results should be read: A and
-# C are the same architecture, differing in what they were fine-tuned to do.
+# Each runner has different preprocessing/postprocessing; evaluate the emitted pipeline,
+# and do not attribute score differences solely to architecture or fine-tuning.
 MODELS = [
-    Model("A", "hinglish-apex",
-          "What Bol uses today, run through the app's whole pipeline including the second "
-          "multilingual pass that repairs English words. Whisper Large-V3 fine-tuned for Roman "
-          "Hinglish, 807M params, int8 ONNX.",
-          "sherpa", "data/models/hinglish-apex/hi-hinglish-apex"),
-    Model("B", "hinglish-swift",
-          "Same family, built on Whisper-base instead: 72.6M params, ~150MB, roughly six times smaller. "
-          "The question is how much accuracy that saving costs.",
-          "sherpa", "data/models/hinglish-swift/hi-hinglish-swift"),
-    Model("C", "whisper-large-v3-turbo",
-          "Stock Whisper, no Hinglish fine-tuning. The same base as A, so it isolates what the "
-          "fine-tuning changed — including whether it translates Hinglish instead of transcribing it.",
-          "mlx", "mlx-community/whisper-large-v3-turbo"),
-    Model("D", "Trelis/whisper-hinglish-preview",
-          "A different Hinglish fine-tune of Whisper, by a different author. The only real outside "
-          "comparison here.",
-          "transformers", "Trelis/whisper-hinglish-preview"),
+    Model("A", "hinglish-apex", "Local Apex checkpoint through the full app pipeline. Comparative accuracy unverified.", "sherpa", "data/models/hinglish-apex/hi-hinglish-apex"),
+    Model("B", "hinglish-swift", "Local Swift checkpoint through the full app pipeline. Comparative accuracy unverified.", "sherpa", "data/models/hinglish-swift/hi-hinglish-swift"),
+    Model("C", "whisper-large-v3-turbo", "MLX Whisper Turbo checkpoint; raw transcribe pass (different pipeline from A/B).", "mlx", "mlx-community/whisper-large-v3-turbo"),
+    Model("D", "Trelis/whisper-hinglish-preview", "External checkpoint through Transformers; raw transcribe pass.", "transformers", "Trelis/whisper-hinglish-preview"),
 ]
 
 
@@ -127,7 +111,7 @@ def score(reference: str, hypothesis: str) -> tuple[float, float]:
     import jiwer
     ref, hyp = normalise(reference), normalise(hypothesis)
     if not ref:
-        return (0.0, 0.0)
+        return (float(len(hyp.split())), float(len(hyp.split())))
     if not hyp:
         return (1.0, 1.0)
     strict = jiwer.wer(ref, hyp)
@@ -199,12 +183,18 @@ def word_diff(reference: str, hypothesis: str) -> list[tuple[str, str, str]]:
 
 def to_wav(source: Path) -> Path:
     """16 kHz mono, which every model here expects."""
-    target = Path(tempfile.mkstemp(suffix=".wav")[1])
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-         "-i", str(source), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(target)],
-        check=True, timeout=600,
-    )
+    fd, name = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    target = Path(name)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+             "-i", str(source), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(target)],
+            check=True, timeout=600,
+        )
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
     return target
 
 
@@ -255,7 +245,8 @@ def duration_of(wav: Path) -> float:
 
 def run_mlx(model: Model, wav: Path) -> str:
     import mlx_whisper
-    result = mlx_whisper.transcribe(str(wav), path_or_hf_repo=model.target,
+    from server.model_provenance import mlx_model_path
+    result = mlx_whisper.transcribe(str(wav), path_or_hf_repo=mlx_model_path(model.target),
                                     language=None, task="transcribe", verbose=None)
     return (result.get("text") or "").strip()
 
@@ -263,8 +254,9 @@ def run_mlx(model: Model, wav: Path) -> str:
 def run_transformers(model: Model, wav: Path) -> str:
     import torch
     from transformers import pipeline
+    from server.model_provenance import model_revision
     device = "mps" if torch.backends.mps.is_available() else "cpu"
-    asr = pipeline("automatic-speech-recognition", model=model.target,
+    asr = pipeline("automatic-speech-recognition", model=model.target, revision=model_revision(model.target),
                    device=device, chunk_length_s=30)
     return (asr(str(wav)).get("text") or "").strip()
 
@@ -284,9 +276,11 @@ def render(results: list[Result], clips: list[tuple[str, str]], models: list[Mod
     rows = []
     for model in models:
         got = [by[(model.key, c)] for c, _ in clips if (model.key, c) in by]
-        ok = [r for r in got if r.wer is not None]
-        mean = sum(r.wer for r in ok) / len(ok) if ok else None
-        lenient = sum(r.lenient_wer for r in ok) / len(ok) if ok else None
+        ok = [r for r in got if r.clip in scored and not r.error and r.wer is not None]
+        complete = bool(scored) and len(ok) == len(scored)
+        # Missing/failed clips must never improve the reported mean or ranking.
+        mean = sum(r.wer for r in ok) / len(ok) if complete else None
+        lenient = sum(r.lenient_wer for r in ok) / len(ok) if complete else None
         seconds = sum(r.seconds for r in got)
         rows.append((model, mean, lenient, seconds, any(r.error for r in got)))
 
@@ -317,16 +311,18 @@ def render(results: list[Result], clips: list[tuple[str, str]], models: list[Mod
  .note {{ font-size: 13px; opacity: .65; }}
 </style>
 <h1>Transcription model comparison</h1>
-<p class="lede">Same clips, four models, scored against what was actually said.
+<p class="lede">Same clips, selected models, scored against supplied reference text. Failed or missing scored clips exclude a model from ranking; coverage is shown. Different runners use different pipelines.
 Lower is better: <b>0.00</b> is perfect, <b>0.25</b> means one word in four is wrong.</p>
 
 <h2>Summary</h2>
 <table><tr><th>Model</th><th>What it is</th><th class="num">Word errors</th>
-<th class="num">Ignoring spelling</th><th class="num">Time</th></tr>"""]
+<th class="num">Heuristic spelling fold</th><th class="num">Time</th></tr>"""]
 
     for model, mean, lenient, seconds, failed in rows:
         cls = ' class="win"' if model.key == best else ""
-        shown = f"{mean:.2f}" if mean is not None else ("failed" if failed else "—")
+        shown = f"{mean:.2f}" if mean is not None else ("incomplete / failed" if scored else "unscored")
+        coverage = sum(1 for r in results if r.model.key == model.key and r.clip in scored and not r.error and r.wer is not None)
+        shown += f" · {coverage}/{len(scored)} scored"
         soft = f"{lenient:.2f}" if lenient is not None else "—"
         parts.append(
             f"<tr{cls}><td><b>{model.key}</b> — {esc(model.name)}</td><td class='note'>{esc(model.note)}</td>"
@@ -407,6 +403,9 @@ def main() -> int:
     wanted = {k.strip().upper() for k in args.only.split(",") if k.strip()}
     models = [m for m in MODELS if not wanted or m.key in wanted]
 
+    if not models:
+        parser.error("No recognized model keys selected.")
+
     files = sorted(p for p in args.clips.iterdir()
                    if p.suffix.lower() in AUDIO_SUFFIXES | VIDEO_SUFFIXES)
     if not files:
@@ -421,7 +420,11 @@ def main() -> int:
     results: list[Result] = []
     for path in files:
         print(f"\n=== {path.name} ===", flush=True)
-        wav = to_wav(path)
+        try:
+            wav = to_wav(path)
+        except Exception as error:
+            results.extend(Result(model=model, clip=path.name, error=f"Media preparation failed: {type(error).__name__}") for model in models)
+            continue
         truth = dict(clips)[path.name]
         try:
             for model in models:
@@ -433,8 +436,12 @@ def main() -> int:
                     result.error = f"{type(error).__name__}: {error}"[:200]
                 result.seconds = time.time() - started
                 if truth and not result.error:
-                    result.wer, result.lenient_wer = score(truth, result.text)
-                    result.diff = word_diff(truth, result.text)
+                    try:
+                        result.wer, result.lenient_wer = score(truth, result.text)
+                        result.diff = word_diff(truth, result.text)
+                    except Exception as error:
+                        result.wer = result.lenient_wer = None
+                        result.error = f"Scoring failed: {type(error).__name__}: {error}"[:200]
                 mark = result.error or f"{result.wer:.2f}" if result.wer is not None else result.error or "ok"
                 print(f"  {model.key} {model.name:34s} {result.seconds:6.1f}s  {mark}", flush=True)
                 print(f"      {result.text[:110]}", flush=True)
@@ -443,8 +450,17 @@ def main() -> int:
             wav.unlink(missing_ok=True)
 
     args.out.write_text(render(results, clips, models))
+    from server.model_provenance import model_provenance
+    metadata = {}
+    for model in models:
+        try:
+            metadata[model.key] = model_provenance(model.target)
+        except Exception as error:
+            metadata[model.key] = {"unavailable": type(error).__name__}
+    args.out.with_suffix('.json').write_text(json.dumps({"models": metadata, "clips": [{"name": name, "hasReference": bool(truth)} for name, truth in clips],
+        "results": [{"model": r.model.key, "clip": r.clip, "seconds": r.seconds, "error": r.error, "wer": r.wer, "lenientWer": r.lenient_wer} for r in results]}, indent=2) + "\n")
     print(f"\nReport: {args.out}")
-    return 0
+    return 2 if any(r.error for r in results) else 0
 
 
 if __name__ == "__main__":

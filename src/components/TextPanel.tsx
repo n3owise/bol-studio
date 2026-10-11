@@ -1,3 +1,4 @@
+import { linkedCaptionSize, captionBounds } from '../lib/caption-settings';
 import React from 'react';
 import { AlignCenter, AlignLeft, AlignRight, Bold, Check, ChevronDown, Italic, Link2, Plus, RotateCcw, SlidersHorizontal, Star, Strikethrough, Type, Underline, Unlink, WandSparkles } from 'lucide-react';
 import { captionFonts } from '../lib/caption-fonts';
@@ -45,12 +46,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
    * number on its own — so that is what is held.
    */
   const setCaptionSize = (next: number) => {
-    if (!linked || settings.heroFontSize === undefined) {
-      updateSettings({ fontSize: next });
-      return;
-    }
-    const ratio = settings.heroFontSize / settings.fontSize;
-    updateSettings({ fontSize: next, heroFontSize: Math.round(next * ratio) });
+    updateSettings(linkedCaptionSize(settings, next, linked));
   };
 
   return (
@@ -95,7 +91,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         type="button"
         className="icon-button tiny"
         title="Decrease font size"
-        onClick={() => setCaptionSize(Math.max(20, settings.fontSize - 2))}
+        onClick={() => setCaptionSize(Math.max(captionBounds.fontSize.min, settings.fontSize - 2))}
         disabled={busy}
       >
         -
@@ -104,8 +100,8 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         disabled={busy}
         id="caption-size"
         type="range"
-        min="24"
-        max="92"
+        min={captionBounds.fontSize.min}
+        max={captionBounds.fontSize.max}
         value={settings.fontSize}
         onChange={e => setCaptionSize(Number(e.target.value))}
       />
@@ -113,7 +109,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         type="button"
         className="icon-button tiny"
         title="Increase font size"
-        onClick={() => setCaptionSize(Math.min(92, settings.fontSize + 2))}
+        onClick={() => setCaptionSize(Math.min(captionBounds.fontSize.max, settings.fontSize + 2))}
         disabled={busy}
       >
         +
@@ -177,8 +173,8 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         disabled={busy}
         id="hero-size"
         type="range"
-        min="24"
-        max="180"
+        min={captionBounds.heroFontSize.min}
+        max={captionBounds.heroFontSize.max}
         value={heroSize}
         onChange={e => updateSettings({ heroFontSize: Number(e.target.value) })}
       />
@@ -202,8 +198,8 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
       disabled={busy}
       id="caption-position"
       type="range"
-      min="15"
-      max="88"
+      min={captionBounds.position.min}
+      max={captionBounds.position.max}
       value={settings.position}
       onChange={e => updateSettings({ position: Number(e.target.value) })}
     />

@@ -101,7 +101,7 @@ class JWKSCache:
     def __init__(self, url: str) -> None:
         self._url = url
         self._keys: _Keys | None = None
-        self._last_attempt = 0.0
+        self._last_attempt = float("-inf")
         self._lock = asyncio.Lock()
 
     async def get(self, kid: str) -> PyJWK:
@@ -114,7 +114,7 @@ class JWKSCache:
             fresh = keys is not None and time.monotonic() - keys.fetched_at < CACHE_TTL_SECONDS
             if keys is not None and kid in keys.by_id and fresh:
                 return keys.by_id[kid]
-            if time.monotonic() - self._last_attempt >= REFETCH_INTERVAL_SECONDS or keys is None:
+            if time.monotonic() - self._last_attempt >= REFETCH_INTERVAL_SECONDS:
                 await self._refetch()
             keys = self._keys
         if keys is None:
@@ -161,7 +161,7 @@ async def user_id_from(token: str) -> str:
     except jwt.PyJWTError:
         raise AuthError(UNAUTHENTICATED, "Please sign in to continue.")
     kid = header.get("kid")
-    if not kid:
+    if not isinstance(kid, str) or not kid.strip():
         raise AuthError(UNAUTHENTICATED, "Please sign in to continue.")
     key = await _cache.get(kid)
     try:
