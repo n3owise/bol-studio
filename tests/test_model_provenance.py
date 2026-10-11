@@ -67,6 +67,7 @@ def test_companion_records_the_checkpoint_actually_used_without_download(tmp_pat
     else:
         monkeypatch.setitem(sys.modules, 'mlx_whisper', None)
         monkeypatch.setattr(speech.importlib.util, 'find_spec', lambda name: object() if name == 'faster_whisper' else None)
+        monkeypatch.setattr(speech, 'read_audio', lambda path: (__import__('numpy').zeros(16000, dtype='float32'), 16000))
         monkeypatch.setattr(speech, '_faster_model', lambda model: SimpleNamespace(transcribe=lambda *args, **kwargs: (iter([]), None)))
     segments = speech._english_companion_decode(tmp_path / 'audio.wav', 'sherpa-hinglish', 'fixture/main', lambda *args: None)
     assert segments == []
@@ -95,3 +96,13 @@ def test_unpinned_custom_model_rejected_at_admission_without_download(monkeypatc
     monkeypatch.delenv('BOL_MODEL_REVISIONS', raising=False)
     with pytest.raises(ValueError, match='No pinned revision'):
         speech.validate_transcription_request('native')
+
+
+def test_portable_decoder_signal_resamples_without_changing_duration():
+    import numpy as np
+    from server.transcription import faster_audio_signal
+    signal = np.ones(8000, dtype=np.float64)
+    decoded = faster_audio_signal(signal, 8000)
+    assert len(decoded) == 16000
+    assert decoded.dtype == np.float32 and decoded.flags.c_contiguous
+    np.testing.assert_allclose(decoded[100:-100], 1, atol=.002)

@@ -292,6 +292,15 @@ def read_audio(path: Path) -> tuple[np.ndarray, int]:
     return audio, rate
 
 
+def faster_audio_signal(audio: np.ndarray, rate: int) -> np.ndarray:
+    """Feed Whisper its required mono 16 kHz samples without a second file decoder."""
+    if rate != 16000:
+        from scipy.signal import resample_poly
+        divisor = math.gcd(rate, 16000)
+        audio = resample_poly(audio, 16000 // divisor, rate // divisor)
+    return np.ascontiguousarray(audio, dtype=np.float32)
+
+
 def waveform_samples(audio: np.ndarray, count: int = 180) -> list[float]:
     if not len(audio):
         return [0.0] * count
@@ -698,7 +707,8 @@ def _english_companion_decode(audio_path: Path, backend: str, model: str, progre
         return []
     progress(72, "Verifying English switches with a local multilingual pass.")
     local_model = _faster_model(verify_model)
-    stream, _ = local_model.transcribe(str(audio_path), vad_filter=True, **options)
+    companion_audio, companion_rate = read_audio(audio_path)
+    stream, _ = local_model.transcribe(faster_audio_signal(companion_audio, companion_rate), vad_filter=True, **options)
     return CompanionSegments([{ "words": [{"word": w.word, "start": w.start, "end": w.end, "probability": w.probability} for w in (segment.words or [])]} for segment in stream], "faster-whisper", verify_model)
 
 
@@ -823,7 +833,7 @@ def transcribe(audio_path: Path, duration: float, script: str, language: str,
         elif backend == "faster-whisper":
             local_model = _faster_model(model)
             progress(34, "Transcribing locally and aligning spoken words.")
-            stream, info = local_model.transcribe(str(decode_path), vad_filter=True, **options)
+            stream, info = local_model.transcribe(faster_audio_signal(audio, rate), vad_filter=True, **options)
             segments = []
             for segment in stream:
                 if is_cancelled and is_cancelled():

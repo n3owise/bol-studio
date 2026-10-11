@@ -67,7 +67,10 @@ def test_all_decoders_and_companions_use_cleaned_signal_and_remove_files(tmp_pat
         def decode(path, **kwargs):
             # Inspection happens on iteration, like faster-whisper's lazy stream.
             def stream():
-                inspect(path)
+                np.testing.assert_array_equal(path, cleaned)
+                assert path.dtype == np.float32
+                if outcome == 'decode_error': raise RuntimeError('synthetic decoder error')
+                if outcome == 'cancelled': cancel[0] = True
                 yield SimpleNamespace(words=[SimpleNamespace(word='नमस्ते',start=.1,end=.7,probability=.9)],end=.7)
             return stream(), SimpleNamespace(language='hi')
         monkeypatch.setattr(speech, '_faster_model', lambda _: SimpleNamespace(transcribe=decode))
