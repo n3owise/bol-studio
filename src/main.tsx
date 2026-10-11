@@ -301,13 +301,13 @@ function App() {
 
   useEffect(() => {
     try {
-      if (project && project.status === 'ready' && !localStorage.getItem('bol_tour_completed')) {
+      if (project && project.status === 'ready' && project.words.length > 0 && !languagePrompt && !modal && !showCommandPalette && !localStorage.getItem('bol_tour_completed')) {
         setShowTour(true);
       }
     } catch {
       // localStorage disabled or unavailable
     }
-  }, [project?.id, project?.status]);
+  }, [project?.id, project?.status, project?.words.length, languagePrompt, modal, showCommandPalette]);
 
   const [saveConflict, setSaveConflict] = useState<Project | null>(null);
   const savedProjectRef = useRef<Project | null>(null);
@@ -4332,7 +4332,7 @@ function App() {
     />
 
     <OnboardingTour
-      isOpen={showTour}
+      isOpen={showTour && !languagePrompt && !modal && !showCommandPalette && !saveConflict}
       onClose={handleCloseTour}
     />
 
