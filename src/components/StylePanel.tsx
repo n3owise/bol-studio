@@ -4,6 +4,11 @@ import { templates } from '../lib/captions';
 import type { Settings } from '../lib/types';
 import { TemplateCard } from './TemplateCard';
 
+// Retain renderer compatibility for an existing temporary session, but remove
+// these presets from the selectable catalog.
+const removedPresets = new Set(['double-trouble', 'bubble-highlight', 'scribble', 'bounce']);
+const selectableTemplates = templates.filter(template => !removedPresets.has(template.id));
+
 /** Preset selection and effect targeting; typography lives in the Text panel. */
 export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: {
   settings: Settings;
@@ -26,7 +31,7 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
     <p className="field-hint">Emphasized words only keeps supporting words still in their normal color, appearing as they are spoken.</p>
         </div>
         <div className="template-grid">
-          {templates.map(template => (
+          {selectableTemplates.map(template => (
             <TemplateCard
               key={template.id}
               template={template}
