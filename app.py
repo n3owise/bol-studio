@@ -68,6 +68,19 @@ def _background_init():
         except Exception as error:
             print(f"Warning: npm install failed: {error}", flush=True)
 
+    # Download the matching browser before the first export, rather than leaving
+    # a user's job waiting on a large cold download. System Chromium cannot use
+    # Remotion's faster shared-memory capture protocol.
+    if Path("node_modules/@remotion/renderer").is_dir():
+        print("Preparing export browser in background...", flush=True)
+        try:
+            subprocess.run(["node", "--input-type=module", "-e",
+                            "import {ensureBrowser} from '@remotion/renderer'; await ensureBrowser();"],
+                           check=True, timeout=240)
+            print("Export browser ready.", flush=True)
+        except Exception as error:
+            print(f"Warning: export browser preparation failed: {type(error).__name__}", flush=True)
+
 
 threading.Thread(target=_background_init, daemon=True).start()
 

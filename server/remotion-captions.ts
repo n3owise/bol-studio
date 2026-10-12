@@ -1,12 +1,58 @@
 import { resolve } from 'node:path';
 import { bundle } from '@remotion/bundler';
-import { renderFrames, selectComposition, ensureBrowser } from '@remotion/renderer';
+import { renderFrames, renderMedia, selectComposition, ensureBrowser, makeCancelSignal } from '@remotion/renderer';
+import { availableParallelism } from 'node:os';
 import type { Settings, Word } from '../src/lib/types.ts';
 
 const ENTRY = resolve(process.cwd(), 'src/remotion/index.ts');
 const COMPOSITION_ID = 'Captions';
 
 let bundlePromise: Promise<string> | null = null;
+
+export function captionRenderConcurrency(width: number, height: number): number {
+  return width * height > 1920 * 1080 ? 1 : 2;
+}
+
+// Prefer the matching Remotion browser so lossless shared-memory capture is available.
+export function captionBrowserExecutable(): string | undefined {
+  return process.env.BOL_BROWSER_EXECUTABLE || undefined;
+}
+
+export function directCaptionConcurrency(): number {
+  const configured = Number(process.env.BOL_RENDER_CONCURRENCY ?? Math.min(process.platform === 'linux' ? 2 : 4, availableParallelism()));
+  if (!Number.isInteger(configured) || configured < 1 || configured > 4) {
+    throw new Error('BOL_RENDER_CONCURRENCY must be between 1 and 4.');
+  }
+  return configured;
+}
+
+/** The matching Remotion browser and encoder exchange lossless pixel buffers. */
+export async function renderGreenCaptionVideo(options: {
+  words: Word[]; settings: Settings; width: number; height: number; fps: number;
+  frameCount: number; output: string;
+  onProgress?: (progress: number) => void; onStage?: (stage: string) => void;
+}) {
+  const { words, settings, width, height, fps, frameCount, output } = options;
+  const browserExecutable = captionBrowserExecutable();
+  options.onStage?.('browser');
+  await ensureBrowser({ browserExecutable });
+  options.onStage?.('bundling');
+  const serveUrl = await captionBundle();
+  const inputProps = { words, settings, background: '#00ff00', width, height, durationInFrames: frameCount };
+  options.onStage?.('composition');
+  const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, browserExecutable });
+  options.onStage?.('frames');
+  await renderMedia({
+    composition: { ...composition, width, height, fps, durationInFrames: frameCount },
+    serveUrl, inputProps, browserExecutable, outputLocation: output,
+    codec: 'h264', crf: 18, pixelFormat: 'yuv420p', x264Preset: 'veryfast',
+    imageFormat: 'png', muted: true, concurrency: directCaptionConcurrency(),
+    onProgress: ({ progress }) => options.onProgress?.(7 + Math.floor(progress * 91)),
+    ffmpegOverride: ({ args }) => [...args.slice(0, -1), '-threads', '2', args[args.length - 1]],
+    envVariables: process.env.BOL_LOCAL_FONTS === '1' ? { BOL_LOCAL_FONTS: '1' } : {},
+  });
+  options.onProgress?.(100);
+}
 
 /**
  * Bundle the caption composition once per process. It only depends on source
@@ -91,46 +137,61 @@ export async function streamCaptionFrames(options: {
   height: number;
   fps: number;
   frameCount: number;
+  background?: string;
   onFrame: (index: number, png: Buffer) => Promise<void>;
   concurrency?: number;
   onProgress?: (rendered: number) => void;
   signal?: AbortSignal;
+  onStage?: (stage: 'browser' | 'bundling' | 'composition' | 'frames') => void;
 }): Promise<void> {
   const { words, settings, width, height, fps, frameCount, onFrame } = options;
-  await ensureBrowser();
+  const browserExecutable = captionBrowserExecutable();
+  options.onStage?.('browser');
+  await ensureBrowser({ browserExecutable });
+  options.onStage?.('bundling');
   const serveUrl = await captionBundle();
 
   const inputProps = {
     words,
     settings,
-    background: 'transparent',
+    background: options.background ?? 'transparent',
     width,
     height,
     durationInFrames: frameCount,
   } as unknown as Record<string, unknown>;
 
-  const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps });
+  options.onStage?.('composition');
+  const composition = await selectComposition({ serveUrl, id: COMPOSITION_ID, inputProps, browserExecutable });
 
   const dispatcher = createOrderedDispatcher(onFrame);
+  const { cancelSignal, cancel } = makeCancelSignal();
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  if (options.signal?.aborted) cancel();
 
-  await renderFrames({
-    composition: { ...composition, width, height, fps, durationInFrames: frameCount },
-    serveUrl,
-    inputProps,
-    outputDir: null,
-    imageFormat: 'png',
-    // Awaiting the push is what applies backpressure: Remotion will not run
-    // ahead of the encoder, so the held map stays small.
-    onFrameBuffer: (buffer: Buffer, frameIndex: number) => dispatcher.push(frameIndex, buffer),
-    onFrameUpdate: rendered => options.onProgress?.(rendered),
-    onStart: () => undefined,
-    concurrency: options.concurrency ?? null,
-    cancelSignal: options.signal as never,
-    // Faces licensed for this machine only, if this machine says so. The bundle
-    // reads nothing else to decide, so a deployment that does not set the
-    // variable renders without them however it was built.
-    envVariables: process.env.BOL_LOCAL_FONTS === '1' ? { BOL_LOCAL_FONTS: '1' } : {},
-  });
+  options.onStage?.('frames');
+  try {
+    await renderFrames({
+      composition: { ...composition, width, height, fps, durationInFrames: frameCount },
+      serveUrl,
+      browserExecutable,
+      inputProps,
+      outputDir: null,
+      imageFormat: 'png',
+      // Awaiting the push is what applies backpressure: Remotion will not run
+      // ahead of the encoder at 4K, where only one browser page is used.
+      onFrameBuffer: (buffer: Buffer, frameIndex: number) => dispatcher.push(frameIndex, buffer),
+      onFrameUpdate: rendered => options.onProgress?.(rendered),
+      onStart: () => undefined,
+      concurrency: options.concurrency ?? captionRenderConcurrency(width, height),
+      cancelSignal,
+      // Faces licensed for this machine only, if this machine says so. The bundle
+      // reads nothing else to decide, so a deployment that does not set the
+      // variable renders without them however it was built.
+      envVariables: process.env.BOL_LOCAL_FONTS === '1' ? { BOL_LOCAL_FONTS: '1' } : {},
+    });
+  } finally {
+    options.signal?.removeEventListener('abort', cancel);
+  }
 
   // Anything still held back means Remotion delivered fewer frames than the
   // composition declares; surface it rather than writing a short video.

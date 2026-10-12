@@ -13,8 +13,8 @@ import { SAFE_AREAS, positionCollides, safeAreaFor } from '../src/lib/safe-area.
 import { treatmentFor, treatments } from '../src/remotion/treatments.ts';
 import { defaults, type Word } from '../src/lib/types.ts';
 import { formatBytes, formatMinutes } from '../src/lib/utils.ts';
-import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject } from '../server/render.ts';
-import { createOrderedDispatcher } from '../server/remotion-captions.ts';
+import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject, canRenderGreenDirectly } from '../server/render.ts';
+import { createOrderedDispatcher, captionRenderConcurrency, directCaptionConcurrency } from '../server/remotion-captions.ts';
 
 const word = (text: string, start: number, end: number, emphasis = false): Word => ({
   id: `${text}-${start}`, text, original: text, start, end, confidence: .95, emphasis, emphasisScore: emphasis ? .9 : .2,
@@ -23,6 +23,35 @@ const word = (text: string, start: number, end: number, emphasis = false): Word 
 const breakAfter = (w: Word): Word => ({ ...w, lineBreak: true });
 const project = (words: Word[] = []) => validateRenderProject({
   duration: 2, width: 1280, height: 720, mediaType: 'video', settings: { ...defaults }, words,
+});
+
+test('4K exports use one browser page and bounded encoder threads', () => {
+  assert.equal(captionRenderConcurrency(2160, 3840), 1);
+  assert.equal(captionRenderConcurrency(3840, 2160), 1);
+  assert.equal(captionRenderConcurrency(1920, 1080), 2);
+  const args = ffmpegArguments(project(), 'in.mp4', 'out.mp4', 'green', 2160, 60, true);
+  assert.equal(args[args.indexOf('-threads') + 1], '2');
+  assert.equal(args[args.indexOf('-framerate') + 1], '60');
+});
+
+test('green-screen fast path preserves placed layers and bounds workers', () => {
+  const p = project();
+  assert.equal(canRenderGreenDirectly(p, 'green'), true);
+  assert.equal(canRenderGreenDirectly(p, 'burned'), false);
+  p.canvasElements = [{ visible: true } as any];
+  assert.equal(canRenderGreenDirectly(p, 'green'), false);
+  p.canvasElements[0].visible = false;
+  assert.equal(canRenderGreenDirectly(p, 'green'), true);
+  const old = process.env.BOL_RENDER_CONCURRENCY;
+  try {
+    process.env.BOL_RENDER_CONCURRENCY = '4';
+    assert.equal(directCaptionConcurrency(), 4);
+    process.env.BOL_RENDER_CONCURRENCY = '8';
+    assert.throws(() => directCaptionConcurrency(), /between 1 and 4/);
+  } finally {
+    if (old === undefined) delete process.env.BOL_RENDER_CONCURRENCY;
+    else process.env.BOL_RENDER_CONCURRENCY = old;
+  }
 });
 
 test('caption groups respect the word ceiling, real breaths, and explicit line breaks', () => {

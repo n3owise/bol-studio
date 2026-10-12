@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     nodejs \
     npm \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # Hugging Face Spaces requires running as non-root user 1000
@@ -28,6 +29,7 @@ RUN pip install --no-cache-dir -r /app/server/requirements-cpu.txt
 # Install Node dependencies for server-side video canvas rendering
 COPY package.json package-lock.json /app/
 RUN npm ci --omit=dev && npm install -g tsx
+RUN node --input-type=module -e "import {ensureBrowser} from '@remotion/renderer'; await ensureBrowser();"
 
 # Copy source code
 COPY . /app

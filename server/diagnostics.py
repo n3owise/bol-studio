@@ -7,7 +7,7 @@ from server.jobs import current_job_id
 
 class JobFailure(ValueError):
     def __init__(self, category, message):
-        if category not in {'render_resource_limit', 'storage_limit', 'render_dependency'}:
+        if category not in {'render_resource_limit', 'storage_limit', 'render_dependency', 'render_timeout'}:
             raise ValueError('Unsupported job error category.')
         self.category = category
         super().__init__(message)

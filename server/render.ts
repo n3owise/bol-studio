@@ -9,7 +9,7 @@ import { orderedElements } from '../src/lib/media-scene.ts';
 import { pathToFileURL } from 'node:url';
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas';
 import { dimensions, templates } from '../src/lib/captions.ts';
-import { streamCaptionFrames } from './remotion-captions.ts';
+import { streamCaptionFrames, renderGreenCaptionVideo } from './remotion-captions.ts';
 import { drawKeyedMedia, setChromaKeyCanvasFactory } from '../src/lib/chromakey.ts';
 import type { Project, Settings, Word } from '../src/lib/types.ts';
 
@@ -27,6 +27,9 @@ const require = createRequire(import.meta.url);
 const FPS = 60;
 const BACKGROUND = '#111315';
 export type RenderMode = 'burned' | 'green';
+export function canRenderGreenDirectly(project: Project, mode: RenderMode): boolean {
+  return mode === 'green' && !(project.canvasElements ?? []).some(element => element.visible !== false);
+}
 let fontsRegistered = false;
 
 /** Resolve only registered visual assets, and reject symlinks outside this project. */
@@ -139,7 +142,7 @@ export function ffmpegArguments(project: Project, input: string, output: string,
   } else {
     args.push('-map', '0:v:0', '-an');
   }
-  args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
+  args.push('-c:v', 'libx264', '-threads', '2', '-filter_threads', '2', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p',
     '-r', String(fps), '-frames:v', String(frameCount), '-t', String(frameCount / fps),
     '-movflags', '+faststart', '-f', 'mp4', output);
   return args;
@@ -194,6 +197,7 @@ export async function openVideoFrames(path: string, fps: number, maxWidth: numbe
 export async function renderCaptionVideo(options: {
   project: Project; input: string; output: string; mode: RenderMode; resolution: number; fps?: number;
   onProgress?: (progress: number) => void;
+  onStage?: (stage: string) => void;
 }) {
   const project = validateRenderProject(options.project);
   const { mode, resolution } = options;
@@ -215,6 +219,7 @@ export async function renderCaptionVideo(options: {
   registerRenderFonts();
   const { width, height } = dimensions(project.settings, project.width, project.height, resolution);
   const frameCount = Math.ceil(project.duration * fps);
+  const directGreen = canRenderGreenDirectly(project, mode);
   const selectedAsset = project.mediaAssets?.find(a => a.id === project.activeMediaAssetId);
   if (project.activeMediaAssetId && project.activeMediaAssetId !== 'primary' && !selectedAsset) throw new Error('The selected primary media is missing.');
   const selectedPath = selectedAsset ? await resolveCanvasAssetPath(project, dirname(input), selectedAsset.id) : input;
@@ -250,6 +255,29 @@ export async function renderCaptionVideo(options: {
     ...[...videoSpecs].map(([id, spec]) => ({ id, ...spec })),
     ...(primaryDecoded ? [{ id: 'primary', ...primaryDecoded, startFrame: 0, endFrame: frameCount }] : []),
   ], resourceLimits, imageSpecs);
+  if (directGreen) {
+    let lastProgress = -1, lastProgressTime = 0;
+    const progress = (value: number) => {
+      if (value > lastProgress || Date.now() - lastProgressTime >= 5000) {
+        lastProgress = Math.max(lastProgress, value); lastProgressTime = Date.now();
+        options.onProgress?.(lastProgress);
+      }
+    };
+    try {
+      await renderGreenCaptionVideo({
+        words: project.words, settings: project.settings, width, height, fps, frameCount, output,
+        onProgress: progress,
+        onStage: stage => {
+          options.onStage?.(stage);
+          progress(({ browser: 2, bundling: 3, composition: 5, frames: 7 } as Record<string, number>)[stage]);
+        },
+      });
+    } catch (error) {
+      await rm(output, { force: true }).catch(() => undefined);
+      throw error;
+    }
+    return;
+  }
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext('2d');
 
@@ -266,8 +294,13 @@ export async function renderCaptionVideo(options: {
     ffmpeg.once('close', code => resolveExit(code));
   });
   let lastProgress = -1;
+  let lastProgressTime = 0;
   const progress = (value: number) => {
-    if (value > lastProgress) { lastProgress = value; options.onProgress?.(value); }
+    if (value > lastProgress || Date.now() - lastProgressTime >= 5000) {
+      lastProgress = Math.max(lastProgress, value);
+      lastProgressTime = Date.now();
+      options.onProgress?.(lastProgress);
+    }
   };
   progress(0);
   const decoders = new Set<Awaited<ReturnType<typeof openVideoFrames>>>();
@@ -295,6 +328,10 @@ export async function renderCaptionVideo(options: {
       words: project.words as Word[],
       settings: project.settings as Settings,
       width, height, fps, frameCount,
+      onStage: stage => {
+        options.onStage?.(stage);
+        progress({ browser: 2, bundling: 3, composition: 5, frames: 7 }[stage]);
+      },
       onFrame: async (frame, captionPng) => {
         if (processError || ffmpeg.exitCode !== null || ffmpeg.signalCode !== null) {
           throw processError ?? new Error('FFmpeg stopped before all caption frames were rendered.');
@@ -354,8 +391,8 @@ export async function renderCaptionVideo(options: {
           }
         }
 
-        const captionFrame = await loadImage(captionPng).catch(() => null);
-        if (captionFrame) ctx.drawImage(captionFrame, 0, 0, width, height);
+        const captionFrame = await loadImage(captionPng);
+        ctx.drawImage(captionFrame, 0, 0, width, height);
         if (mode === 'green' || project.mediaType.startsWith('audio') || project.videoEnabled === false) {
           ctx.save();
           ctx.globalCompositeOperation = 'destination-over';
@@ -366,7 +403,7 @@ export async function renderCaptionVideo(options: {
         await new Promise<void>((resolveWrite, rejectWrite) => {
           ffmpeg.stdin.write(canvas.data(), error => error ? rejectWrite(error) : resolveWrite());
         });
-        progress(Math.min(98, Math.floor((frame + 1) / frameCount * 98)));
+        progress(Math.min(98, 7 + Math.floor((frame + 1) / frameCount * 91)));
       },
     });
     ffmpeg.stdin.end();
@@ -379,7 +416,7 @@ export async function renderCaptionVideo(options: {
     await finished;
     await rm(output, { force: true }).catch(() => undefined);
     const explanation = error instanceof Error ? error.message : String(error);
-    throw new Error(`Video export failed: ${errorOutput.trim() || explanation}`);
+    throw new Error(`Video export failed: ${explanation}${errorOutput.trim() ? `\n${errorOutput.trim()}` : ''}`);
   } finally { await Promise.all([...decoders].map(decoder => decoder.close())); }
 }
 
@@ -395,6 +432,7 @@ async function main() {
   await renderCaptionVideo({
     project, input, output, mode: mode as RenderMode, resolution: Number(resolution), fps,
     onProgress: value => process.stdout.write(`${JSON.stringify({ progress: value })}\n`),
+    onStage: stage => process.stdout.write(`${JSON.stringify({ stage })}\n`),
   });
 }
 

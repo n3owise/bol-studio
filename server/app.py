@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import secrets
+import signal
 import threading
 import tempfile
 import uuid
@@ -188,7 +189,8 @@ def output_quota_exceeded(path: Path, owner: str, limit: int, exclude_export: st
 
 
 @contextmanager
-def monitor_output_quota(process, path: Path, owner: str, limit: int, exclude_export: str | None = None, log_path: Path | None = None):
+def monitor_output_quota(process, path: Path, owner: str, limit: int, exclude_export: str | None = None, log_path: Path | None = None,
+                         temporary_path: Path | None = None, terminate=None):
     """Stop a running encoder even if it stops emitting progress lines."""
     stop = threading.Event()
     exceeded = threading.Event()
@@ -198,10 +200,17 @@ def monitor_output_quota(process, path: Path, owner: str, limit: int, exclude_ex
                 log_exceeded = log_path is not None and log_path.is_file() and log_path.stat().st_size > 8 * 1024 * 1024
             except OSError:
                 log_exceeded = False
-            if log_exceeded or output_quota_exceeded(path, owner, limit, exclude_export):
+            temporary_bytes = 0
+            if temporary_path is not None:
+                for entry in temporary_path.rglob('*'):
+                    try:
+                        if entry.is_file(): temporary_bytes += entry.stat().st_size
+                    except OSError:
+                        pass
+            if log_exceeded or temporary_bytes > limit or output_quota_exceeded(path, owner, limit, exclude_export):
                 exceeded.set()
                 try:
-                    process.kill()
+                    (terminate or process.kill)()
                 except ProcessLookupError:
                     pass
                 return
@@ -562,6 +571,7 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
     directory = project_dir(project_id)
     snapshot_path = directory / f"export-{export_id}.json"
     output_path = directory / f"export-{export_id}.mp4"
+    temporary_path = directory / f"export-{export_id}-temporary"
     try:
         trace.enter('snapshot')
         mark_export(project_id, export_id, status="processing", progress=1, message="Rendering animated captions.")
@@ -572,23 +582,59 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
         media_path = directory / "source.bin"
         error_path = directory / f"export-{export_id}.log"
         trace.enter('rendering')
+        shutil.rmtree(temporary_path, ignore_errors=True)
+        temporary_path.mkdir(mode=0o700)
+        render_env = {**os.environ, 'TMPDIR': str(temporary_path), 'TMP': str(temporary_path),
+                      'TEMP': str(temporary_path), 'REMOTION_SHARED_MEMORY_BACKEND': 'file'}
         with error_path.open("w+") as error_file:
             process = subprocess.Popen(["node", "--import", "tsx", "server/render.ts", str(snapshot_path), str(media_path),
-                                        str(output_path), mode, str(resolution), str(fps)], cwd=ROOT, stdout=subprocess.PIPE, stderr=error_file, text=True)
+                                        str(output_path), mode, str(resolution), str(fps)], cwd=ROOT, stdout=subprocess.PIPE, stderr=error_file, text=True,
+                                       start_new_session=True, env=render_env)
             # Bound even a renderer that hangs without emitting another progress line.
-            timer = threading.Timer(7200, process.kill)
+            timed_out = threading.Event()
+            last_activity = [time.monotonic()]
+            watchdog_stop = threading.Event()
+            def kill_renderer_group():
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except (ProcessLookupError, AttributeError):
+                    process.kill()
+            def stop_renderer():
+                timed_out.set()
+                kill_renderer_group()
+            def watch_activity():
+                while not watchdog_stop.wait(5):
+                    if time.monotonic() - last_activity[0] > 300:
+                        stop_renderer()
+                        return
+            watchdog = threading.Thread(target=watch_activity, daemon=True)
+            watchdog.start()
+            timer = threading.Timer(7200, stop_renderer)
             timer.daemon = True
             timer.start()
             owner = snapshot.get("owner", "")
             persisted = load_project(project_id)
             limit = next((j.get("storageReservationBytes", MAX_EXPORT_BYTES) for j in persisted.get("exports", []) if j.get("id") == export_id), MAX_EXPORT_BYTES)
-            with monitor_output_quota(process, output_path, owner, limit, export_id, error_path) as exceeded:
+            with monitor_output_quota(process, output_path, owner, limit, export_id, error_path,
+                                      temporary_path=temporary_path, terminate=kill_renderer_group) as exceeded:
                 last_progress = -1
                 resource_error = False
                 try:
                     for line in process.stdout:
                         try:
                             event = json.loads(line)
+                            last_activity[0] = time.monotonic()
+                            stages = {
+                                'browser': 'Preparing export renderer.',
+                                'bundling': 'Preparing caption templates.',
+                                'composition': 'Loading caption fonts and layout.',
+                                'frames': 'Rendering animated captions.',
+                            }
+                            if event.get('stage') in stages:
+                                stage = event['stage']
+                                LOGGER.info('export_renderer_stage jobId=%s stage=%s', export_id, stage)
+                                mark_export(project_id, export_id, message=stages[stage])
+                                continue
                             if event.get('errorCode') == 'render_resource_limit':
                                 resource_error = True
                                 continue
@@ -602,6 +648,10 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
                     result = process.wait()
                 finally:
                     timer.cancel()
+                    watchdog_stop.set()
+                    watchdog.join(timeout=6)
+            if timed_out.is_set():
+                raise JobFailure('render_timeout', 'Export stopped because the renderer made no progress. Please retry the export.')
             if exceeded.is_set() or error_path.stat().st_size > 8 * 1024 * 1024 or output_quota_exceeded(output_path, owner, limit, export_id):
                 raise JobFailure('storage_limit', "Export exceeded the workspace or output file storage limit.")
             if resource_error:
@@ -625,6 +675,7 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
         # Snapshots can contain private captions; keep only project data and the output.
         snapshot_path.unlink(missing_ok=True)
         (directory / f"export-{export_id}.log").unlink(missing_ok=True)
+        shutil.rmtree(temporary_path, ignore_errors=True)
 
 
 def recover_interrupted_jobs(journal=None):
