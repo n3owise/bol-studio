@@ -1066,6 +1066,7 @@ class Settings(BaseModel):
 
     uppercase: StrictBool = DEFAULT_SETTINGS["uppercase"]
     motion: float = Field(default=DEFAULT_SETTINGS["motion"], ge=0, le=2)
+    effectScope: Literal["all", "emphasis"] = "all"
     aspect: Literal["original", "9:16", "1:1", "16:9"] = DEFAULT_SETTINGS["aspect"]
 
     # Everything the editor can set is declared here. These previously rode

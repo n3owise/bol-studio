@@ -1967,3 +1967,10 @@ def test_owner_job_limit_returns_retryable_error_without_mutation(client,project
             assert response.status_code==429 and response.headers['Retry-After']=='30'
             assert backend.load_project(project['id'])==before
     finally:queue.shutdown()
+
+
+def test_caption_effect_scope_survives_settings_validation():
+    assert backend.Settings(effectScope="emphasis").model_dump()["effectScope"] == "emphasis"
+    assert backend.Settings(effectScope="all").effectScope == "all"
+    with pytest.raises(Exception):
+        backend.Settings(effectScope="unsupported")

@@ -460,6 +460,14 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
     </div>
   </div>
   <div className="setting-field">
+    <label htmlFor="caption-effect-scope">Apply preset effects to</label>
+    <select id="caption-effect-scope" className="font-select" disabled={busy}
+      value={settings.effectScope ?? 'all'}
+      onChange={event => updateSettings({ effectScope: event.target.value as 'all' | 'emphasis' })}>
+      <option value="all">All words</option>
+      <option value="emphasis">Emphasized words only</option>
+    </select>
+    <p className="field-hint">Emphasized words only keeps supporting words in their normal color with a simple entrance.</p>
     <label htmlFor="motion-strength">Motion</label>
     <div className="segmented-control">
       {[

@@ -36,6 +36,7 @@ export type Settings = {
   wordsPerLine: number;
   uppercase: boolean;
   motion: number;
+  effectScope?: 'all' | 'emphasis';
   aspect: 'original' | '9:16' | '1:1' | '16:9';
   fontFamily?: string;
   textColor?: string;

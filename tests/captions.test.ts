@@ -785,7 +785,7 @@ test('the mogrt family keeps the look the .mogrt files actually specify', () => 
       assert.equal(tr.subFont, 'montserrat', 'with Montserrat on the outer lines');
       assert.equal(tr.prefixWeight, 800, 'line 1 is ExtraBold Italic');
       assert.equal(tr.suffixWeight, 600, 'line 3 is SemiBold Italic');
-      assert.equal(tr.heroScale, tr.subScale, 'all three lines share one size, as in the AE comp');
+      assert.ok(tr.heroScale > tr.subScale, 'web caption adaptation enlarges the emphasized word independently');
     } else {
       assert.equal(tr.heroFont, 'montserrat', `${t.id} uses Montserrat, as the AE text layer does`);
       assert.equal(tr.heroWeight, 900, `${t.id} is Black weight`);

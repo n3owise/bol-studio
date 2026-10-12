@@ -69,7 +69,10 @@ const fontStack = (role: FontRole, custom?: string) =>
 export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pageFrames }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
-  const treatment = treatmentFor(settings.template);
+  const preset = treatmentFor(settings.template);
+  const treatment = settings.effectScope === 'emphasis'
+    ? { ...preset, panel: undefined, tilt: undefined, ...(preset.panel === 'solid' ? { pill: 'hero' as const } : {}) }
+    : preset;
   // 0 = prefix row, 1 = hero row, 2 = suffix row (single/rows layouts use index 1 only).
   const { set, boxes } = useRowMeasure(3);
 
@@ -136,6 +139,10 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     pill: boolean,
     row: 'prefix' | 'hero' | 'suffix' = role === 'hero' ? 'hero' : 'prefix',
   ) => {
+    const supportingOnly = settings.effectScope === 'emphasis' && role !== 'hero' && !word.spotlight;
+    const wordTreatment = supportingOnly
+      ? { ...treatment, enter: undefined, exit: undefined, glow: 0, gradientRamp: false, ring: undefined, jitter: false, hop: false, pill: 'none' as const, shadow: 'soft' as const }
+      : treatment;
     const upper = settings.uppercase || (role === 'hero' && treatment.uppercaseHero);
     // Two colours, two jobs: `accent` marks the hero and anything the editor
     // spotlighted, `textColor` carries every supporting word. A gradient
@@ -169,20 +176,20 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         role={role}
         size={size}
         color={wordColor}
-        treatment={treatment}
+        treatment={wordTreatment}
         frameWidth={width}
-        motion={settings.motion}
+        motion={supportingOnly ? Math.min(settings.motion, 0.35) : settings.motion}
         strokeColor={settings.strokeColor}
         strokeWidth={settings.strokeWidth}
         fontFamily={fontStack(role === 'hero' ? treatment.heroFont : treatment.subFont, settings.fontFamily)}
         weight={settings.bold ? 900 : rowWeight}
-        exitProgress={exitProgress}
+        exitProgress={supportingOnly ? 0 : exitProgress}
         italic={settings.italic ?? (role === 'hero' ? treatment.heroItalic : treatment.subItalic)}
         lineHeightScale={settings.lineHeight ?? 1}
         trackingAdd={settings.letterSpacing ?? 0}
         underline={settings.underline}
         strikethrough={settings.strikethrough}
-        pill={pill}
+        pill={supportingOnly ? false : pill}
         pillColor={accent}
         devanagari={devanagari}
       />

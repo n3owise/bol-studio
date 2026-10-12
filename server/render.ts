@@ -103,6 +103,7 @@ export function validateRenderProject(value: unknown): Project {
     || (s.align !== undefined && !['left', 'center', 'right'].includes(String(s.align)))
     || !finiteBetween(s.wordsPerLine, 1, 12) || !Number.isInteger(s.wordsPerLine)
     || typeof s.uppercase !== 'boolean' || !finiteBetween(s.motion, 0, 3)
+    || (s.effectScope !== undefined && !['all', 'emphasis'].includes(String(s.effectScope)))
     || !['original', '9:16', '1:1', '16:9'].includes(String(s.aspect))) {
     throw new Error('The project contains invalid caption appearance settings.');
   }
