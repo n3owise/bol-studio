@@ -46,7 +46,8 @@ type Props = {
 };
 
 /**
- * One word, entering on the frame it is actually spoken.
+ * One text object, entering on its first spoken frame. Premiere presets pass
+ * the complete source text field; other templates pass individual words.
  *
  * Four channels move together — opacity, blur, rise and scale. The lone fade
  * the canvas renderer used is what made captions read as "web animation"

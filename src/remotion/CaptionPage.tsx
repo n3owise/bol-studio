@@ -5,6 +5,7 @@ import { treatmentFor, type FontRole } from './treatments';
 import { CaptionWord } from './CaptionWord';
 import { pickEmoji, heroRun, type CaptionPage as Page } from '../lib/pages';
 import type { Settings, Word } from '../lib/types';
+import { getContrastColor } from '../lib/captions';
 import { captionFonts } from '../lib/caption-fonts';
 
 type Props = {
@@ -141,11 +142,13 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     // template ramps the hero towards the accent but leaves the rest alone.
     // Colouring every word from one value is what flattened whole captions into
     // a single shade with no hierarchy left.
-    const accented = (role === 'hero' || !!word.spotlight) && treatment.pill !== 'active';
+    const sourceHighlight = !treatment.groupText && !treatment.threeTier || page.heroIndices.length > 0;
+    const accented = ((role === 'hero' && sourceHighlight) || !!word.spotlight) && treatment.pill !== 'active';
     // Composition 2 colours each of its three lines separately. The middle line
     // takes the accent; the third line may take its own colour when one is set,
     // and otherwise matches the first.
-    const wordColor = accented
+    const wordColor = treatment.panel === 'solid' && !(settings.backgroundColor && (settings.backgroundOpacity ?? 0) > 0)
+      ? getContrastColor(accent) : accented
       ? accent
       : (row === 'suffix' && settings.accentSecondary) ? settings.accentSecondary : textColor;
     const rowWeight = row === 'prefix' ? treatment.prefixWeight
@@ -186,6 +189,17 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     );
   };
 
+  // A Premiere field is one text object. Keep its words together so the
+  // entrance, gradient and weight do not restart for every spoken word.
+  const renderSourceLine = (words: Word[], role: 'hero' | 'sub', size: number, row: 'prefix' | 'hero' | 'suffix') => {
+    if (!words.length) return null;
+    const text = words.map(w => {
+      const index = page.words.findIndex(original => original.id === w.id);
+      return emojiPick?.index === index ? `${w.text} ${emojiPick.emoji}` : w.text;
+    }).join(' ');
+    return renderWord({ ...words[0], id: `${words[0].id}:phrase`, text }, role, size, false, row);
+  };
+
   const wordGap = base * 0.26;
   const rowStyle: React.CSSProperties = {
     display: 'flex',
@@ -206,12 +220,18 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   // stack to build and the page falls through to flat rows. Defaulting the run
   // to word 0 instead used to enlarge the first word of every line, which the
   // caption panel (reading heroIndices) rightly showed as no highlight at all.
-  const stackRun = treatment.layout === 'stack' && page.words.length >= 1 ? heroRun(page) : null;
+  const stackRun = treatment.layout === 'stack' && page.words.length >= 1
+    ? treatment.threeTier
+      ? { start: page.words.length >= 3 ? Math.ceil(page.words.length / 3) : 0,
+          end: page.words.length >= 3 ? Math.ceil(page.words.length * 2 / 3) - 1 : page.words.length - 1 }
+      : heroRun(page)
+    : null;
   const isStack = stackRun !== null;
 
   // Tuck the supporting rows against the hero, the way the reference lockups do.
-  const tuckTop = devanagari ? 0 : heroSize * 0.04;
-  const tuckBottom = devanagari ? -heroSize * 0.04 : heroSize * 0.1;
+  const tierGap = heroSize * (treatment.tierGap ?? 0);
+  const tuckTop = treatment.tierGap !== undefined ? -tierGap : devanagari ? 0 : heroSize * 0.04;
+  const tuckBottom = treatment.tierGap !== undefined ? -tierGap : devanagari ? -heroSize * 0.04 : heroSize * 0.1;
 
   let content: React.ReactNode;
   let boxWidth: number;
@@ -225,6 +245,12 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     const hasPrefix = prefix.length > 0;
     const hasSuffix = suffix.length > 0;
 
+    const inline = treatment.stackAlign === 'inline';
+    const creatorAlign = settings.align === 'left' ? 'flex-start' : settings.align === 'right' ? 'flex-end' : settings.align === 'center' ? 'center' : undefined;
+    const tierAlign = creatorAlign ?? (treatment.threeTier || treatment.stackAlign === 'center' ? 'center'
+      : treatment.stackAlign === 'left' ? 'flex-start'
+      : treatment.stackAlign === 'right' ? 'flex-end' : undefined);
+
     // 1. Spotlight word is the big word.
     // 2. Remaining words on the left side of timeline -> top-left of spotlight word.
     // 3. Words coming after spotlight word -> bottom-right of spotlight word.
@@ -233,8 +259,9 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
       <div
         style={{
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
+          flexDirection: inline ? 'row' : 'column',
+          alignItems: inline ? 'baseline' : 'center',
+          gap: inline ? wordGap * 1.4 : undefined,
           width: 'max-content',
         }}
       >
@@ -243,46 +270,50 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
             ref={set(0)}
             style={{
               ...rowStyle,
-              alignSelf: 'flex-start',
-              marginBottom: -tuckTop,
+              alignSelf: inline ? 'auto' : tierAlign ?? 'flex-start',
+              marginBottom: inline ? 0 : -tuckTop,
             }}
           >
-            {prefix.map(w => renderWord(w, 'sub', subSize, false, 'prefix'))}
+            {treatment.threeTier ? renderSourceLine(prefix, 'sub', subSize, 'prefix') : prefix.map(w => renderWord(w, 'sub', subSize, false, 'prefix'))}
           </div>
         )}
         <div
           ref={set(1)}
           style={{
             ...rowStyle,
-            alignSelf: !hasPrefix && hasSuffix ? 'flex-start' : hasPrefix && !hasSuffix ? 'flex-end' : 'center',
+            alignSelf: inline ? 'auto' : tierAlign ?? (!hasPrefix && hasSuffix ? 'flex-start' : hasPrefix && !hasSuffix ? 'flex-end' : 'center'),
           }}
         >
-          {heroes.map(w => renderWord(w, 'hero', heroRowSize, treatment.pill === 'hero'))}
+          {treatment.threeTier ? renderSourceLine(heroes, 'hero', heroSize, 'hero') : heroes.map(w => renderWord(w, 'hero', heroRowSize, treatment.pill === 'hero'))}
         </div>
         {hasSuffix && (
           <div
             ref={set(2)}
             style={{
               ...rowStyle,
-              alignSelf: 'flex-end',
-              marginTop: -tuckBottom,
+              alignSelf: inline ? 'auto' : tierAlign ?? 'flex-end',
+              marginTop: inline ? 0 : -tuckBottom,
             }}
           >
-            {suffix.map(w => renderWord(w, 'sub', subSize, false, 'suffix'))}
+            {treatment.threeTier ? renderSourceLine(suffix, 'sub', subSize, 'suffix') : suffix.map(w => renderWord(w, 'sub', subSize, false, 'suffix'))}
           </div>
         )}
       </div>
     );
 
     const [pre, heroBox, suf] = boxes;
-    boxWidth = Math.max(pre.width, heroBox.width, suf.width) || heroBox.width || (base * 5);
+    boxWidth = (inline
+      ? pre.width + heroBox.width + suf.width + wordGap * 1.4 * (Number(hasPrefix) + Number(hasSuffix))
+      : Math.max(pre.width, heroBox.width, suf.width)) || heroBox.width || (base * 5);
     const preH = hasPrefix ? Math.max(0, pre.height - tuckTop) : 0;
     const sufH = hasSuffix ? Math.max(0, suf.height - tuckBottom) : 0;
-    boxHeight = preH + heroBox.height + sufH || (base * 2);
+    boxHeight = (inline ? Math.max(pre.height, heroBox.height, suf.height) : preH + heroBox.height + sufH) || (base * 2);
   } else if (treatment.layout === 'single') {
     content = (
       <div ref={set(1)} style={{ ...rowStyle, width: 'fit-content' }}>
-        {page.words.map(w => renderWord(w, 'hero', heroSize, treatment.pill !== 'none'))}
+        {treatment.groupText
+          ? renderSourceLine(page.words, 'hero', heroSize, 'hero')
+          : page.words.map(w => renderWord(w, 'hero', heroSize, treatment.pill !== 'none'))}
       </div>
     );
     boxWidth = boxes[1].width || (base * 4);
@@ -315,17 +346,31 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
   const posX = anchor?.posX ?? settings.positionX ?? 50;
   const posY = anchor?.posY ?? settings.position ?? 70;
 
+  const creatorPlate = !!settings.backgroundColor && (settings.backgroundOpacity ?? 0) > 0;
+  const panelPadding = creatorPlate ? base * 0.3 : treatment.panel ? base * 0.35 : 0;
+  boxWidth += panelPadding * 2;
+  boxHeight += panelPadding * 2;
   const maxWidth = width * theme.layout.maxWidth;
-  const fit = boxWidth > maxWidth && boxWidth > 0 ? maxWidth / boxWidth : 1;
-
   const safe = Math.min(width, height) * theme.layout.safeMargin;
-  const scaledWidth = boxWidth * fit;
-  const scaledHeight = boxHeight * fit;
+  // Rotated lockups and plates must fit by their painted bounds, not merely
+  // the unrotated text measurements, especially near an editor-set edge.
+  const radians = Math.abs(treatment.tilt ?? 0) * Math.PI / 180;
+  const rotatedWidth = boxWidth * Math.cos(radians) + boxHeight * Math.sin(radians);
+  const rotatedHeight = boxHeight * Math.cos(radians) + boxWidth * Math.sin(radians);
+  const fit = Math.min(1, maxWidth / Math.max(1, rotatedWidth), (height - safe * 2) / Math.max(1, rotatedHeight));
+  const scaledWidth = rotatedWidth * fit;
+  const scaledHeight = rotatedHeight * fit;
 
   const targetCenterX = width * (posX / 100);
   const targetCenterY = height * (posY / 100);
   const centerX = Math.max(safe + scaledWidth / 2, Math.min(width - safe - scaledWidth / 2, targetCenterX));
   const centerY = Math.max(safe + scaledHeight / 2, Math.min(height - safe - scaledHeight / 2, targetCenterY));
+
+  const templatePlate: React.CSSProperties | undefined = treatment.panel
+    ? { padding: panelPadding, borderRadius: treatment.panel === 'solid' ? base * 0.55 : base * 0.12,
+        background: treatment.panel === 'solid' ? accent : undefined,
+        outline: treatment.panel === 'outline' ? `${base * 0.055}px solid ${accent}` : undefined }
+    : undefined;
 
   const plate: React.CSSProperties | undefined = settings.backgroundColor && (settings.backgroundOpacity ?? 0) > 0
     ? {
@@ -341,10 +386,11 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         position: 'absolute',
         left: centerX,
         top: centerY,
-        transform: `translate(-50%, -50%) scale(${fit})`,
+        transform: `translate(-50%, -50%) scale(${fit}) rotate(${treatment.tilt ?? 0}deg)`,
         transformOrigin: 'center center',
         opacity: pageOpacity,
         pointerEvents: 'none',
+        ...templatePlate,
         ...plate,
       }}
     >

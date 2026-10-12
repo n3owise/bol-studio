@@ -1,119 +1,131 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { Player, Thumbnail } from '@remotion/player';
 import { Check } from 'lucide-react';
-import { getContrastColor, templates } from '../lib/captions';
+import { templates } from '../lib/captions';
+import { defaults, type Settings, type Word } from '../lib/types';
+import { CaptionTrack } from '../remotion/CaptionTrack';
+import { treatmentFor } from '../remotion/treatments';
 
-/**
- * The miniature shown on a template's card in the picker.
- *
- * Every template gets its own wording and shape rather than one sample string
- * in different colours. The cards were interchangeable when they all read the
- * same, which defeats the point of a picker — you could not tell a three-line
- * lockup from a single-word punch without selecting it and watching.
- */
-export function TemplatePreview({ id, thirdLine }: { id: string; thirdLine?: string }) {
-  if (id === 'kinetic') return <strong>BAWAAL.</strong>;
-  if (id === 'editorial') return <span>dil se <b>bolo.</b></span>;
-  if (id === 'bounce') return <span>thoda <b>extra</b></span>;
-  if (id === 'karaoke') return <span>apni <b>vibe</b> hai.</span>;
-  if (id === 'neon') return <span>CHAMKEE-<b>LA</b></span>;
-  if (id === 'glow-script') return <span>Jadoo <i>wali</i> <b>baat</b></span>;
-  if (id === 'scribble') return <span><b>GOLMAAL</b><small>~ ~ ~</small></span>;
-  if (id === 'welcome-stack') return <span>ab <b>HERO</b><small>ki entry</small></span>;
-  if (id === 'soft-focus') return <span>Dil ka <i>sukoon</i></span>;
-  if (id === 'double-trouble') return <span><b>JODI</b><i>NO. 1</i></span>;
-  if (id === 'bubble-highlight') return <span>Apna <b>Tashan</b> dikhao</span>;
-  if (id === 'mumbai') return <span><b>BAMBAIYA</b><i>meri jaan</i></span>;
-  if (id === 'editing-school') return <span><b>USTAAD</b></span>;
-  if (id === 'kalakar-shadow') return <span>Hello <b>KALAKAR</b></span>;
-  if (id === 'pop-up') return <span>PATAKHA <b>DHAMAKA</b></span>;
-  // Premiere MOGRT presets: each gets distinct wording, layout and motion styling
-  if (id === 'mogrt-rise') {
-    return (
-      <span className="mogrt-rise-art">
-        <small>upar</small>
-        <b>UDAAN <i>↑</i></b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-pop') {
-    return (
-      <span className="mogrt-pop-art">
-        <small>bada</small>
-        <b>DHAMAKA!</b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-drop') {
-    return (
-      <span className="mogrt-drop-art">
-        <small>girte</small>
-        <b>BARSAAT <i>💧</i></b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-spread') {
-    return (
-      <span className="mogrt-spread-art">
-        <small>khul gaya</small>
-        <b>P H A I L A A V</b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-swing') {
-    return (
-      <span className="mogrt-swing-art">
-        <small>mast</small>
-        <b>JHOOLA</b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-wipe') {
-    return (
-      <span className="mogrt-wipe-art">
-        <small>khula</small>
-        <b>PARDA</b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-flip') {
-    return (
-      <span className="mogrt-flip-art">
-        <small>ekdum</small>
-        <b>PALAT</b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-slide') {
-    return (
-      <span className="mogrt-slide-art">
-        <small>tez</small>
-        <b>SARKAN »</b>
-      </span>
-    );
-  }
-  if (id === 'mogrt-triple') {
-    return (
-      <span className="mogrt-triple-art">
-        <i>creative</i>
-        <b>caption</b>
-        <u style={{ color: thirdLine }}>presets</u>
-      </span>
-    );
-  }
-  return <span>THINK <b>BIGGER.</b></span>;
+// A picker can have one hovered card and another focused card. Share the active
+// id so only one tiny video runs, rather than animating every visible preset.
+let activePreview: string | null = null;
+const previewListeners = new Set<() => void>();
+const subscribePreview = (listener: () => void) => {
+  previewListeners.add(listener);
+  return () => { previewListeners.delete(listener); };
+};
+function activatePreview(id: string | null) {
+  if (activePreview === id) return;
+  activePreview = id;
+  previewListeners.forEach(listener => listener());
+}
+function stopPreview(id: string) {
+  if (activePreview === id) activatePreview(null);
 }
 
-export function TemplateCard({ template, selected, onClick, disabled = false, thirdLine }: {
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(true);
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => setReduced(preference.matches);
+    update();
+    preference.addEventListener('change', update);
+    return () => preference.removeEventListener('change', update);
+  }, []);
+  return reduced;
+}
+
+/** The picker renders the same composition as the video preview and export.
+ * A settled frame avoids capturing a wipe, flip or entrance halfway through.
+ * The neutral video background keeps white caption text legible in both themes.
+ */
+export function TemplatePreview({ id, thirdLine, settings, playing = false }: {
+  id: string;
+  playing?: boolean;
+  thirdLine?: string;
+  settings?: Settings;
+}) {
+  const inputProps = useMemo(() => {
+    const template = templates.find(candidate => candidate.id === id);
+    const resolved: Settings = {
+      ...defaults,
+      ...settings,
+      template: id,
+      accent: settings?.template === id ? settings.accent : template?.accent ?? defaults.accent,
+      accentSecondary: thirdLine ?? settings?.accentSecondary,
+    };
+    const treatment = treatmentFor(id);
+    const sample = treatment.layout === 'single' && !treatment.groupText
+      ? ['HERO']
+      : id === 'mogrt-triple' ? ['creative', 'caption', 'presets'] : ['ab', 'HERO', 'aaya'];
+    const words: Word[] = sample.map((text, index) => ({
+      id: `preview-${index}`,
+      text,
+      original: text,
+      start: index * 0.1,
+      end: index === sample.length - 1 ? 2.5 : (index + 1) * 0.1,
+      confidence: 1,
+      emphasis: false,
+      emphasisScore: index === 1 || sample.length === 1 ? 0.95 : 0.1,
+    }));
+    return { words, settings: resolved, background: '#181b22' };
+  }, [id, settings, thirdLine]);
+
+  if (playing) return <Player
+    component={CaptionTrack}
+    inputProps={inputProps}
+    durationInFrames={180}
+    compositionWidth={720}
+    compositionHeight={465}
+    fps={60}
+    autoPlay
+    loop
+    controls={false}
+    initiallyMuted
+    clickToPlay={false}
+    doubleClickToFullscreen={false}
+    spaceKeyToPlayOrPause={false}
+    allowFullscreen={false}
+    browserMediaControlsBehavior={{ mode: 'do-nothing' }}
+    numberOfSharedAudioTags={0}
+    style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+    aria-hidden
+  />;
+
+  return <Thumbnail
+    component={CaptionTrack}
+    inputProps={inputProps}
+    frameToDisplay={60}
+    durationInFrames={180}
+    compositionWidth={720}
+    compositionHeight={465}
+    fps={60}
+    style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
+    aria-hidden
+  />;
+}
+
+export function TemplateCard({ template, selected, onClick, disabled = false, thirdLine, settings }: {
   template: typeof templates[number];
   selected: boolean;
   onClick: () => void;
   disabled?: boolean;
   thirdLine?: string;
+  settings?: Settings;
 }) {
-  const pillColor = getContrastColor(template.accent);
-  return <button className={`template-card ${selected ? 'selected' : ''}`} onClick={onClick} aria-pressed={selected} disabled={disabled}>
-    <div className={`template-art art-${template.id}`} style={{ '--card-accent': template.accent, '--pill-text': pillColor } as React.CSSProperties}>
-      <TemplatePreview id={template.id} thirdLine={thirdLine}/>
+  const activeId = useSyncExternalStore(subscribePreview, () => activePreview, () => null);
+  const reducedMotion = useReducedMotion();
+  useEffect(() => () => stopPreview(template.id), [template.id]);
+  const playing = activeId === template.id && !disabled && !reducedMotion && (settings?.motion ?? defaults.motion) > 0;
+
+  return <button
+    onMouseEnter={() => { if (!disabled) activatePreview(template.id); }}
+    onMouseLeave={() => stopPreview(template.id)}
+    onFocus={() => { if (!disabled) activatePreview(template.id); }}
+    onBlur={() => stopPreview(template.id)}
+    className={`template-card ${selected ? 'selected' : ''}`} onClick={onClick} aria-pressed={selected} disabled={disabled}>
+    <div className="template-art template-rendered-art" aria-hidden="true">
+      <TemplatePreview id={template.id} thirdLine={thirdLine} settings={settings} playing={playing}/>
       {selected && <span className="template-tick"><Check size={12}/></span>}
     </div>
     <div className="template-label"><span>{template.name}</span><small>{template.tag.split(' · ')[1]}</small></div>

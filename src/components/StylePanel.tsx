@@ -122,6 +122,7 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
                         <TemplateCard
                           key={template.id}
                           template={template}
+                          settings={settings}
                           selected={settings.template === template.id}
                           disabled={busy}
                           thirdLine={settings.accentSecondary || settings.textColor}

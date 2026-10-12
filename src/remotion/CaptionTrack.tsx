@@ -4,7 +4,7 @@ import { buildPages } from '../lib/pages';
 import { CaptionPage } from './CaptionPage';
 import { defaults, type Settings, type Word } from '../lib/types';
 import { localFacesReady } from '../lib/caption-fonts';
-import { treatmentFor } from './treatments';
+import { captionWordsPerPage, treatmentFor } from './treatments';
 
 import '@fontsource/dm-sans/400.css';
 import '@fontsource/dm-sans/700.css';
@@ -56,8 +56,9 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({ words, settings, bac
   useFontsReady();
 
   const resolved: Settings = { ...defaults, ...settings };
-  const layout = treatmentFor(resolved.template).layout;
-  const perPage = layout === 'single' ? 1 : resolved.wordsPerLine;
+  const treatment = treatmentFor(resolved.template);
+  const layout = treatment.layout;
+  const perPage = captionWordsPerPage(resolved.template, resolved.wordsPerLine);
   // Lockups built around a hero always promote one; row layouts only do it when
   // a word earns it, so the quieter templates stay quiet.
   const alwaysPromote = layout !== 'rows';

@@ -29,7 +29,7 @@ import { SAFE_AREAS, positionCollides, safeAreaFor } from './lib/safe-area';
 import { captionFonts } from './lib/caption-fonts';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from './remotion/CaptionTrack';
-import { treatmentFor } from './remotion/treatments';
+import { captionWordsPerPage, treatmentFor } from './remotion/treatments';
 import { CAPTION_FPS } from './remotion/Root';
 import { orderedElements } from './lib/media-scene';
 import { drawKeyedMedia } from './lib/chromakey';
@@ -323,7 +323,9 @@ function App() {
   const preview = useRef<HTMLDivElement>(null);
   const duration = project?.duration || 0;
   const words = project?.words ?? [];
-  const isSingleWordTemplate = useCallback((tpl: string) => treatmentFor(tpl).layout === 'single', []);
+  const isSingleWordTemplate = useCallback((tpl: string) => {
+    return captionWordsPerPage(tpl, 2) === 1;
+  }, []);
   const perPage = isSingleWordTemplate(settings.template) ? 1 : settings.wordsPerLine;
   // Exactly what the renderer draws — same call, same options — so the editor
   // can show which word will be enlarged instead of guessing at it. A stacked
