@@ -139,7 +139,7 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
     pill: boolean,
     row: 'prefix' | 'hero' | 'suffix' = role === 'hero' ? 'hero' : 'prefix',
   ) => {
-    const supportingOnly = settings.effectScope === 'emphasis' && role !== 'hero' && !word.spotlight;
+    const supportingOnly = settings.effectScope === 'emphasis' && role !== 'hero';
     const wordTreatment = supportingOnly
       ? { ...treatment, enter: undefined, exit: undefined, glow: 0, gradientRamp: false, ring: undefined, jitter: false, hop: false, pill: 'none' as const, shadow: 'soft' as const }
       : treatment;
@@ -178,7 +178,7 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         color={wordColor}
         treatment={wordTreatment}
         frameWidth={width}
-        motion={supportingOnly ? Math.min(settings.motion, 0.35) : settings.motion}
+        motion={supportingOnly ? 0 : settings.motion}
         strokeColor={settings.strokeColor}
         strokeWidth={settings.strokeWidth}
         fontFamily={fontStack(role === 'hero' ? treatment.heroFont : treatment.subFont, settings.fontFamily)}

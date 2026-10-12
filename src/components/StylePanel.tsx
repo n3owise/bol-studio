@@ -23,7 +23,7 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
       <option value="all">All words</option>
       <option value="emphasis">Emphasized words only</option>
     </select>
-    <p className="field-hint">Emphasized words only keeps supporting words in their normal color with a simple entrance.</p>
+    <p className="field-hint">Emphasized words only keeps supporting words still in their normal color, appearing as they are spoken.</p>
         </div>
         <div className="template-grid">
           {templates.map(template => (
