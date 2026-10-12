@@ -167,7 +167,9 @@ export const CaptionWord: React.FC<Props> = ({
     : 1;
 
   // Letters start apart and close into their tracking.
-  const enterTracking = variant === 'spread' ? away * 0.48 * m : 0;
+  // Expand the painted word, not its layout width: animated letter spacing
+  // remeasured the lockup every frame and moved otherwise stationary rows.
+  const spreadScale = variant === 'spread' ? 1 + away * 0.48 * m : 1;
 
   // A left-to-right reveal, no movement at all.
   const enterClip = variant === 'wipe' && p < 1
@@ -278,6 +280,7 @@ export const CaptionWord: React.FC<Props> = ({
         transform: [
           `translate3d(${enterX.toFixed(2)}px, ${(rise + enterY + hop + exitY).toFixed(2)}px, 0)`,
           `scale(${(scale * enterScale * exitScale).toFixed(4)})`,
+          `scaleX(${spreadScale.toFixed(4)})`,
           enterRotateX ? `rotateX(${enterRotateX.toFixed(2)}deg)` : '',
           `rotate(${(jitter + enterRotate + exitRotate).toFixed(2)}deg)`,
         ].filter(Boolean).join(' '),
@@ -291,12 +294,9 @@ export const CaptionWord: React.FC<Props> = ({
         lineHeight: (devanagari
           ? (isHero ? theme.type.heroLineHeightIndic : theme.type.subLineHeightIndic)
           : (isHero ? theme.type.heroLineHeight : theme.type.subLineHeight)) * lineHeightScale,
-        // The entrance animates tracking, so the creator's offset is added to
-        // whichever value is in play rather than replacing it — otherwise the
-        // adjustment would cancel the animation for its first few frames.
-        letterSpacing: enterTracking > 0.0005
-          ? `${(enterTracking + trackingAdd).toFixed(4)}em`
-          : `calc(${isHero ? theme.type.heroTracking : theme.type.subTracking} + ${trackingAdd}em)`,
+        // Keep layout tracking fixed; entrance transforms cannot displace
+        // neighboring words. The creator's offset still adjusts the template.
+        letterSpacing: `calc(${isHero ? theme.type.heroTracking : theme.type.subTracking} + ${trackingAdd}em)`,
         textDecorationLine: [underline && 'underline', strikethrough && 'line-through']
           .filter(Boolean).join(' ') || undefined,
         textDecorationThickness: (underline || strikethrough) ? `${Math.max(1, size * 0.045)}px` : undefined,
