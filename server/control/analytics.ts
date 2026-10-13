@@ -47,14 +47,20 @@ export async function overview(days: number, e: Env = env, fetcher = fetch) {
   const read = (url: string, token: string | undefined, init: RequestInit = {}) => boundedJson(url, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, fetcher);
   const providers = await Promise.all([
     provider('vercel', ['BOL_VERCEL_ANALYTICS_TOKEN', 'BOL_VERCEL_PROJECT_ID'], async () => {
-      const params = new URLSearchParams({ projectId: e.BOL_VERCEL_PROJECT_ID!, since: new Date(Date.now() - days * 86400000).toISOString(), until: new Date().toISOString(), limit: '20' });
+      const params = new URLSearchParams({ projectId: e.BOL_VERCEL_PROJECT_ID!, since: new Date(Date.now() - days * 86400000).toISOString(), until: new Date().toISOString(), limit: '40' });
       if (e.BOL_VERCEL_TEAM_ID) params.set('teamId', e.BOL_VERCEL_TEAM_ID);
       const endpoint = 'https://api.vercel.com/v1/query/web-analytics/visits/aggregate';
       const [total, devices] = await Promise.all([read(`${endpoint}?${params}&by=environment`, e.BOL_VERCEL_ANALYTICS_TOKEN), read(`${endpoint}?${params}&by=deviceType`, e.BOL_VERCEL_ANALYTICS_TOKEN)]);
       const row = Array.isArray(total.data) ? total.data[0] || {} : total.data || {};
       const metrics = Object.fromEntries(['visitors', 'pageviews'].filter(k => typeof row[k] === 'number').map(k => [k, row[k]]));
       const rows = Array.isArray(devices.data) ? devices.data.slice(0, 20).map((r: any) => ({ deviceType: r.deviceType, visitors: r.visitors, pageviews: r.pageviews })) : [];
-      return { message: 'Vercel production traffic.', metrics, rows };
+      const dimensions = ['day', 'country', 'browserName', 'osName', 'requestPath', 'referrerHostname'];
+      const reports = await Promise.all(dimensions.map(async key => {
+        try { const response = await read(`${endpoint}?${params}&by=${key}`, e.BOL_VERCEL_ANALYTICS_TOKEN);
+          return { key, status: 'connected', rows: Array.isArray(response.data) ? response.data.slice(0, key === 'day' ? 31 : 20) : [] }; }
+        catch { return { key, status: 'unavailable', rows: [] }; }
+      }));
+      return { message: 'Vercel production traffic.', metrics, rows, reports };
     }, e),
     provider('posthog', ['BOL_POSTHOG_PERSONAL_API_KEY', 'BOL_POSTHOG_PROJECT_ID'], async () => {
       const host = (e.BOL_POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
@@ -66,12 +72,21 @@ export async function overview(days: number, e: Env = env, fetcher = fetch) {
       const [events, sessions] = await Promise.all(sql.map(query => read(`${host}/api/projects/${e.BOL_POSTHOG_PROJECT_ID}/query/`, e.BOL_POSTHOG_PERSONAL_API_KEY, { method: 'POST', body: JSON.stringify({ query: { kind: 'HogQLQuery', query } }) })));
       const rows = events.results.filter((r: any) => Array.isArray(r) && r.length >= 2).slice(0, 20).map((r: any) => ({ event: r[0], count: r[1] }));
       const s = sessions.results?.[0];
-      return { message: 'Consented product events and session summaries.', rows, metrics: Array.isArray(s) && s.length >= 2 ? { sessions: s[0], average_session_seconds: s[1] } : {} };
+      const extraQueries = {
+        processing: `SELECT event, count(), avg(toFloat64OrNull(toString(properties.elapsed_seconds))) FROM events WHERE timestamp >= now() - INTERVAL ${days} DAY AND event IN ('captions_completed','export_completed') GROUP BY event LIMIT 10`,
+        features: `SELECT event, properties.panel, properties.preset, count() FROM events WHERE timestamp >= now() - INTERVAL ${days} DAY AND event IN ('panel_opened','preset_selected') GROUP BY event, properties.panel, properties.preset ORDER BY count() DESC LIMIT 20`
+      };
+      const reports = await Promise.all(Object.entries(extraQueries).map(async ([key, query]) => {
+        try { const result = await read(`${host}/api/projects/${e.BOL_POSTHOG_PROJECT_ID}/query/`, e.BOL_POSTHOG_PERSONAL_API_KEY, { method: 'POST', body: JSON.stringify({ query: { kind: 'HogQLQuery', query } }) });
+          return { key, status: 'connected', rows: result.results.map((r: any[]) => key === 'processing' ? { event: r[0], samples: r[1], average_seconds: r[2] } : { event: r[0], panel: r[1], preset: r[2], count: r[3] }) }; }
+        catch { return { key, status: 'unavailable', rows: [] }; }
+      }));
+      return { message: 'Consented product events and session summaries.', rows, reports, metrics: Array.isArray(s) && s.length >= 2 ? { sessions: s[0], average_session_seconds: s[1] } : {} };
     }, e),
     provider('sentry', ['BOL_SENTRY_READ_TOKEN', 'BOL_SENTRY_ORG', 'BOL_SENTRY_PROJECT'], async () => {
       if (![e.BOL_SENTRY_ORG!, e.BOL_SENTRY_PROJECT!].every(x => /^[a-zA-Z0-9_-]{1,100}$/.test(x))) throw new Error('Invalid provider');
       const issues = await read(`https://sentry.io/api/0/organizations/${e.BOL_SENTRY_ORG}/issues/?project=${e.BOL_SENTRY_PROJECT}&query=is%3Aunresolved&statsPeriod=${days}d&limit=20`, e.BOL_SENTRY_READ_TOKEN);
-      const rows = issues.slice(0, 20).map((i: any) => ({ title: i.title, count: i.count, users: i.userCount, lastSeen: i.lastSeen, url: safeLink(i.permalink, ['sentry.io'], links(e).sentry) }));
+      const rows = issues.slice(0, 20).map((i: any) => ({ title: i.title, count: i.count, users: i.userCount, lastSeen: i.lastSeen, level: i.level, firstSeen: i.firstSeen, url: safeLink(i.permalink, ['sentry.io', 'us.sentry.io', 'eu.sentry.io', `${e.BOL_SENTRY_ORG}.sentry.io`], links(e).sentry) }));
       return { message: 'Up to 20 recent unresolved issues; issue events are not necessarily crashes.', metrics: { unresolved_issues_shown: rows.length }, rows };
     }, e),
   ]);

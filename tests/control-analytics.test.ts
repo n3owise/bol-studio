@@ -26,7 +26,7 @@ test('PostHog reporting is bounded and isolates provider failures', async () => 
     return Response.json({ results: body.query.query.includes('avg(duration)') ? [[2, 15]] : [['captions_completed', 3]] });
   };
   const result = await overview(30, { BOL_POSTHOG_PERSONAL_API_KEY: 'private', BOL_POSTHOG_PROJECT_ID: '662131' }, fake as typeof fetch);
-  assert.equal(count, 2); assert.deepEqual(result.providers[1].metrics, { sessions: 2, average_session_seconds: 15 });
+  assert.equal(count, 4); assert.deepEqual(result.providers[1].metrics, { sessions: 2, average_session_seconds: 15 });
   assert.equal(result.providers[0].status, 'setup_needed');
   assert.ok(!JSON.stringify(result).includes('private'));
 });
@@ -50,4 +50,13 @@ test('Vercel total visitors use one production group, avoiding summed distinct v
     return Response.json({data:dimension === 'environment' ? [{environment:'production',visitors:1,pageviews:5}] : [{deviceType:'desktop',visitors:1,pageviews:5}]});
   }) as typeof fetch);
   assert.deepEqual(result.providers[0].metrics,{visitors:1,pageviews:5});
+});
+test('optional traffic breakdown failure preserves real summary and marks missing report', async () => {
+  const result=await overview(7,{BOL_VERCEL_ANALYTICS_TOKEN:'private',BOL_VERCEL_PROJECT_ID:'prj_test'},(async(url:string)=>{
+    const key=new URL(url).searchParams.get('by');
+    if(key==='country')return new Response('Unavailable',{status:503});
+    return Response.json({data:key==='environment'?[{visitors:8,pageviews:12}]:[]});
+  }) as typeof fetch);
+  const traffic=result.providers[0];assert.equal(traffic.status,'connected');assert.deepEqual(traffic.metrics,{visitors:8,pageviews:12});
+  assert.equal(traffic.reports?.find((r:any)=>r.key==='country')?.status,'unavailable');
 });

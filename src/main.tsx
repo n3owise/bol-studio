@@ -235,6 +235,12 @@ function App() {
   const [activeExportId, setActiveExportId] = useState<string | null>(null);
   const [lastDownloadedExportId, setLastDownloadedExportId] = useState<string | null>(null);
   const downloadedExportIdsRef = useRef<Set<string>>(new Set());
+  const captionTimingRef = useRef<Map<string, number>>(new Map());
+  const exportTimingRef = useRef<Map<string, number>>(new Map());
+  const elapsedTelemetry = (timings: Map<string, number>, id: string) => {
+    const start = timings.get(id); timings.delete(id);
+    return start === undefined ? {} : { elapsed_seconds: Math.round((performance.now() - start) / 1000) };
+  };
   const [exporting, setExporting] = useState(false);
   /**
    * Everything /api/limits reports, rather than the one field this used to keep.
@@ -784,9 +790,9 @@ function App() {
           const current = await request<Project>(`/projects/${project.id}`);
           if (cancelled) return;
           setProject(current); projectRef.current = current;
-          if (current.status === 'error') trackEvent('captions_failed');
+          if (current.status === 'error') trackEvent('captions_failed', elapsedTelemetry(captionTimingRef.current, current.id));
           if (current.status === 'ready') {
-            trackEvent('captions_completed');
+            trackEvent('captions_completed', elapsedTelemetry(captionTimingRef.current, current.id));
             // Recognition establishes a new editing baseline; old snapshots must
             // never replace these generated words with the pre-generation scene.
             setHistory([]); setFuture([]);
@@ -819,7 +825,7 @@ function App() {
     const job = project.exports.find(e => e.id === activeExportId);
     if (!job) return;
     if ((job.status === 'ready' || job.status === 'complete') && !downloadedExportIdsRef.current.has(job.id)) {
-      trackEvent('export_completed');
+      trackEvent('export_completed', elapsedTelemetry(exportTimingRef.current, job.id));
       downloadedExportIdsRef.current.add(job.id);
       setActiveExportId(null);
       setLastDownloadedExportId(job.id);
@@ -838,7 +844,7 @@ function App() {
         notify('Export complete! Your video download has started.');
       })();
     } else if (job.status === 'error') {
-      trackEvent('export_failed');
+      trackEvent('export_failed', elapsedTelemetry(exportTimingRef.current, job.id));
       setActiveExportId(null);
       notify(job.message || 'Export failed. Please check the logs.');
     }
@@ -2692,6 +2698,7 @@ function App() {
   async function startExport() {
     if (!project) return;
     const currentProject = project;
+    const exportStartedAt = performance.now();
     trackEvent('export_started', { mode: exportMode, resolution, fps: exportFps });
     setExporting(true);
     setLastDownloadedExportId(null);
@@ -2703,6 +2710,7 @@ function App() {
         body: JSON.stringify({ mode: exportMode, resolution, fps: exportFps }),
       });
       if (job?.id) {
+        exportTimingRef.current.set(job.id, exportStartedAt);
         setActiveExportId(job.id);
       }
       const result = await request<Project>(`/projects/${currentProject.id}`);
@@ -2790,6 +2798,7 @@ function App() {
     }
     try {
       await flushSave();
+      captionTimingRef.current.set(currentProject.id, performance.now());
       trackEvent('captions_started');
       const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       if (projectRef.current?.id === currentProject.id) {
@@ -2802,7 +2811,7 @@ function App() {
         if (result.settings) setSettings(result.settings);
       }
     }
-    catch(e){trackEvent('captions_failed');notify((e as Error).message);}
+    catch(e){trackEvent('captions_failed', elapsedTelemetry(captionTimingRef.current, currentProject.id));notify((e as Error).message);}
   }
   const retryTranscription = () => startTranscription();
 
