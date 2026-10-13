@@ -33,3 +33,13 @@ test('PostHog reporting is bounded and isolates provider failures', async () => 
 test('provider response limit aborts excessive payloads', async () => {
   await assert.rejects(boundedJson('https://example.com', {}, (async () => new Response('x'.repeat(2_000_001))) as typeof fetch), /too large/);
 });
+test('Sentry query uses project-scoped organization endpoint for both periods', async () => {
+  for (const days of [7, 30]) {
+    const result = await overview(days, { BOL_SENTRY_READ_TOKEN: 'private', BOL_SENTRY_ORG: 'bol-studio', BOL_SENTRY_PROJECT: 'javascript-react' }, (async (url: string) => {
+      const u = new URL(url); assert.equal(u.pathname, '/api/0/organizations/bol-studio/issues/');
+      assert.equal(u.searchParams.get('project'), 'javascript-react'); assert.equal(u.searchParams.get('statsPeriod'), `${days}d`);
+      return Response.json([{ title: 'Test', count: '1', permalink: 'https://sentry.io/organizations/bol-studio/issues/1/' }]);
+    }) as typeof fetch);
+    assert.equal(result.providers[2].status, 'connected');
+  }
+});

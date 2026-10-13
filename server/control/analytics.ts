@@ -70,7 +70,7 @@ export async function overview(days: number, e: Env = env, fetcher = fetch) {
     }, e),
     provider('sentry', ['BOL_SENTRY_READ_TOKEN', 'BOL_SENTRY_ORG', 'BOL_SENTRY_PROJECT'], async () => {
       if (![e.BOL_SENTRY_ORG!, e.BOL_SENTRY_PROJECT!].every(x => /^[a-zA-Z0-9_-]{1,100}$/.test(x))) throw new Error('Invalid provider');
-      const issues = await read(`https://sentry.io/api/0/projects/${e.BOL_SENTRY_ORG}/${e.BOL_SENTRY_PROJECT}/issues/?query=is%3Aunresolved&statsPeriod=${days}d&limit=20`, e.BOL_SENTRY_READ_TOKEN);
+      const issues = await read(`https://sentry.io/api/0/organizations/${e.BOL_SENTRY_ORG}/issues/?project=${e.BOL_SENTRY_PROJECT}&query=is%3Aunresolved&statsPeriod=${days}d&limit=20`, e.BOL_SENTRY_READ_TOKEN);
       const rows = issues.slice(0, 20).map((i: any) => ({ title: i.title, count: i.count, users: i.userCount, lastSeen: i.lastSeen, url: safeLink(i.permalink, ['sentry.io'], links(e).sentry) }));
       return { message: 'Up to 20 recent unresolved issues; issue events are not necessarily crashes.', metrics: { unresolved_issues_shown: rows.length }, rows };
     }, e),
