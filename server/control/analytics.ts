@@ -50,7 +50,7 @@ export async function overview(days: number, e: Env = env, fetcher = fetch) {
       const params = new URLSearchParams({ projectId: e.BOL_VERCEL_PROJECT_ID!, since: new Date(Date.now() - days * 86400000).toISOString(), until: new Date().toISOString(), limit: '20' });
       if (e.BOL_VERCEL_TEAM_ID) params.set('teamId', e.BOL_VERCEL_TEAM_ID);
       const endpoint = 'https://api.vercel.com/v1/query/web-analytics/visits/aggregate';
-      const [total, devices] = await Promise.all([read(`${endpoint}?${params}`, e.BOL_VERCEL_ANALYTICS_TOKEN), read(`${endpoint}?${params}&by=deviceType`, e.BOL_VERCEL_ANALYTICS_TOKEN)]);
+      const [total, devices] = await Promise.all([read(`${endpoint}?${params}&by=environment`, e.BOL_VERCEL_ANALYTICS_TOKEN), read(`${endpoint}?${params}&by=deviceType`, e.BOL_VERCEL_ANALYTICS_TOKEN)]);
       const row = Array.isArray(total.data) ? total.data[0] || {} : total.data || {};
       const metrics = Object.fromEntries(['visitors', 'pageviews'].filter(k => typeof row[k] === 'number').map(k => [k, row[k]]));
       const rows = Array.isArray(devices.data) ? devices.data.slice(0, 20).map((r: any) => ({ deviceType: r.deviceType, visitors: r.visitors, pageviews: r.pageviews })) : [];

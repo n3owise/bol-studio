@@ -43,3 +43,11 @@ test('Sentry query uses project-scoped organization endpoint for both periods', 
     assert.equal(result.providers[2].status, 'connected');
   }
 });
+test('Vercel total visitors use one production group, avoiding summed distinct visitors', async () => {
+  const result = await overview(7, { BOL_VERCEL_ANALYTICS_TOKEN: 'private', BOL_VERCEL_PROJECT_ID: 'prj_test', BOL_VERCEL_TEAM_ID: 'team_test' }, (async (url: string) => {
+    const u = new URL(url); assert.equal(u.searchParams.get('teamId'), 'team_test');
+    const dimension = u.searchParams.get('by'); assert.ok(['environment','deviceType'].includes(dimension!));
+    return Response.json({data:dimension === 'environment' ? [{environment:'production',visitors:1,pageviews:5}] : [{deviceType:'desktop',visitors:1,pageviews:5}]});
+  }) as typeof fetch);
+  assert.deepEqual(result.providers[0].metrics,{visitors:1,pageviews:5});
+});
