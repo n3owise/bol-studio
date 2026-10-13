@@ -57,7 +57,7 @@ export async function overview(days: number, e: Env = env, fetcher = fetch) {
       const dimensions = ['day', 'country', 'browserName', 'osName', 'requestPath', 'referrerHostname'];
       const reports = await Promise.all(dimensions.map(async key => {
         try { const response = await read(`${endpoint}?${params}&by=${key}`, e.BOL_VERCEL_ANALYTICS_TOKEN);
-          return { key, status: 'connected', rows: Array.isArray(response.data) ? response.data.slice(0, key === 'day' ? 31 : 20) : [] }; }
+          return { key, status: 'connected', rows: Array.isArray(response.data) ? response.data.slice(0, key === 'day' ? 31 : 20).map((row: any) => key === 'day' ? { day: row.timestamp, visitors: row.visitors, pageviews: row.pageviews } : row) : [] }; }
         catch { return { key, status: 'unavailable', rows: [] }; }
       }));
       return { message: 'Vercel production traffic.', metrics, rows, reports };

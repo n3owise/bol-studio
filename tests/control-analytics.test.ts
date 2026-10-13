@@ -55,8 +55,10 @@ test('optional traffic breakdown failure preserves real summary and marks missin
   const result=await overview(7,{BOL_VERCEL_ANALYTICS_TOKEN:'private',BOL_VERCEL_PROJECT_ID:'prj_test'},(async(url:string)=>{
     const key=new URL(url).searchParams.get('by');
     if(key==='country')return new Response('Unavailable',{status:503});
-    return Response.json({data:key==='environment'?[{visitors:8,pageviews:12}]:[]});
+    return Response.json({data:key==='environment'?[{visitors:8,pageviews:12}]:key==='day'?[{timestamp:'2026-10-13T00:00:00Z',visitors:8,pageviews:12}]:[]});
   }) as typeof fetch);
   const traffic=result.providers[0];assert.equal(traffic.status,'connected');assert.deepEqual(traffic.metrics,{visitors:8,pageviews:12});
   assert.equal(traffic.reports?.find((r:any)=>r.key==='country')?.status,'unavailable');
+  assert.equal(traffic.reports?.find((r:any)=>r.key==='day')?.rows[0].day,'2026-10-13T00:00:00Z');
 });
+
