@@ -71,3 +71,12 @@ References:
 - https://posthog.com/docs/session-replay/privacy
 - https://docs.sentry.io/api/events/list-a-projects-issues/
 - https://grafana.com/docs/plugins/yesoreyeram-infinity-datasource/latest/
+
+## Owner-only PIN gate
+
+Vercel `BOL_ADMIN_USER_IDS` is restricted to the owner’s verified Supabase UUID.
+`BOL_ADMIN_PIN` is a Production secret checked on each analytics API request, after
+account authorization. The browser retains the entered PIN only in page memory;
+reloading or closing the page locks it again. No database or browser storage is used.
+The PIN alone never grants access to another account. Missing PIN configuration
+fails closed. Profile navigation remains visible only to the authorized owner.

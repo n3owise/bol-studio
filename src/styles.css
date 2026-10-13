@@ -12623,3 +12623,12 @@ kbd {
 @keyframes admin-spin { to { transform:rotate(360deg); } }
 @media(prefers-reduced-motion:reduce) { .admin-spinning { animation:none; } }
 @media(min-width:800px) and (max-width:1150px) { .admin-analytics { padding:24px; } .admin-stat-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .admin-stat:nth-child(3) { border-right:0; } .admin-stat:nth-child(-n+3) { border-bottom:1px solid var(--color-border-subtle); } .admin-service-links>a { display:block; } .admin-service-links .admin-status { margin-top:6px; } .admin-title-row { align-items:flex-start; } }
+.admin-pin-gate { max-width:380px; margin:70px auto; padding:30px; border:1px solid var(--color-border-subtle); border-radius:14px; }
+.admin-pin-icon { width:46px; height:46px; display:grid; place-items:center; border-radius:10px; background:var(--color-bg-card); margin-bottom:22px; }
+.admin-pin-gate h2 { font-size:23px; letter-spacing:-.5px; margin:0 0 12px; }
+.admin-pin-gate p { color:var(--color-text-secondary); font-size:12px; line-height:1.6; }
+.admin-pin-gate form { display:grid; gap:10px; margin:24px 0 20px; }
+.admin-pin-gate label { font-size:12px; font-weight:500; }
+.admin-pin-gate input { width:100%; box-sizing:border-box; padding:12px; background:var(--color-bg-panel); color:var(--color-text-primary); border:1px solid var(--color-border-subtle); border-radius:7px; font-size:22px; letter-spacing:10px; }
+.admin-pin-gate small { color:var(--color-text-secondary); font-size:10px; line-height:1.6; display:block; }
+.admin-pin-gate .admin-pin-error { color:#b42318; margin:0; }

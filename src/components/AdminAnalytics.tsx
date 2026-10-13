@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, RefreshCw, ArrowLeft, BarChart3, Download, Users, Activity, AlertTriangle, Clock, Video, Sparkles } from 'lucide-react';
+import { ExternalLink, RefreshCw, ArrowLeft, BarChart3, Download, Users, Activity, AlertTriangle, Clock, Video, Sparkles, LockKeyhole } from 'lucide-react';
 import { request } from '../lib/api';
 
 type Row = Record<string, unknown>;
@@ -53,12 +53,17 @@ function downloadReport(data: Overview) {
 export function AdminAnalytics() {
   const [days,setDays]=useState(7), [data,setData]=useState<Overview|null>(null), [error,setError]=useState(''), [accountId,setAccountId]=useState(''), [loading,setLoading]=useState(true), [audience,setAudience]=useState('deviceType');
   const generation=useRef(0);
+  const pinRef=useRef('');
+  const [locked,setLocked]=useState(false), [pin,setPin]=useState(''), [pinError,setPinError]=useState('');
   const load=useCallback(async()=>{
     const id=++generation.current; setLoading(true);setError('');
-    try { const access=await request<{allowed:boolean;userId:string}>('/admin/access');
+    try { const headers = { 'X-Bol-Admin-Pin': pinRef.current };
+      const access=await request<{allowed:boolean;userId:string;unlocked:boolean}>('/admin/access',{headers});
       if(id!==generation.current)return;setAccountId(access.userId);
       if(!access.allowed)throw new Error('This account is not authorized for admin analytics.');
-      const next=await request<Overview>(`/admin/analytics?days=${days}`); if(id===generation.current)setData(next);
+      if (!access.unlocked) { setData(null); setLocked(true); setPinError(pinRef.current ? 'Incorrect PIN. Please try again.' : ''); pinRef.current=''; setPin(''); return; }
+      setLocked(false);setPinError('');setPin('');
+      const next=await request<Overview>(`/admin/analytics?days=${days}`,{headers}); if(id===generation.current)setData(next);
     } catch(failure) {if(id===generation.current){setData(null);setError((failure as Error).message);}}
     finally {if(id===generation.current)setLoading(false);}
   },[days]);
@@ -79,8 +84,15 @@ export function AdminAnalytics() {
       <div className="admin-actions"><label className="admin-sr-only" htmlFor="admin-period">Period</label><select id="admin-period" value={days} disabled={loading} onChange={e=>setDays(Number(e.target.value))}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option></select><button className="button secondary" disabled={loading} onClick={()=>void load()}><RefreshCw size={15} className={loading?'admin-spinning':''}/>{loading?'Updating…':'Refresh'}</button><button className="button secondary" disabled={!data||loading} onClick={()=>data&&downloadReport(data)}><Download size={15}/>Export CSV</button></div></div>
     </header>
     <div role="status" className="admin-update">{loading ? 'Fetching reports from your connected services…' : data ? `Last updated ${new Date(data.updatedAt).toLocaleString()} · Last ${activePeriod} days` : 'Reports are available to authorized administrators.'}</div>
+    {locked && !error && <section className="admin-pin-gate" aria-labelledby="admin-pin-title">
+      <div className="admin-pin-icon"><LockKeyhole size={24}/></div><p className="admin-eyebrow">Owner access only</p><h2 id="admin-pin-title">Unlock your analytics</h2><p>Enter your security PIN to view this private dashboard.</p>
+      <form onSubmit={e=>{e.preventDefault();pinRef.current=pin;void load();}}>
+        <label htmlFor="admin-pin">Security PIN</label><input id="admin-pin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{4}" maxLength={4} minLength={4} required value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} aria-describedby={pinError?'admin-pin-error':undefined} aria-invalid={!!pinError} disabled={loading}/>
+        {pinError&&<p className="admin-pin-error" id="admin-pin-error" role="alert">{pinError}</p>}<button className="button primary" disabled={loading||pin.length!==4}>{loading?'Checking…':'Unlock dashboard'}</button>
+      </form><small>Your account and PIN are both required. Nothing is saved in browser storage.</small>
+    </section>}
     {error&&<div className="admin-error" role="alert"><strong>Couldn’t load analytics</strong><p>{error}</p>{accountId&&<details><summary>Account access details</summary><code>{accountId}</code></details>}<button className="button secondary" onClick={()=>void load()}>Try again</button></div>}
-    {!data&&loading&&<div className="admin-skeleton" aria-hidden="true">{Array.from({length:6},(_,i)=><div key={i}/>)}</div>}
+    {!data&&loading&&!locked&&<div className="admin-skeleton" aria-hidden="true">{Array.from({length:6},(_,i)=><div key={i}/>)}</div>}
     {data&&<div id="admin-content">
       <nav className="admin-service-links" aria-label="Service dashboards">{Object.entries(data.links).map(([key,url])=><a key={key} href={url} target="_blank" rel="noopener noreferrer"><span>{names[key]}<ExternalLink size={12}/></span>{key==='supabase'?<small>Accounts & database</small>:<Status provider={data.providers.find(p=>p.provider===key)}/>}</a>)}</nav>
       <section className="admin-stat-grid" aria-label="Overview metrics">{stats.map(({label,value,icon:Icon,note})=><article className="admin-stat" key={label}><div><span>{label}</span><Icon size={17} aria-hidden="true"/></div><strong>{value===null?'—':typeof value==='number'?value.toLocaleString():value}</strong><small>{note}</small></article>)}</section>
