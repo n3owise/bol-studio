@@ -12659,3 +12659,5 @@ kbd {
 .profile-popup .modal-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:18px; padding-top:16px; border-top:1px solid var(--color-border-subtle); }
 .profile-popup .modal-actions .button { width:100%; min-height:36px; padding:9px 12px; justify-content:center; border-radius:7px; font-size:12px; }
 .profile-popup .button:focus-visible,.profile-popup input:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
+.profile-popup .profile-note { margin:12px 0 0; padding:0; background:transparent; border-radius:0; text-align:left; font-size:11px; line-height:1.6; }
+.profile-popup .modal-actions { margin-top:14px; padding-top:14px; }
