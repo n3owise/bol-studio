@@ -217,7 +217,6 @@ function App() {
   const [accountName, setAccountName] = useState('');
   const [accountJoined, setAccountJoined] = useState('');
   const [accountVerified, setAccountVerified] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   /**
    * Asked once, right after an upload, before any time is spent editing.
    *
@@ -702,7 +701,6 @@ function App() {
       setAccountName(String(data.user?.user_metadata?.full_name ?? '').trim());
       setAccountJoined(data.user?.created_at ?? '');
       setAccountVerified(!!data.user?.email_confirmed_at);
-      void request<{ allowed: boolean }>('/admin/access').then(access => setIsAdmin(access.allowed)).catch(() => setIsAdmin(false));
     });
   }, []);
 
@@ -4410,7 +4408,6 @@ function App() {
         if (error) throw error;
         setAccountName(String(data.user.user_metadata.full_name ?? name));
       }}
-      onAdmin={isAdmin ? () => { window.open('/admin/analytics', '_blank', 'noopener,noreferrer'); setAccountMenu(null); } : undefined}
       onSettings={() => { setAccountMenu(null); setActiveNavPanel('settings'); }}
       onSignOut={() => { setAccountMenu(null); void signOut(); }} />}
     {timelinePopover && (

@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { LogOut, Settings, CheckCircle2, UserRound } from 'lucide-react';
 import { Modal } from './Modal';
 
-export function ProfilePopup({ name, email, joined, verified, onClose, onSaveName, onSettings, onSignOut, onAdmin }: {
+export function ProfilePopup({ name, email, joined, verified, onClose, onSaveName, onSettings, onSignOut }: {
   name: string; email: string; joined: string; verified: boolean;
   onClose: () => void; onSaveName: (name: string) => Promise<void>;
-  onAdmin?: () => void;
   onSettings: () => void; onSignOut: () => void;
 }) {
   const [draft, setDraft] = useState(name);
@@ -39,7 +38,6 @@ export function ProfilePopup({ name, email, joined, verified, onClose, onSaveNam
     </dl>
     <p className="profile-note">Export your work before closing or refreshing the editor.</p>
     <div className="modal-actions">
-      {onAdmin && <button type="button" className="button secondary" onClick={onAdmin}>Admin analytics</button>}
       <button type="button" className="button secondary" onClick={onSettings}><Settings size={15} />Settings</button>
       <button type="button" className="button secondary" onClick={onSignOut}><LogOut size={15} />Sign out</button>
     </div>
