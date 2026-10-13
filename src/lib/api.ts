@@ -44,7 +44,11 @@ const localWorkspaceId = crypto.randomUUID();
 const temporaryProjects = new Set<string>();
 function renewTemporaryProjects(closing = false) {
   for (const id of temporaryProjects) {
-    void fetch(`${API}/api/projects/${id}/temporary-session${closing ? '?closing=true' : ''}`, {
+    // Same-origin keepalive avoids starting a cross-origin preflight while the
+    // document is being destroyed. Only this tiny close notification uses the
+    // Vercel proxy; large uploads and ordinary worker calls stay direct.
+    const leaseBase = closing && import.meta.env.PROD && API === 'https://n3owise-bol-studio-backend.hf.space' ? '' : API;
+    void fetch(`${leaseBase}/api/projects/${id}/temporary-session${closing ? '?closing=true' : ''}`, {
       method: 'POST', headers: authHeaders(), keepalive: closing,
     }).catch(() => { /* The server lease also expires after an abrupt close. */ });
   }

@@ -62,3 +62,25 @@ def test_lease_requires_owner_and_session_and_preserves_revision(session_project
     assert updated['temporarySession']['expiresAt'] > time.time() + LEASE_SECONDS - 5
     assert client.post(route + '?closing=true', headers=headers).status_code == 204
     assert backend.load_project(session_project['id'])['temporarySession']['expiresAt'] < time.time() + 20
+
+
+def test_expired_cleanup_removes_source_exports_and_intermediate_files(session_project):
+    directory = backend.project_dir(session_project['id'])
+    for name in ('source.bin', 'preview.mp4', 'audio.wav', 'export-test.mp4', 'export-test.json'):
+        (directory / name).write_bytes(b'temporary fixture')
+    scratch = directory / 'export-test-temporary'
+    scratch.mkdir()
+    (scratch / 'pixel-buffer').write_bytes(b'temporary frame data')
+    backend.reap_temporary_projects()
+    assert not directory.exists()
+
+
+def test_cleanup_retries_after_expired_export_finishes(session_project):
+    session_project['exports'] = [{'status': 'processing'}]
+    backend.write_project(session_project)
+    backend.reap_temporary_projects()
+    assert backend.project_dir(session_project['id']).exists()
+    session_project['exports'][0]['status'] = 'ready'
+    backend.write_project(session_project)
+    backend.reap_temporary_projects()
+    assert not backend.project_dir(session_project['id']).exists()
