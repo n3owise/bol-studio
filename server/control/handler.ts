@@ -1,4 +1,4 @@
-import { identity, overview } from './analytics';
+import { identity, overview } from './analytics.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 export async function handle(req: IncomingMessage, res: ServerResponse, accessOnly: boolean) {
   res.setHeader('Cache-Control', 'private, no-store');
