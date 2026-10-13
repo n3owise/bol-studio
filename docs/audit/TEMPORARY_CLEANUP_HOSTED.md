@@ -15,8 +15,14 @@ A disposable hosted upload was playable before closing its editor tab. Its media
 remained accessible after the close grace, including a cache-bypassing request.
 The direct HF close request needs a cross-origin preflight during page teardown.
 The close notification now uses the same-origin Vercel worker rewrite for the
-standard production HF backend. Large uploads remain direct. Hosted recheck is
-required after deploying this correction.
+standard production HF backend. Large uploads remain direct. Hosted recheck completed after deploying this correction. A fresh disposable
+6.8-second upload returned HTTP 206 with a valid scoped media credential before
+navigating away from its editor. After a 30-second wait, a new cache-bypassing
+request with that same credential returned HTTP 404, Project not found. This
+verifies normal navigation/session-ending cleanup on the live HF worker. The
+30-minute abrupt-termination fallback was exercised with controlled clocks
+locally, not a separate 30-minute hosted wait. An earlier probe with expired
+credentials returned 401 and was explicitly excluded from cleanup evidence.
 
 ## Export findings
 
