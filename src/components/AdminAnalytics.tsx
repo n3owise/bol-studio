@@ -36,7 +36,7 @@ export function AdminAnalytics() {
       <nav className="admin-service-links" aria-label="Service dashboards">
         {Object.entries(data.links).map(([provider, url]) => <a href={url} key={provider} target="_blank" rel="noopener noreferrer" className="button secondary">{names[provider]}<ExternalLink size={14} /></a>)}
       </nav>
-      <p className="admin-update">Updated {new Date(data.updatedAt).toLocaleString()} · Provider results are cached for up to one minute. Analytics starts collecting after activation; past visits cannot be recovered.</p>
+      <p className="admin-update">Updated {new Date(data.updatedAt).toLocaleString()} · Refresh requests the latest provider results. Analytics starts collecting after activation; past visits cannot be recovered.</p>
       <div className="admin-provider-grid">
         {data.providers.map(provider => <section className="admin-provider-card" key={provider.provider}>
           <header><h2>{names[provider.provider]}</h2><span className={`admin-status ${provider.status}`}>{provider.status === 'connected' ? 'Connected' : provider.status === 'setup_needed' ? 'Setup needed' : 'Unavailable'}</span></header>
