@@ -1,3 +1,4 @@
+import { PanelHeading } from './PanelHeading';
 import { useDialogFocus } from './useDialogFocus';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -348,6 +349,7 @@ export function MediaPanel({
 
   return (
     <section className="media-panel panel" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+      <div className="editor-panel-header"><PanelHeading icon={Film} title="Media" description="Upload and manage your video, audio and images." /></div>
       {/* Hidden File Picker */}
       <input
         ref={fileInputRef}
@@ -444,9 +446,6 @@ export function MediaPanel({
       {/* Empty State vs Project Media Library */}
       {assets.length === 0 && uploadingList.length === 0 ? (
         <div className="media-empty-state">
-          <div className="media-panel-title-row">
-            <h2>Media</h2>
-          </div>
 
           <div
             className={`media-upload-box ${isDraggingOver ? 'drag-active' : ''}`}
@@ -503,7 +502,6 @@ export function MediaPanel({
           {/* Header row with Title and Upload button */}
           <div className="media-library-header">
             <div>
-              <h2>Project Media</h2>
               <span className="media-count-badge">{assets.length} items</span>
             </div>
             <button

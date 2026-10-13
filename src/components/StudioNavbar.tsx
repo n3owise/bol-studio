@@ -120,7 +120,7 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
             className="nav-btn ghost"
             aria-label={`Account — ${accountName || accountEmail}`}
             title={accountName ? `${accountName} — ${accountEmail}` : accountEmail}
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-expanded={accountMenuOpen}
             onClick={() => {
               if (onToggleAccountMenu) {

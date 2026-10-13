@@ -1,3 +1,4 @@
+import { PanelHeading } from './PanelHeading';
 import { activeCaptionIndex, captionTimeIndex } from '../lib/frontend-reliability';
 import { useDialogFocus } from './useDialogFocus';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
@@ -21,12 +22,10 @@ import {
   AlertCircle,
   X,
   ChevronDown,
-  ChevronRight,
   Type,
 } from 'lucide-react';
 import type { MediaAsset, Project, Settings, Word } from '../lib/types';
 import { getContrastColor } from '../lib/captions';
-import { MAX_WORDS_PER_PAGE } from '../lib/pages';
 import { groupWords } from '../lib/pages';
 import { WordInspector, recase, type WordCase } from './WordInspector';
 
@@ -178,13 +177,12 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   notify,
   downloadTranscript,
 }) => {
-  // Panel view modes: 'empty' | 'generate' | 'generating' | 'editor'
+  // Panel view modes: 'empty' | 'generating' | 'editor'
   const hasCaptions = groups.length > 0;
   const isGenerating = busy && project && ['queued', 'processing', 'transcribing', 'extracting'].includes(project.status);
 
-  const [panelViewOverride, setPanelViewOverride] = useState<'empty' | 'generate' | null>(null);
+  const [panelViewOverride, setPanelViewOverride] = useState<'empty' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'highlighted' | 'edited'>('all');
   const [panelMenuOpen, setPanelMenuOpen] = useState(false);
   const [activeRowMenuIdx, setActiveRowMenuIdx] = useState<number | null>(null);
   const [modalType, setModalType] = useState<'regenerate-confirm' | 'clear-confirm' | null>(null);
@@ -201,16 +199,11 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     return 'primary';
   });
 
-  const [spokenLang, setSpokenLang] = useState<'auto' | 'hi' | 'en'>('auto');
+  const spokenLang = project?.language || 'auto';
   // Brand names, handles and domains the recogniser cannot know. Seeded from
   // the project so they survive a re-run.
   const [brandWords, setBrandWords] = useState((project?.glossary ?? []).join(', '));
   const [isolateVocals, setIsolateVocals] = useState(!!project?.isolateVocals);
-  // Both of these are language-dependent, so each one only appears when the
-  // chosen language makes it mean anything: translating English to English does
-  // nothing, and the emoji encoder is English-trained.
-  const [wantEmoji, setWantEmoji] = useState(!!project?.emoji);
-  const [wantTranslate, setWantTranslate] = useState(!!project?.translate);
   /**
    * Where the "add a word" menu is open, from a right-click on a word.
    *
@@ -219,9 +212,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
    * finding nothing there reads as the feature being absent.
    */
   const [insertMenu, setInsertMenu] = useState<{ wordId: string; x: number; y: number } | null>(null);
-  const [captionScript, setCaptionScript] = useState<'roman' | 'native' | 'en' | 'same'>('roman');
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [wordsPerCaption, setWordsPerCaption] = useState(Math.min(settings.wordsPerLine || 5, MAX_WORDS_PER_PAGE));
+  const captionScript = project?.script || 'roman';
+  const [startingGeneration, setStartingGeneration] = useState(false);
 
   // Inline group editing state
   const [editingGroupIdx, setEditingGroupIdx] = useState<number | null>(null);
@@ -286,9 +278,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Determine active view mode
-  const currentView: 'empty' | 'generate' | 'generating' | 'editor' = useMemo(() => {
+  const currentView: 'empty' | 'generating' | 'editor' = useMemo(() => {
     if (isGenerating) return 'generating';
-    if (panelViewOverride === 'generate') return 'generate';
     if (!hasCaptions) return 'empty';
     return 'editor';
   }, [isGenerating, panelViewOverride, hasCaptions]);
@@ -395,12 +386,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
   const searchResults = useMemo(() => {
     let list = groups.map((g, idx) => ({ group: g, idx }));
 
-    if (activeFilter === 'highlighted') {
-      list = list.filter(({ group }) => group.some(w => w.spotlight));
-    } else if (activeFilter === 'edited') {
-      list = list.filter(({ group }) => group.some(w => w.text !== w.original));
-    }
-
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(({ group }) =>
@@ -410,7 +395,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
     }
 
     return list;
-  }, [groups, searchQuery, activeFilter]);
+  }, [groups, searchQuery]);
   const pageSize = 100;
   const resultPositions = useMemo(() => new Map(searchResults.map((row, index) => [row.idx, index])), [searchResults]);
   const playbackResultIndex = playing ? (resultPositions.get(activeGroupIdx) ?? -1) : -1;
@@ -977,18 +962,22 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
 
   // Handle generation start
   const handleGenerate = async () => {
-    const targetSource = selectedSourceId === 'primary' ? null : selectedSourceId;
+    if (busy || startingGeneration || !project) return;
+    setStartingGeneration(true);
+    const targetSource = activeMediaAsset?.id ?? 'primary';
     try {
-      await onStartTranscription(targetSource, captionScript, spokenLang, {
-        wordsPerLine: wordsPerCaption,
-        glossary: brandWords.split(',').map(t => t.trim()).filter(Boolean).slice(0, 200),
-        isolateVocals,
-        emoji: spokenLang === 'en' && wantEmoji,
-        translate: spokenLang !== 'en' && wantTranslate,
+      await onStartTranscription(targetSource === 'primary' ? null : targetSource, project.script || 'roman', project.language || 'auto', {
+        wordsPerLine: settings.wordsPerLine,
+        glossary: project.glossary ?? [],
+        isolateVocals: !!project.isolateVocals,
+        emoji: !!project.emoji,
+        translate: !!project.translate,
       });
       setPanelViewOverride(null);
     } catch (e) {
       notify((e as Error).message || 'Failed to start caption generation.');
+    } finally {
+      setStartingGeneration(false);
     }
   };
 
@@ -1012,16 +1001,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
       } as React.CSSProperties}
     >
       {/* PANEL HEADER */}
-      <div className="captions-header compact-header">
-        <div className="captions-title-block">
-          <div className="captions-title-row">
-            <span className="captions-icon-badge">
-              <Captions size={18} strokeWidth={2.2} />
-            </span>
-            <h2 className="captions-title">Captions</h2>
-          </div>
-          <p className="captions-subtitle">Edit your transcript word by word</p>
-        </div>
+      <div className="captions-header compact-header editor-panel-header">
+        <PanelHeading icon={Captions} title="Captions" description="Edit your transcript word by word." />
 
         {currentView === 'editor' && (
           <div className="captions-header-actions" ref={menuRef}>
@@ -1129,13 +1110,8 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
           <button
             type="button"
             className="button primary generate-main-btn"
-            onClick={() => {
-              if (compatibleAssets.length > 0 || project) {
-                setPanelViewOverride('generate');
-              } else {
-                onGoToMedia();
-              }
-            }}
+            disabled={busy || startingGeneration}
+            onClick={() => project ? void handleGenerate() : onGoToMedia()}
           >
             <Sparkles size={16} />
             <span>Generate Captions</span>
@@ -1143,204 +1119,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
           <p className="empty-subtext">
             Supports Hindi, English, Hinglish and other supported languages.
           </p>
-        </div>
-      )}
-
-      {/* 2. GENERATE CAPTIONS FORM */}
-      {currentView === 'generate' && (
-        <div className="captions-generate-view">
-          <div className="generate-header-row">
-            <button
-              type="button"
-              className="back-text-btn"
-              onClick={() => setPanelViewOverride(null)}
-            >
-              ← Back
-            </button>
-            <h3 className="generate-heading">Generate Captions</h3>
-          </div>
-
-          <div className="generate-form-scrollable">
-            {/* SOURCE SELECTION */}
-            <div className="generate-field-group">
-              <label className="generate-label">SOURCE</label>
-              <div className="source-select-wrap">
-                <select
-                  aria-label="Caption Source"
-                  className="generate-select"
-                  value={selectedSourceId}
-                  onChange={e => setSelectedSourceId(e.target.value)}
-                >
-                  {compatibleAssets.length > 0 ? (
-                    compatibleAssets.map(asset => (
-                      <option key={asset.id} value={asset.id}>
-                        {asset.name} {asset.duration ? `(${formatTimecode(asset.duration)})` : ''}
-                      </option>
-                    ))
-                  ) : project ? (
-                    <option value="primary">
-                      {project.name || project.filename} ({formatTimecode(project.duration || 0)})
-                    </option>
-                  ) : (
-                    <option value="">No media available</option>
-                  )}
-                </select>
-                <ChevronDown size={14} className="select-chevron" />
-              </div>
-            </div>
-
-            {/* SPOKEN LANGUAGE */}
-            <div className="generate-field-group">
-              <label className="generate-label">Spoken language</label>
-              <div className="source-select-wrap">
-                <select
-                  aria-label="Spoken language"
-                  className="generate-select"
-                  value={spokenLang}
-                  onChange={e => setSpokenLang(e.target.value as 'auto' | 'hi' | 'en')}
-                >
-                  <option value="auto">Auto-detect (Hindi + English)</option>
-                  <option value="hi">Hindi (हिन्दी)</option>
-                  <option value="en">English</option>
-                </select>
-                <ChevronDown size={14} className="select-chevron" />
-              </div>
-            </div>
-
-            {/* CAPTION SCRIPT */}
-            <div className="generate-field-group">
-              <label className="generate-label">Caption Script</label>
-              <div className="source-select-wrap">
-                <select
-                  aria-label="Caption Script"
-                  className="generate-select"
-                  value={captionScript}
-                  onChange={e => setCaptionScript(e.target.value as 'roman' | 'native' | 'en' | 'same')}
-                >
-                  <option value="roman">Hinglish / Roman (&ldquo;Aap kaise ho&rdquo;)</option>
-                  <option value="native">Devanagari (&ldquo;आप कैसे हो&rdquo;)</option>
-                  <option value="same">Same as spoken speech</option>
-                  <option value="en">Translate to English</option>
-                </select>
-                <ChevronDown size={14} className="select-chevron" />
-              </div>
-            </div>
-
-            {/* TRANSCRIPTION OPTIONS */}
-            {/* ADVANCED OPTIONS */}
-            <div className="advanced-options-section">
-              <button
-                type="button"
-                className="advanced-toggle-btn"
-                onClick={() => setShowAdvanced(prev => !prev)}
-              >
-                {showAdvanced ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                <span>Advanced Options</span>
-              </button>
-
-              {showAdvanced && (
-                <div className="advanced-content">
-                  <div className="advanced-field">
-                    <div className="slider-label-row">
-                      <span>Maximum words per caption</span>
-                      <span className="slider-badge">{wordsPerCaption} words</span>
-                    </div>
-                    <input
-                      aria-label="Maximum words per caption"
-                      type="range"
-                      min={1}
-                      max={MAX_WORDS_PER_PAGE}
-                      value={wordsPerCaption}
-                      onChange={e => setWordsPerCaption(Number(e.target.value))}
-                      className="bol-slider"
-                    />
-                  </div>
-
-                  <div className="advanced-field">
-                    <div className="slider-label-row">
-                      <span>Brand words</span>
-                      <span className="slider-badge">
-                        {brandWords.split(',').filter(t => t.trim()).length || 'none'}
-                      </span>
-                    </div>
-                    <input
-                      type="text"
-                      className="brand-words-input"
-                      value={brandWords}
-                      onChange={e => setBrandWords(e.target.value)}
-                      placeholder="kalakar.io, Bol Studio, Ewa"
-                      aria-label="Brand words the recognizer should spell your way"
-                    />
-                    <p className="field-hint">
-                      Names, handles and domains, comma separated. Only these are replaced &mdash;
-                      nothing else in your transcript is second-guessed.
-                    </p>
-                  </div>
-
-                  <label className="toggle-row compact">
-                    <span className="toggle-title">
-                      Clean up background noise
-                      <span className="toggle-note">Slower. Helps when music or a room sits under the voice.</span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      className="bol-switch"
-                      checked={isolateVocals}
-                      onChange={e => setIsolateVocals(e.target.checked)}
-                    />
-                  </label>
-
-                  {spokenLang !== 'en' && (
-                    <label className="toggle-row compact">
-                      <span className="toggle-title">
-                        Translate to English
-                        <span className="toggle-note">
-                          Captions become an English rendering of the audio rather than what was
-                          said, so the Hinglish spelling goes away. Timing is unchanged.
-                        </span>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="bol-switch"
-                        checked={wantTranslate}
-                        onChange={e => setWantTranslate(e.target.checked)}
-                      />
-                    </label>
-                  )}
-
-                  {spokenLang === 'en' && (
-                    <label className="toggle-row compact">
-                      <span className="toggle-title">
-                        Add emoji to matching words
-                        <span className="toggle-note">
-                          One a line at most, never on the big word. English only.
-                        </span>
-                      </span>
-                      <input
-                        type="checkbox"
-                        className="bol-switch"
-                        checked={wantEmoji}
-                        onChange={e => setWantEmoji(e.target.checked)}
-                      />
-                    </label>
-                  )}
-
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="generate-footer">
-            <button
-              type="button"
-              className="button primary full-width-btn"
-              onClick={handleGenerate}
-              disabled={busy}
-            >
-              <Sparkles size={16} />
-              <span>Generate Captions</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -1440,21 +1218,6 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
             </div>
 
             <div className="captions-filter-row">
-              {(['all', 'highlighted', 'edited'] as const).map(filterKey => (
-                <button
-                  key={filterKey}
-                  type="button"
-                  className={`caption-filter-pill ${activeFilter === filterKey ? 'active' : ''}`}
-                  onClick={() => setActiveFilter(filterKey)}
-                >
-                  {filterKey === 'all'
-                    ? 'All'
-                    : filterKey === 'highlighted'
-                    ? '⚡ Highlighted'
-                    : 'Edited'}
-                </button>
-              ))}
-
               {/* The same decision as the one taken after upload, reachable
                   again once there are captions to judge it against — which is
                   the first moment anyone can actually tell whether they want
@@ -1468,19 +1231,9 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                   : 'Every word is the same size. Click to let Bol pick one to grow per line.'}
                 onClick={() => onUpdateSettings({ autoHighlight: settings.autoHighlight === false })}
               >
-                {settings.autoHighlight !== false ? 'Auto-highlight on' : 'Auto-highlight off'}
+                Auto highlight
               </button>
 
-              {groups.some(g => g.some(w => w.spotlight || w.emphasis)) && (
-                <button
-                  type="button"
-                  className="caption-filter-pill"
-                  title="Take the highlight off every word, including any the app chose before you did"
-                  onClick={onClearAllHighlights}
-                >
-                  Clear highlights
-                </button>
-              )}
             </div>
           </div>
 
@@ -1505,17 +1258,16 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                 <p>
                   {searchQuery.trim()
                     ? `No captions match "${searchQuery}"`
-                    : `No ${activeFilter} captions.`}
+                    : 'No captions yet.'}
                 </p>
                 <button
                   type="button"
                   className="button tiny secondary"
                   onClick={() => {
                     setSearchQuery('');
-                    setActiveFilter('all');
                   }}
                 >
-                  Reset filters
+                  Clear search
                 </button>
               </div>
             ) : (

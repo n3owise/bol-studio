@@ -11,11 +11,14 @@ import '@fontsource/dm-sans/700.css';
 import '@fontsource/space-grotesk/700.css';
 import '@fontsource/oswald/700.css';
 import '@fontsource/noto-sans-devanagari/700.css';
+import '@fontsource/montserrat/700.css';
 import '@fontsource/montserrat/800.css';
 import '@fontsource/montserrat/900.css';
 import '@fontsource/montserrat/600-italic.css';
 import '@fontsource/montserrat/800-italic.css';
 import '@fontsource/stix-two-text/600.css';
+import '@fontsource/stix-two-text/700.css';
+import '@fontsource/stix-two-text/700-italic.css';
 // Every family offered in the caption font picker has to be in this bundle:
 // the headless renderer has no access to the browser's fonts, so anything
 // missing here silently falls back and the export stops matching the preview.
@@ -87,3 +90,18 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({ words, settings, bac
     </AbsoluteFill>
   );
 };
+
+import '@fontsource/playfair-display/700.css';
+import '@fontsource/playfair-display/700-italic.css';
+import '@fontsource/cormorant-garamond/700.css';
+import '@fontsource/cormorant-garamond/700-italic.css';
+import '@fontsource/dm-serif-display/400.css';
+import '@fontsource/dm-serif-display/400-italic.css';
+import '@fontsource/bodoni-moda/700.css';
+import '@fontsource/bodoni-moda/700-italic.css';
+import '@fontsource/fraunces/700.css';
+import '@fontsource/fraunces/700-italic.css';
+import '@fontsource/lora/700.css';
+import '@fontsource/lora/700-italic.css';
+import '@fontsource/libre-baskerville/700.css';
+import '@fontsource/libre-baskerville/700-italic.css';

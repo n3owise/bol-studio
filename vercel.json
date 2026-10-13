@@ -5,6 +5,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/admin/:path*",
+      "destination": "/api/admin/:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://n3owise-bol-studio-backend.hf.space/api/:path*"
     },
@@ -12,5 +16,10 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ]
+  ],
+  "functions": {
+    "api/admin/*.ts": {
+      "maxDuration": 30
+    }
+  }
 }

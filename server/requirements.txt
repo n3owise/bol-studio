@@ -32,3 +32,6 @@ torchaudio>=2.1
 # a ~90MB model on first use and caches it. The feature reports itself
 # unavailable and is a no-op if this is absent.
 sentence-transformers>=3,<6
+
+# Production error monitoring (disabled without BOL_SENTRY_DSN).
+sentry-sdk[fastapi]>=2,<3

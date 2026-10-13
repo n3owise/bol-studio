@@ -138,7 +138,7 @@ export async function ensureMediaToken(projectId: string): Promise<string> {
 export function forgetMediaTokens(): void { mediaCredentials.clear(); }
 /** Share authentication and one-shot session refresh between JSON and file requests. */
 async function apiResponse(path: string, options?: RequestInit): Promise<Response> {
-  return fetchProtectedResource(`${API}/api${path}`, options, {
+  return fetchProtectedResource(`${path.startsWith('/admin/') ? '' : API}/api${path}`, options, {
     headers: extra => authHeaders(extra),
     authEnabled: AUTH_ENABLED && !!supabase,
     refresh: async () => {

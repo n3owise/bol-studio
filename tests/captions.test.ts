@@ -773,26 +773,19 @@ test('every mogrt preset has its own entrance, since that is all that separates 
     'no two presets share an entrance — they share everything else, so identical motion would make them the same template');
 });
 
-test('the mogrt family keeps the look the .mogrt files actually specify', () => {
-  for (const t of templates.filter(x => x.id.startsWith('mogrt-'))) {
-    const tr = treatmentFor(t.id);
-    // Read from each .mogrt's After Effects project: eight presets are a single
-    // Montserrat Black layer; composition 2 is three lines whose middle one is
-    // STIX Two Text SemiBold.
-    if (t.id === 'mogrt-triple') {
-      assert.equal(tr.heroFont, 'stix', 'composition 2 sets its middle line in STIX Two Text');
-      assert.equal(tr.heroWeight, 600, 'at SemiBold');
-      assert.equal(tr.subFont, 'montserrat', 'with Montserrat on the outer lines');
-      assert.equal(tr.prefixWeight, 800, 'line 1 is ExtraBold Italic');
-      assert.equal(tr.suffixWeight, 600, 'line 3 is SemiBold Italic');
-      assert.ok(tr.heroScale > tr.subScale, 'web caption adaptation enlarges the emphasized word independently');
-    } else {
-      assert.equal(tr.heroFont, 'montserrat', `${t.id} uses Montserrat, as the AE text layer does`);
-      assert.equal(tr.heroWeight, 900, `${t.id} is Black weight`);
-    }
-    assert.ok(tr.gradientRamp, `${t.id} carries the Gradient Ramp effect`);
-    assert.ok((tr.glow ?? 0) > 0, `${t.id} carries the Glow effect`);
+test('the eight motion presets have distinct bundled emphasis fonts', () => {
+  const presets = templates.filter(t => t.id.startsWith('mogrt-') && t.id !== 'mogrt-triple');
+  assert.equal(presets.length, 8);
+  const fonts = new Set<string>();
+  for (const preset of presets) {
+    const treatment = treatmentFor(preset.id);
+    assert.ok(treatment.heroFamily);
+    assert.ok(treatment.supportingFamily);
+    assert.notEqual(treatment.heroFamily, treatment.supportingFamily);
+    assert.ok(treatment.heroScale > treatment.subScale);
+    fonts.add(treatment.heroFamily!);
   }
+  assert.equal(fonts.size, 8);
 });
 
 test('gradient and glow stay on the hero so supporting words keep their own colour', () => {

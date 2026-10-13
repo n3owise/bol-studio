@@ -1,5 +1,7 @@
+import { trackEvent } from '../lib/telemetry';
+import { PanelHeading } from './PanelHeading';
 import React from 'react';
-import { Plus, Star } from 'lucide-react';
+import { Star, WandSparkles } from 'lucide-react';
 import { templates } from '../lib/captions';
 import type { Settings } from '../lib/types';
 import { TemplateCard } from './TemplateCard';
@@ -18,7 +20,7 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
 }) {
   return (
     <section className="style-panel panel">
-      <div className="panel-tabs"><button className="active" type="button">Templates</button></div>
+      <div className="editor-panel-header"><PanelHeading icon={WandSparkles} title="Style" description="Choose a caption preset and its effects." /></div>
       <div className="style-content">
         <div className="setting-field">
     <label htmlFor="caption-effect-scope">Apply preset effects to</label>
@@ -39,14 +41,9 @@ export function StylePanel({ settings, updateSettings, busy, onOpenTextPanel }: 
               selected={settings.template === template.id}
               disabled={busy}
               thirdLine={settings.accentSecondary || settings.textColor}
-              onClick={() => updateSettings({ template: template.id, accent: template.accent })}
+              onClick={() => { updateSettings({ template: template.id, accent: template.accent }); trackEvent('preset_selected', { preset: template.id }); }}
             />
           ))}
-        </div>
-        <div className="template-create-scratch-row">
-          <button type="button" className="template-create-scratch-btn" onClick={onOpenTextPanel}>
-            <Plus size={15} /><span>Build your own</span>
-          </button>
         </div>
         <div className="tip-card">
           <div className="tip-icon"><Star size={17} /></div>

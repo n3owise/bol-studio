@@ -181,7 +181,8 @@ export const CaptionPage: React.FC<Props> = ({ page, settings, width, height, pa
         motion={supportingOnly ? 0 : settings.motion}
         strokeColor={settings.strokeColor}
         strokeWidth={settings.strokeWidth}
-        fontFamily={fontStack(role === 'hero' ? treatment.heroFont : treatment.subFont, settings.fontFamily)}
+        glowRadius={role === 'hero' ? settings.glowRadius : 0}
+        fontFamily={fontStack(role === 'hero' ? treatment.heroFont : treatment.subFont, (role === 'hero' ? settings.heroFontFamily : settings.supportingFontFamily) ?? settings.fontFamily ?? (role === 'hero' ? treatment.heroFamily : treatment.supportingFamily))}
         weight={settings.bold ? 900 : rowWeight}
         exitProgress={supportingOnly ? 0 : exitProgress}
         italic={settings.italic ?? (role === 'hero' ? treatment.heroItalic : treatment.subItalic)}

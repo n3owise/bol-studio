@@ -1,5 +1,7 @@
 """Local API: persisted projects, one compute queue, real transcription and exports."""
 from __future__ import annotations
+from server.admin_analytics import admin_allowed, require_admin, overview as analytics_overview
+from server.telemetry import initialize_monitoring, capture_job_error
 
 import time
 import traceback
@@ -543,6 +545,7 @@ def _transcription_job(project_id: str, generation: int) -> None:
     except Exception as exc:
         if transcription_cancelled(project_id, generation):
             return
+        capture_job_error(exc, "transcription")
         diagnostics = trace.finish(exc)
         LOGGER.error("transcription_failure type=%s frames=%s", type(exc).__name__,
                      [(Path(frame.filename).name, frame.name, frame.lineno) for frame in traceback.extract_tb(exc.__traceback__)])
@@ -667,6 +670,7 @@ def export_job(project_id: str, export_id: str, snapshot: dict, mode: str, resol
     except Exception as exc:
         if _was_deleted(project_id):
             return
+        capture_job_error(exc, "export")
         diagnostics = trace.finish(exc)
         output_path.unlink(missing_ok=True)
         message = str(exc) if isinstance(exc, JobFailure) else "Export failed. Check the local rendering dependencies and try again."
@@ -759,6 +763,7 @@ async def lifespan(app: FastAPI):
                 await asyncio.to_thread(EXECUTOR.shutdown)
 
 
+initialize_monitoring()
 app = FastAPI(title="Bol local media API", lifespan=lifespan)
 
 # Origins default to the local dev server rather than "*". Set
@@ -1041,8 +1046,10 @@ class Settings(BaseModel):
     # Declared rather than left to extra="allow": this value is interpolated
     # into a CSS font-family, so an arbitrary string is an injection surface.
     fontFamily: str | None = None
+    heroFontFamily: str | None = None
+    supportingFontFamily: str | None = None
 
-    @field_validator("fontFamily")
+    @field_validator("fontFamily", "heroFontFamily", "supportingFontFamily")
     @classmethod
     def _known_font(cls, value: str | None) -> str | None:
         if value is not None and value not in CAPTION_FONTS | LOCAL_ONLY_FONTS:
@@ -1077,6 +1084,7 @@ class Settings(BaseModel):
     textColor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     backgroundColor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     backgroundOpacity: float | None = Field(default=None, ge=0, le=100)
+    glowRadius: float | None = Field(default=None, ge=0, le=80)
     strokeColor: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     strokeWidth: float | None = Field(default=None, ge=0, le=40)
     align: Literal["left", "center", "right"] | None = None
@@ -1449,6 +1457,20 @@ def limits(request: Request):
             # these are — the answer differs per caller on a shared deployment.
             "diskUsedByAccountBytes": used,
             "diskUsedByProjectsBytes": used}
+
+
+@app.get("/api/admin/access")
+def admin_access(request: Request):
+    return {"allowed": admin_allowed(request), "userId": getattr(request.state, "bol_owner", "")}
+
+
+@app.get("/api/admin/analytics")
+async def admin_analytics(request: Request, days: int = 7):
+    require_admin(request)
+    if days not in (7, 30):
+        raise HTTPException(422, "Choose 7 or 30 days.")
+    result = await analytics_overview(days)
+    return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/api/health")

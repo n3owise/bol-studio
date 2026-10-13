@@ -39,6 +39,8 @@ export type Settings = {
   effectScope?: 'all' | 'emphasis';
   aspect: 'original' | '9:16' | '1:1' | '16:9';
   fontFamily?: string;
+  heroFontFamily?: string;
+  supportingFontFamily?: string;
   textColor?: string;
   /**
    * Third line colour for stacked lockups. Premiere composition 2 drives its
@@ -47,6 +49,8 @@ export type Settings = {
   accentSecondary?: string;
   backgroundColor?: string;
   backgroundOpacity?: number;
+  /** Glow blur radius in pixels at the 720px reference width; zero disables glow. */
+  glowRadius?: number;
   strokeColor?: string;
   strokeWidth?: number;
   align?: 'left' | 'center' | 'right';

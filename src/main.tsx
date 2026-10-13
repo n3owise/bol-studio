@@ -1,3 +1,7 @@
+import { AnalyticsPrivacy } from './components/AnalyticsPrivacy';
+import { AdminAnalytics } from './components/AdminAnalytics';
+import { trackEvent } from './lib/telemetry';
+import { ProfilePopup } from './components/ProfilePopup';
 import { canvasKeyboardChange, editSnapshot, isBrowserZoomKey, playbackFrame, activeCaptionIndex, captionTimeIndex, timeIntervalIndex, timelineGroupWindow, timelineWindowIndices } from './lib/frontend-reliability';
 import { assetMediaPath, syncMediaSource } from './lib/media-credentials';
 import { editCaptionGroup } from './lib/caption-edit';
@@ -211,6 +215,9 @@ function App() {
   /** What sign-up asked for, when it was asked. Blank for accounts made before
    *  the field existed, so every reader of it falls back to the email. */
   const [accountName, setAccountName] = useState('');
+  const [accountJoined, setAccountJoined] = useState('');
+  const [accountVerified, setAccountVerified] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   /**
    * Asked once, right after an upload, before any time is spent editing.
    *
@@ -687,6 +694,9 @@ function App() {
     supabase.auth.getUser().then(({ data }) => {
       setAccountEmail(data.user?.email ?? '');
       setAccountName(String(data.user?.user_metadata?.full_name ?? '').trim());
+      setAccountJoined(data.user?.created_at ?? '');
+      setAccountVerified(!!data.user?.email_confirmed_at);
+      void request<{ allowed: boolean }>('/admin/access').then(access => setIsAdmin(access.allowed)).catch(() => setIsAdmin(false));
     });
   }, []);
 
@@ -774,7 +784,9 @@ function App() {
           const current = await request<Project>(`/projects/${project.id}`);
           if (cancelled) return;
           setProject(current); projectRef.current = current;
+          if (current.status === 'error') trackEvent('captions_failed');
           if (current.status === 'ready') {
+            trackEvent('captions_completed');
             // Recognition establishes a new editing baseline; old snapshots must
             // never replace these generated words with the pre-generation scene.
             setHistory([]); setFuture([]);
@@ -807,6 +819,7 @@ function App() {
     const job = project.exports.find(e => e.id === activeExportId);
     if (!job) return;
     if ((job.status === 'ready' || job.status === 'complete') && !downloadedExportIdsRef.current.has(job.id)) {
+      trackEvent('export_completed');
       downloadedExportIdsRef.current.add(job.id);
       setActiveExportId(null);
       setLastDownloadedExportId(job.id);
@@ -825,6 +838,7 @@ function App() {
         notify('Export complete! Your video download has started.');
       })();
     } else if (job.status === 'error') {
+      trackEvent('export_failed');
       setActiveExportId(null);
       notify(job.message || 'Export failed. Please check the logs.');
     }
@@ -2527,13 +2541,13 @@ function App() {
       if (e.key === 'ArrowUp') { e.preventDefault(); setTimelineZoom(z => Math.min(32, Number((z * 1.35).toFixed(2)))); return; }
       if (e.key === 'ArrowDown') { e.preventDefault(); setTimelineZoom(z => Math.max(1, Number((z / 1.35).toFixed(2)))); return; }
     };
-    // Capture Space before a focused button can activate itself. Text editors
+    // Capture Space before a focused button or select can activate itself. Text editors
     // and dialogs keep their native keyboard behavior; Enter still activates buttons.
     const onPlaybackSpace = (e: KeyboardEvent) => {
       if (e.isComposing || e.ctrlKey || e.metaKey || e.altKey || (e.code !== 'Space' && e.key !== ' ')) return;
       const target = e.target instanceof HTMLElement ? e.target : null;
       if (document.querySelector('[aria-modal="true"], dialog[open]') ||
-          target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
+          target?.closest('input, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
       e.preventDefault();
       e.stopPropagation();
       if (!e.repeat) togglePlay();
@@ -2549,6 +2563,8 @@ function App() {
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
     if (file.size > 1024*1024*1024) { notify('Choose a file smaller than 1 GB.'); return; }
+    trackEvent('upload_started', { size_mb: Math.round(file.size / 1048576), media_type: file.type.startsWith('video/') ? 'video' : 'audio' });
+    const uploadStartedAt = performance.now();
     setUploadProgress(0); setPlaying(false); media.current?.pause();
     try {
       await flushSave();
@@ -2559,8 +2575,9 @@ function App() {
            setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
       setImportAutoHighlight(result.settings.autoHighlight !== false);
       setLanguagePrompt('open');
+      trackEvent('upload_completed', { elapsed_seconds: Math.round((performance.now() - uploadStartedAt) / 1000) });
       void refreshLimits();
-    } catch(e) { notify((e as Error).message); }
+    } catch(e) { trackEvent('upload_failed'); notify((e as Error).message); }
     finally { setUploadProgress(null); if(input.current) input.current.value=''; }
   }
 
@@ -2675,6 +2692,7 @@ function App() {
   async function startExport() {
     if (!project) return;
     const currentProject = project;
+    trackEvent('export_started', { mode: exportMode, resolution, fps: exportFps });
     setExporting(true);
     setLastDownloadedExportId(null);
     try {
@@ -2692,6 +2710,7 @@ function App() {
         setProject(p => p?.id === currentProject.id ? { ...p, exports: result.exports } : p);
       }
     } catch (e) {
+      trackEvent('export_failed');
       notify((e as Error).message);
     } finally {
       setExporting(false);
@@ -2771,6 +2790,7 @@ function App() {
     }
     try {
       await flushSave();
+      trackEvent('captions_started');
       const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
       if (projectRef.current?.id === currentProject.id) {
         // Accepted generation invalidates Undo and Redo from the prior transcript.
@@ -2782,7 +2802,7 @@ function App() {
         if (result.settings) setSettings(result.settings);
       }
     }
-    catch(e){notify((e as Error).message);}
+    catch(e){trackEvent('captions_failed');notify((e as Error).message);}
   }
   const retryTranscription = () => startTranscription();
 
@@ -2830,7 +2850,7 @@ function App() {
               title={panel.label}
               aria-label={panel.label}
               aria-pressed={activeNavPanel === panel.id}
-              onClick={() => setActiveNavPanel(panel.id)}
+              onClick={() => { setActiveNavPanel(panel.id); trackEvent('panel_opened', { panel: panel.id }); }}
             >
               <span className="rail-nav-icon">{panel.icon}</span>
               <span className="rail-nav-label">{panel.label}</span>
@@ -4184,11 +4204,11 @@ function App() {
       three-second decision into a form. They live with the rest of the
       generation options in the Captions panel.
     */}
-    {languagePrompt && project && <Modal title="Import Video & Caption Setup" onClose={()=>setLanguagePrompt(null)}>
-      <p className="modal-lede">Set spoken language and choose whether to emphasize keywords in your captions.</p>
+    {languagePrompt && project && <Modal title="Caption setup" className="caption-setup-modal" onClose={()=>setLanguagePrompt(null)}>
+      <p className="modal-lede">Choose your caption language and emphasis style. You can adjust emphasis later.</p>
 
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-text-primary, #09090b)', marginTop: 4, marginBottom: 8 }}>
-        1. Spoken Language &amp; Script
+      <div className="caption-setup-section-label">
+        Language &amp; script
       </div>
       <div className="language-choice-grid" role="radiogroup" aria-label="Spoken language">
         {([
@@ -4217,11 +4237,11 @@ function App() {
         })}
       </div>
 
-      <div className="highlight-choice" style={{ marginTop: 16 }}>
+      <div className="highlight-choice">
         <div className="highlight-choice-head">
-          <strong style={{ fontSize: 13, fontWeight: 700 }}>2. Emphasized Words Option</strong>
-          <em style={{ fontSize: 11.5, opacity: 0.75 }}>
-            Choose whether key words should pop in your template&apos;s accent color &amp; motion, or keep all caption words normal and even.
+          <strong>Word emphasis</strong>
+          <em>
+            Make one word stand out, or keep all words evenly styled.
           </em>
         </div>
         <div className="highlight-mockups" role="radiogroup" aria-label="Emphasized words option">
@@ -4229,12 +4249,12 @@ function App() {
             {
               on: true,
               label: 'Emphasize keywords',
-              desc: 'One key word per line grows in accent color with motion pop',
+              desc: 'One word per caption stands out.',
             },
             {
               on: false,
               label: 'No emphasized words',
-              desc: 'Normal captions with full template style & motion (no highlight)',
+              desc: 'All words use the same emphasis.',
             },
           ] as const).map(choice => {
             const selected = importAutoHighlight === choice.on;
@@ -4274,7 +4294,7 @@ function App() {
           })}
         </div>
       </div>
-      <p className="modal-footnote">Emoji, translation and background-noise cleanup live in the Captions panel.</p>
+      <p className="modal-footnote">Change emphasis anytime with Auto highlight in the Captions panel.</p>
       <div className="modal-actions">
         <button type="button" className="button secondary" onClick={()=>setLanguagePrompt(null)}>
           Not now
@@ -4373,54 +4393,17 @@ function App() {
       </div>
     )}
 
-    {accountMenu && (
-      <>
-        {/* The same transparent catcher the word inspector uses: a click
-            anywhere else closes the menu, and it sits under the menu so the
-            menu's own clicks never reach it. */}
-        <div className="timeline-popover-backdrop" onClick={() => setAccountMenu(null)} />
-        <div
-          className="account-menu"
-          role="menu"
-          aria-label="Account"
-          style={{ top: accountMenu.top, right: accountMenu.right }}
-          onKeyDown={e => {
-            if (e.key === 'Escape') {
-              e.stopPropagation();
-              setAccountMenu(null);
-              accountButtonRef.current?.focus();
-            }
-          }}
-        >
-          <div className="account-menu-who">
-            <span className="account-initial lg">{(accountName || accountEmail)[0].toUpperCase()}</span>
-            <span className="account-menu-id">
-              {accountName && <strong>{accountName}</strong>}
-              <small>{accountEmail}</small>
-            </span>
-          </div>
-
-          <button
-            type="button"
-            role="menuitem"
-            className="account-menu-item"
-            autoFocus
-            onClick={() => { setAccountMenu(null); setActiveNavPanel('settings'); }}
-          >
-            <SettingsIcon size={15} />Settings
-          </button>
-
-          <button
-            type="button"
-            role="menuitem"
-            className="account-menu-item danger"
-            onClick={() => { setAccountMenu(null); void signOut(); }}
-          >
-            <LogOut size={15} />Sign out
-          </button>
-        </div>
-      </>
-    )}
+    {accountMenu && <ProfilePopup name={accountName} email={accountEmail}
+      joined={accountJoined} verified={accountVerified} onClose={() => setAccountMenu(null)}
+      onSaveName={async name => {
+        if (!supabase) throw new Error('Account service is unavailable.');
+        const { data, error } = await supabase.auth.updateUser({ data: { full_name: name } });
+        if (error) throw error;
+        setAccountName(String(data.user.user_metadata.full_name ?? name));
+      }}
+      onAdmin={isAdmin ? () => { window.open('/admin/analytics', '_blank', 'noopener,noreferrer'); setAccountMenu(null); } : undefined}
+      onSettings={() => { setAccountMenu(null); setActiveNavPanel('settings'); }}
+      onSignOut={() => { setAccountMenu(null); void signOut(); }} />}
     {timelinePopover && (
       <>
         <div
@@ -4516,7 +4499,8 @@ function Root() {
   // Keyed on the account so signing in as someone else builds a new editor.
   // Without it the previous user's project, words and media stay mounted, and
   // one person's clip renders under another person's session.
+  if (window.location.pathname === '/admin/analytics') return <AdminAnalytics/>;
   return <App key={session?.user?.id ?? 'local'}/>;
 }
 
-createRoot(document.getElementById('root')!).render(<React.StrictMode><Root/></React.StrictMode>);
+createRoot(document.getElementById('root')!).render(<React.StrictMode><Root/><AnalyticsPrivacy/></React.StrictMode>);

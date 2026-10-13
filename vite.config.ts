@@ -1,4 +1,6 @@
-import { defineConfig, type Plugin } from 'vite';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { handle as controlHandler } from './server/control/handler';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
@@ -29,18 +31,42 @@ function excludeLocalFonts(): Plugin {
   };
 }
 
+/** Run the same admin handler locally; processing remains on the Python worker. */
+const controlPlane: Plugin = {
+  name: 'bol-control-plane',
+  configResolved(config) {
+    const values = loadEnv(config.mode, config.root, 'BOL_');
+    for (const [key, value] of Object.entries(values)) if (process.env[key] === undefined) process.env[key] = value;
+  },
+  configureServer(server) {
+    server.middlewares.use((req, res, next) => {
+      const route = req.url?.split('?')[0];
+      if (route === '/api/admin/access' || route === '/api/admin/analytics') {
+        void controlHandler(req, res, route.endsWith('/access'));
+      } else next();
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), excludeLocalFonts()],
+  plugins: [controlPlane,react(), excludeLocalFonts(), ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT ? [sentryVitePlugin({
+    authToken: process.env.SENTRY_AUTH_TOKEN, org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT,
+    release: { name: process.env.VITE_APP_RELEASE || process.env.VERCEL_GIT_COMMIT_SHA },
+    sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] }, telemetry: false,
+  })] : [])],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
   build: {
+    sourcemap: Boolean(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT),
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (/posthog|rrweb/.test(id)) return 'vendor-posthog';
+            if (id.includes('@sentry')) return 'vendor-sentry';
             if (id.includes('@remotion') || id.includes('remotion')) {
               return 'vendor-remotion';
             }

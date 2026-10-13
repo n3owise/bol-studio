@@ -21,6 +21,7 @@ type Props = {
   motion: number;
   strokeColor?: string;
   strokeWidth?: number;
+  glowRadius?: number;
   fontFamily: string;
   pill?: boolean;
   pillColor?: string;
@@ -57,7 +58,7 @@ type Props = {
  */
 export const CaptionWord: React.FC<Props> = ({
   text, enterFrame, role, size, color, treatment, frameWidth, motion,
-  strokeColor, strokeWidth, fontFamily, pill, pillColor, devanagari, weight, italic,
+  strokeColor, strokeWidth, glowRadius, fontFamily, pill, pillColor, devanagari, weight, italic,
   lineHeightScale = 1, trackingAdd = 0, underline, strikethrough,
   exitProgress = 0,
 }) => {
@@ -209,8 +210,9 @@ export const CaptionWord: React.FC<Props> = ({
     ? `linear-gradient(180deg, #ffffff 0%, ${color} 35%, ${color} 100%)`
     : undefined;
 
-  const glow = treatment.glow && isHero && d >= 0
-    ? `0 0 ${size * treatment.glow * 0.18}px ${color}, 0 0 ${size * treatment.glow * 0.5}px ${color}88`
+  const radius = glowRadius === undefined ? size * (treatment.glow ?? 0) * 0.5 : glowRadius * k;
+  const glow = radius > 0 && isHero && d >= 0
+    ? `0 0 ${radius * 0.36}px ${color}, 0 0 ${radius}px ${color}88`
     : '';
   const shadow = treatment.shadow === 'hard'
     ? `${size * 0.03}px ${size * 0.045}px 0 rgba(24,12,0,0.5), ${size * 0.06}px ${size * 0.09}px 0 rgba(24,12,0,0.28)`
@@ -219,8 +221,9 @@ export const CaptionWord: React.FC<Props> = ({
       : '';
   const textShadow = isGradient || pill ? undefined : ([glow, shadow].filter(Boolean).join(', ') || undefined);
 
-  const glowFilter = isGradient && treatment.glow && d >= 0
-    ? `drop-shadow(0 0 ${size * treatment.glow * 0.16}px ${color}) drop-shadow(0 0 ${size * treatment.glow * 0.42}px ${color}88)`
+  const filterRadius = glowRadius === undefined ? size * (treatment.glow ?? 0) * 0.42 : glowRadius * k;
+  const glowFilter = (isGradient || pill) && filterRadius > 0 && isHero && d >= 0
+    ? `drop-shadow(0 0 ${filterRadius * 0.38}px ${color}) drop-shadow(0 0 ${filterRadius}px ${color}88)`
     : '';
   const blurTotal = blurPx + enterBlur + exitBlur;
   const totalFilter = [

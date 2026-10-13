@@ -1,3 +1,4 @@
+import { trackEvent } from '../lib/telemetry';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, MailCheck } from 'lucide-react';
 import { authErrorMessage, MIN_PASSWORD_LENGTH, passwordProblem, supabase } from '../lib/auth';
@@ -211,6 +212,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
         // itself is the signal, so this reads correctly either way and the
         // setting can be changed without touching the code.
         else if (!data.session) go('sent');
+        else trackEvent('signup_completed');
       } else if (formMode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
           redirectTo: window.location.origin,
@@ -303,6 +305,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
               type="text"
               value={name}
               autoComplete="name"
+              maxLength={80}
               required
               placeholder="Aman Verma"
               aria-invalid={nameError ? true : undefined}

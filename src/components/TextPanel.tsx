@@ -1,3 +1,6 @@
+import { ManualColor } from './ManualColor';
+import { CaptionFontPicker } from './CaptionFontPicker';
+import { PanelHeading } from './PanelHeading';
 import { linkedCaptionSize, captionBounds } from '../lib/caption-settings';
 import React from 'react';
 import { AlignCenter, AlignLeft, AlignRight, Bold, Check, ChevronDown, Italic, Link2, Plus, RotateCcw, SlidersHorizontal, Star, Strikethrough, Type, Underline, Unlink, WandSparkles } from 'lucide-react';
@@ -50,146 +53,47 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
   };
 
   return (
-    <section className="style-panel panel">
+    <section className="style-panel panel text-settings-panel">
+      <div className="editor-panel-header"><PanelHeading icon={Type} title="Text" description="Typography, layout, animation and colors." /></div>
       <div className="style-content">
   <>
-    <div className="style-intro">
-      <div>
-        <h2>Caption Settings</h2>
-      <p>Typography, layout, animation & colors.</p>
-    </div>
-    <WandSparkles size={23} />
-  </div>
-  <div className="setting-field">
-    <label htmlFor="caption-font">
-      Font
-      <span>{settings.fontFamily || 'Template default'}</span>
-    </label>
-    <select
-      id="caption-font"
-      className="font-select"
-      disabled={busy}
-      value={settings.fontFamily ?? ''}
-      style={{ fontFamily: settings.fontFamily ? `"${settings.fontFamily}", sans-serif` : undefined }}
-      onChange={e => updateSettings({ fontFamily: e.target.value || undefined })}
-    >
-      <option value="">Template default</option>
-      {captionFonts.map(f => (
-        <option key={f.family} value={f.family}>
-          {f.label}{f.devanagari ? ' · हिन्दी' : ''}
-        </option>
-      ))}
-    </select>
-    {settings.fontFamily && !captionFonts.find(f => f.family === settings.fontFamily)?.devanagari && (
-      <p className="field-hint">
-        No Devanagari in this face — Hindi words fall back to Noto. Pick one marked हिन्दी to keep one font throughout.
-      </p>
-    )}
-    <label htmlFor="caption-size">Caption size <span>{settings.fontSize}px</span></label>
-    <div className="slider-row">
-      <button
-        type="button"
-        className="icon-button tiny"
-        title="Decrease font size"
-        onClick={() => setCaptionSize(Math.max(captionBounds.fontSize.min, settings.fontSize - 2))}
-        disabled={busy}
-      >
-        -
-      </button>
-      <input
-        disabled={busy}
-        id="caption-size"
-        type="range"
-        min={captionBounds.fontSize.min}
-        max={captionBounds.fontSize.max}
-        value={settings.fontSize}
-        onChange={e => setCaptionSize(Number(e.target.value))}
-      />
-      <button
-        type="button"
-        className="icon-button tiny"
-        title="Increase font size"
-        onClick={() => setCaptionSize(Math.min(captionBounds.fontSize.max, settings.fontSize + 2))}
-        disabled={busy}
-      >
-        +
-      </button>
-      <span className="slider-number-badge">{settings.fontSize}px</span>
-      {/* Only once it differs from the default, so the row is not carrying a
-          button that would do nothing. */}
-      {settings.fontSize !== defaults.fontSize && (
-        <button
-          type="button"
-          className="icon-button tiny"
-          title={`Back to ${defaults.fontSize}px`}
-          aria-label="Reset caption size"
-          onClick={() => setCaptionSize(defaults.fontSize)}
-          disabled={busy}
-        >
-          <RotateCcw size={13}/>
-        </button>
-      )}
-    </div>
-  </div>
-  {/* Between the two sizes, because that is what it joins. Linking matters
-      only once the highlighted word has its own size: until then the
-      template's proportion already moves them together, so the button says
-      so rather than looking broken. */}
-  <button
-    type="button"
-    className={`size-link ${linked ? 'is-linked' : ''}`}
-    aria-pressed={linked}
-    disabled={busy}
-    title={settings.heroFontSize === undefined
-      ? 'The template already scales the highlighted word with the caption size.'
-      : linked
-        ? 'Linked — the highlighted word keeps its proportion when the caption size changes. Click to unlink.'
-        : 'Unlinked — the two sizes move independently. Click to link them.'}
-    onClick={() => updateSettings({ linkFontSizes: !linked })}
-  >
-    {linked ? <Link2 size={13}/> : <Unlink size={13}/>}
-    <span>
-      {linked ? 'Sizes linked' : 'Sizes independent'}
-      {settings.heroFontSize === undefined && linked ? ' · template proportion' : ''}
-    </span>
-  </button>
-
-  {/* The highlighted word has always been sized separately —
-      each template multiplies the caption size by its own
-      heroScale, from 1.3 up to 2.1 — but there was one control
-      for both, so raising one raised the other and the gap
-      between them could not be changed. This starts wherever
-      the template puts it and takes over once moved. */}
-  <div className="setting-field">
-    <label htmlFor="hero-size">
-      Highlighted word size{' '}
-      <span>
-        {heroSize}px
-        {settings.heroFontSize === undefined ? ' · from template' : ''}
-      </span>
-    </label>
-    <div className="slider-row">
-      <input
-        disabled={busy}
-        id="hero-size"
-        type="range"
-        min={captionBounds.heroFontSize.min}
-        max={captionBounds.heroFontSize.max}
-        value={heroSize}
-        onChange={e => updateSettings({ heroFontSize: Number(e.target.value) })}
-      />
-      {settings.heroFontSize !== undefined && (
-        <button
-          type="button"
-          className="icon-button tiny"
-          title="Back to the template's proportion"
-          onClick={() => updateSettings({ heroFontSize: undefined })}
-          disabled={busy}
-        >
-          <RotateCcw size={13}/>
-        </button>
-      )}
-    </div>
+  <div className="text-typography-section">
+    {(['supportingFontFamily', 'heroFontFamily'] as const).map(key => {
+      const value = settings[key] ?? settings.fontFamily ?? '';
+      const otherKey = key === 'heroFontFamily' ? 'supportingFontFamily' : 'heroFontFamily';
+      const emphasized = key === 'heroFontFamily';
+      const label = emphasized ? 'Emphasized words' : 'Supporting words';
+      return <div className="setting-field text-font-field" key={key}>
+        <label>{label}</label>
+        <CaptionFontPicker label={`${label} font`} value={value} disabled={busy}
+          onChange={family => updateSettings({ [key]: family || undefined,
+            [otherKey]: settings[otherKey] ?? settings.fontFamily, fontFamily: undefined })} />
+        {value && !captionFonts.find(font => font.family === value)?.devanagari &&
+          <p className="field-hint">Hindi characters use Noto Devanagari for this font.</p>}
+        {!linked && <>
+          <label htmlFor={emphasized ? 'hero-size' : 'caption-size'}>Font size <span>{emphasized ? heroSize : settings.fontSize}px</span></label>
+          <input disabled={busy} id={emphasized ? 'hero-size' : 'caption-size'} type="range"
+            min={emphasized ? captionBounds.heroFontSize.min : captionBounds.fontSize.min}
+            max={emphasized ? captionBounds.heroFontSize.max : captionBounds.fontSize.max}
+            value={emphasized ? heroSize : settings.fontSize}
+            onChange={event => emphasized
+              ? updateSettings({ heroFontSize: Number(event.target.value) })
+              : setCaptionSize(Number(event.target.value))} />
+        </>}
+      </div>;
+    })}
+    <button type="button" className={`size-link ${linked ? 'is-linked' : ''}`}
+      aria-pressed={linked} disabled={busy} onClick={() => updateSettings({ linkFontSizes: !linked })}>
+      {linked ? <Link2 size={15} /> : <Unlink size={15} />}
+      <span>{linked ? 'Sizes linked · unlink to adjust separately' : 'Link font sizes'}</span>
+    </button>
+    {linked && <div className="setting-field linked-size-field">
+      <label htmlFor="caption-size">Linked font size <span>{settings.fontSize}px / {heroSize}px</span></label>
+      <input disabled={busy} id="caption-size" type="range" min={captionBounds.fontSize.min}
+        max={captionBounds.fontSize.max} value={settings.fontSize}
+        onChange={event => setCaptionSize(Number(event.target.value))} />
+      <p className="field-hint">Supporting and emphasized words scale together, keeping their proportions.</p>
+    </div>}
   </div>
 
   <div className="setting-field">
@@ -244,7 +148,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
     {/* This overlay existed and drew itself, but nothing anywhere
         could switch it on — so the one thing that catches a
         caption hidden behind the app's interface was unreachable. */}
-    <label htmlFor="safe-area">Check against Reels or Shorts</label>
+    <label htmlFor="safe-area">Platform safe zones</label>
     <div className="segmented-control">
       {([
         { id: 'none', label: 'Off' },
@@ -402,15 +306,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         value={settings.strokeWidth ?? 0}
         onChange={e => updateSettings({ strokeWidth: Number(e.target.value) })}
       />
-      <label className="custom-color" title="Outline colour">
-        <input
-          disabled={busy}
-          aria-label="Outline colour"
-          type="color"
-          value={settings.strokeColor || '#000000'}
-          onChange={e => updateSettings({ strokeColor: e.target.value })}
-        />
-      </label>
+      <ManualColor label="Outline" value={settings.strokeColor || '#000000'} disabled={busy} notify={notify} onChange={color => updateSettings({ strokeColor: color })} />
     </div>
     <p className="setting-note">
       An outline is what keeps captions readable over a bright or busy shot.
@@ -432,15 +328,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         value={settings.backgroundOpacity ?? 0}
         onChange={e => updateSettings({ backgroundOpacity: Number(e.target.value) })}
       />
-      <label className="custom-color" title="Background colour">
-        <input
-          disabled={busy}
-          aria-label="Background colour"
-          type="color"
-          value={settings.backgroundColor || '#000000'}
-          onChange={e => updateSettings({ backgroundColor: e.target.value })}
-        />
-      </label>
+      <ManualColor label="Caption background" value={settings.backgroundColor || '#000000'} disabled={busy} notify={notify} onChange={color => updateSettings({ backgroundColor: color })} />
     </div>
   </div>
 
@@ -513,16 +401,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
           </button>
         );
       })}
-      <label className="custom-color" title="Custom text color">
-        <Plus size={17} />
-        <input
-          disabled={busy}
-          aria-label="Custom text color"
-          type="color"
-          value={settings.textColor || '#ffffff'}
-          onChange={e => updateSettings({ textColor: e.target.value })}
-        />
-      </label>
+      <ManualColor label="Supporting text" value={settings.textColor || '#ffffff'} disabled={busy} notify={notify} onChange={color => updateSettings({ textColor: color })} />
     </div>
   </div>
   {isStackedTemplate && (
@@ -548,16 +427,7 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
             </button>
           );
         })}
-        <label className="custom-color" title="Custom third line color">
-          <Plus size={17} />
-          <input
-            disabled={busy}
-            aria-label="Custom third line color"
-            type="color"
-            value={settings.accentSecondary || '#ffd166'}
-            onChange={e => updateSettings({ accentSecondary: e.target.value })}
-          />
-        </label>
+        <ManualColor label="Third line" value={settings.accentSecondary || '#ffd166'} disabled={busy} notify={notify} onChange={color => updateSettings({ accentSecondary: color })} />
         <button
           disabled={busy || !settings.accentSecondary}
           type="button"
@@ -588,17 +458,19 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
           {settings.accent === color && <Check size={16} />}
         </button>
       ))}
-      <label className="custom-color" title="Custom highlight color">
-        <Plus size={17} />
-        <input
-          disabled={busy}
-          aria-label="Custom highlight color"
-          type="color"
-          value={settings.accent}
-          onChange={e => updateSettings({ accent: e.target.value })}
-        />
-      </label>
+      <ManualColor label="Emphasized text" value={settings.accent} disabled={busy} notify={notify} onChange={color => updateSettings({ accent: color })} />
     </div>
+  </div>
+  <div className="setting-field">
+    <label htmlFor="caption-glow-radius">Emphasized glow radius
+      <span>{settings.glowRadius === undefined ? 'Preset default' : settings.glowRadius === 0 ? 'Off' : `${settings.glowRadius}px`}</span>
+    </label>
+    <input id="caption-glow-radius" type="range" disabled={busy} min={0} max={80} step={1}
+      value={settings.glowRadius ?? Math.min(80, Math.round(heroSize * (treatmentFor(settings.template).glow ?? 0) * 0.5))}
+      onChange={event => updateSettings({ glowRadius: Number(event.target.value) })} />
+    <p className="field-hint">Controls the glow spread around the emphasized word. Set to zero to turn it off.</p>
+    {settings.glowRadius !== undefined && <button type="button" disabled={busy} className="button tiny secondary"
+      onClick={() => updateSettings({ glowRadius: undefined })}>Use preset glow radius</button>}
   </div>
   <button
     disabled={busy}
@@ -614,6 +486,11 @@ export function TextPanel({ settings, updateSettings, busy, notify, isStackedTem
         textColor: undefined,
         accentSecondary: undefined,
         fontFamily: undefined,
+        heroFontFamily: undefined,
+        supportingFontFamily: undefined,
+        glowRadius: undefined,
+        heroFontSize: undefined,
+        linkFontSizes: true,
       });
       notify('Reset to template defaults.');
     }}

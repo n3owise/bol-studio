@@ -29,6 +29,8 @@ export type Treatment = {
   heroWeight: number;
   subWeight: number;
   heroFont: FontRole;
+  heroFamily?: string;
+  supportingFamily?: string;
   subFont: FontRole;
   heroItalic?: boolean;
   /** Italic on the supporting rows, as composition 2's outer lines are. */
@@ -112,42 +114,35 @@ export const treatments: Record<string, Treatment> = {
   'pop-up': { ...base, layout: 'stack', tilt: -4, tierGap: 0.04, subScale: 0.72, enter: 'pop', exit: 'fall', heroScale: 2, jitter: true, uppercaseHero: true },
 };
 
-/**
- * The nine Premiere text presets.
- *
- * Read out of the .mogrt files: every one is a single Montserrat Black text
- * layer with the same three effects — Color Control, Glow, Gradient Ramp — at
- * 209/246/282pt on a 3840x2160 comp. Only the animation differs between them,
- * so they share this base and override `enter`.
- */
+/** Premiere-inspired motions with distinct serif/sans pairings for the web editor. */
 const mogrtBase: Treatment = {
   ...base,
   layout: 'stack',
   groupText: false,
-  heroFont: 'montserrat',
-  subFont: 'montserrat',
+  heroFont: 'stix',
+  subFont: 'display',
   heroScale: 1.85,
   subScale: 0.82,
-  heroWeight: 900,
-  subWeight: 800,
-  uppercaseHero: true,
-  glow: 0.7,
-  gradientRamp: true,
+  heroWeight: 700,
+  subWeight: 700,
+  uppercaseHero: false,
+  glow: 0.12,
+  gradientRamp: false,
   shadow: 'soft',
   outline: false,
 };
 
 const mogrtTreatments: Record<string, Treatment> = {
-  'mogrt-rise': { ...mogrtBase, enter: 'rise', exit: 'lift' },
-  'mogrt-pop': { ...mogrtBase, enter: 'pop', exit: 'shrink', heroScale: 1.55 },
-  'mogrt-drop': { ...mogrtBase, enter: 'drop', exit: 'fall' },
-  'mogrt-spread': { ...mogrtBase, enter: 'spread', exit: 'blur', heroScale: 1.35 },
-  'mogrt-swing': { ...mogrtBase, enter: 'swing', exit: 'fall' },
+  'mogrt-rise': { ...mogrtBase, enter: 'rise', exit: 'lift', heroFamily: 'Playfair Display', supportingFamily: 'DM Sans', heroItalic: false, heroScale: 1.85 },
+  'mogrt-pop': { ...mogrtBase, enter: 'pop', exit: 'shrink', heroFamily: 'Fraunces', supportingFamily: 'Poppins', heroItalic: false, heroScale: 1.75 },
+  'mogrt-drop': { ...mogrtBase, enter: 'drop', exit: 'fall', heroFamily: 'Cormorant Garamond', supportingFamily: 'Montserrat', heroItalic: true, heroScale: 2.15 },
+  'mogrt-spread': { ...mogrtBase, enter: 'spread', exit: 'blur', heroFamily: 'Bodoni Moda', supportingFamily: 'Space Grotesk', heroItalic: false, heroScale: 1.8 },
+  'mogrt-swing': { ...mogrtBase, enter: 'swing', exit: 'fall', heroFamily: 'Lora', supportingFamily: 'Mukta', heroItalic: true, heroScale: 1.9 },
   // Parda reveals left to right on the way in. Wiping back out again reads as
   // the reveal running in reverse, so it just fades — no exit movement.
-  'mogrt-wipe': { ...mogrtBase, enter: 'wipe', exit: 'fade' },
-  'mogrt-flip': { ...mogrtBase, enter: 'flip', exit: 'shrink' },
-  'mogrt-slide': { ...mogrtBase, enter: 'slide', exit: 'wipe' },
+  'mogrt-wipe': { ...mogrtBase, enter: 'wipe', exit: 'fade', heroFamily: 'DM Serif Display', supportingFamily: 'DM Sans', heroWeight: 400, heroItalic: false, heroScale: 1.8 },
+  'mogrt-flip': { ...mogrtBase, enter: 'flip', exit: 'shrink', heroFamily: 'STIX Two Text', supportingFamily: 'Oswald', heroItalic: true, heroScale: 2.0 },
+  'mogrt-slide': { ...mogrtBase, enter: 'slide', exit: 'wipe', heroFamily: 'Libre Baskerville', supportingFamily: 'Montserrat', heroItalic: true, heroScale: 1.65 },
   // The one multi-line preset: three text fields in Premiere, so a three-tier
   // lockup here, and the only one that mixes italic with a serif accent.
   /**

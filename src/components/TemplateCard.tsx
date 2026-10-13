@@ -51,13 +51,18 @@ export function TemplatePreview({ id, thirdLine, settings, playing = false }: {
       ...defaults,
       ...settings,
       template: id,
+      // Picker cards demonstrate the style independently of canvas placement.
+      position: 50,
+      positionX: 50,
+      safeArea: 'none',
       accent: settings?.template === id ? settings.accent : template?.accent ?? defaults.accent,
       accentSecondary: thirdLine ?? settings?.accentSecondary,
     };
     const treatment = treatmentFor(id);
     const sample = treatment.layout === 'single' && !treatment.groupText
       ? ['HERO']
-      : id === 'mogrt-triple' ? ['creative', 'caption', 'presets'] : ['ab', 'HERO', 'aaya'];
+      : id === 'mogrt-triple' ? ['creative', 'caption', 'presets']
+      : id.startsWith('mogrt-') ? ['ab', template?.name ?? 'Hero', 'aaya'] : ['ab', 'HERO', 'aaya'];
     const words: Word[] = sample.map((text, index) => ({
       id: `preview-${index}`,
       text,
@@ -126,8 +131,8 @@ export function TemplateCard({ template, selected, onClick, disabled = false, th
     className={`template-card ${selected ? 'selected' : ''}`} onClick={onClick} aria-pressed={selected} disabled={disabled}>
     <div className="template-art template-rendered-art" aria-hidden="true">
       <TemplatePreview id={template.id} thirdLine={thirdLine} settings={settings} playing={playing}/>
-      {selected && <span className="template-tick"><Check size={12}/></span>}
+      {selected && <span className="template-tick"><Check size={18} strokeWidth={3}/></span>}
     </div>
-    <div className="template-label"><span>{template.name}</span><small>{template.tag.split(' · ')[1]}</small></div>
+    <div className="template-label"><span>{template.name}</span><small>{selected ? 'Selected' : template.tag.split(' · ')[1]}</small></div>
   </button>;
 }

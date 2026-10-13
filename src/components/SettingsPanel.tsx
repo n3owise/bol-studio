@@ -1,3 +1,4 @@
+import { PanelHeading } from './PanelHeading';
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, Download, HardDrive, LoaderCircle, LogOut, RotateCcw, Scan, Trash2, Zap } from 'lucide-react';
 import { dimensions } from '../lib/captions';
@@ -177,19 +178,8 @@ export function SettingsPanel({
 
   return (
     <section className="style-panel panel">
-      <div className="panel-tabs">
-        <button className="active">Settings</button>
-      </div>
-
+      <div className="editor-panel-header"><PanelHeading icon={Scan} title="Settings" description="Your account, framing and limits." /></div>
       <div className="style-content">
-        <div className="style-intro">
-          <div>
-            <h2>Settings</h2>
-            <p>Your account, framing and limits.</p>
-          </div>
-          <Scan size={23} />
-        </div>
-
         {/* Absent rather than greyed out when accounts are off, which is the
             local-development default. A disabled Sign out button over a blank
             email is a control that can never do anything. */}
