@@ -5,17 +5,9 @@ import { authErrorMessage, MIN_PASSWORD_LENGTH, passwordProblem, supabase } from
 
 type Mode = 'signin' | 'signup' | 'forgot' | 'sent' | 'recover';
 
-/**
- * Terms and Privacy, when this deployment has them.
- *
- * Configured-on, the same bargain auth itself makes. The acknowledgment is
- * shown either way — it is a statement about what creating an account means,
- * not about whether a URL is set — but it only becomes a link when there is
- * something real on the end of it. A hyperlink to a 404 on a legal line is
- * worse than plain text saying the same thing.
- */
-const TERMS_URL = (import.meta.env.VITE_TERMS_URL || '').trim();
-const PRIVACY_URL = (import.meta.env.VITE_PRIVACY_URL || '').trim();
+/** Published policy pages; deployments can override their URLs. */
+const TERMS_URL = (import.meta.env.VITE_TERMS_URL || '/terms.html').trim();
+const PRIVACY_URL = (import.meta.env.VITE_PRIVACY_URL || '/privacy.html').trim();
 
 /** Deliberately permissive: the server and the mailbox are the real validators. */
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -38,7 +30,7 @@ const COPY: Record<Mode, { title: string; lede: string; action: string; working:
   signin: {
     title: 'Log in',
     lede: 'Your captions are ready to move.',
-    action: 'Let’s go',
+    action: 'Log in',
     working: 'Signing in',
   },
   signup: {
