@@ -963,7 +963,7 @@ test('a stacked lockup with nothing promoted does not invent a hero', () => {
 
 test('signing up only promises an email when one is actually coming', () => {
   const screen = readFileSync(new URL('../src/components/AuthScreen.tsx', import.meta.url), 'utf8');
-  assert.ok(/else if \(!data\.session\) go\('sent'\);/.test(screen),
+  assert.ok(/else if \(!data\.session\) showInbox\('signup'\);/.test(screen),
     'whether a confirmation email is sent is a Supabase setting the screen cannot assume. With '
     + 'confirmation off, signUp returns a session and the account already works — showing '
     + '"check your email" there promises something that never arrives. The session is the signal, '

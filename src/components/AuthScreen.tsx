@@ -80,6 +80,49 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [reveal, setReveal] = useState(false);
+  const [sentKind, setSentKind] = useState<'signup' | 'reset'>('signup');
+  const [sentEmail, setSentEmail] = useState('');
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [resendNotice, setResendNotice] = useState('');
+  const resendRemaining = Math.max(0, Math.ceil((resendAt - now) / 1000));
+  useEffect(() => {
+    if (mode !== 'sent') return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [mode]);
+  function showInbox(kind: 'signup' | 'reset') {
+    setSentKind(kind);
+    setSentEmail(email.trim());
+    setResendNotice('');
+    const timestamp = Date.now();
+    setNow(timestamp);
+    setResendAt(timestamp + 60_000);
+    go('sent');
+  }
+  async function resendEmail() {
+    if (!supabase || submitting.current || Date.now() < resendAt) return;
+    submitting.current = true;
+    setBusy(true);
+    setFormError('');
+    setResendNotice('');
+    const timestamp = Date.now();
+    setNow(timestamp);
+    setResendAt(timestamp + 60_000);
+    try {
+      const { error } = sentKind === 'signup'
+        ? await supabase.auth.resend({ type: 'signup', email: sentEmail,
+            options: { emailRedirectTo: window.location.origin } })
+        : await supabase.auth.resetPasswordForEmail(sentEmail, { redirectTo: window.location.origin });
+      if (error) setFormError(authErrorMessage(error));
+      else setResendNotice('Request accepted. Check your inbox and spam folder.');
+    } catch (error) {
+      setFormError(authErrorMessage(error as { message?: string }));
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  }
 
   // Three separate places an error can live, because they are three different
   // problems. A field error belongs beside the field; a form error belongs
@@ -203,7 +246,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
         // email then would promise something that never arrives. The session
         // itself is the signal, so this reads correctly either way and the
         // setting can be changed without touching the code.
-        else if (!data.session) go('sent');
+        else if (!data.session) showInbox('signup');
         else trackEvent('signup_completed');
       } else if (formMode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
@@ -212,7 +255,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
         // Whether an address has an account is not something to confirm to
         // whoever typed it, so this says the same thing either way.
         if (error && !/user not found/i.test(error.message)) setFormError(authErrorMessage(error));
-        else go('sent');
+        else showInbox('reset');
       } else if (formMode === 'recover') {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) setFormError(authErrorMessage(error));
@@ -500,11 +543,25 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
                     <MailCheck size={26} className="auth-sent-icon" aria-hidden="true" />
                     <h1 className="auth-title">{COPY.sent.title}</h1>
                     <p className="auth-lede">
-                      If an account exists for <strong>{email.trim()}</strong>, we have sent it a
-                      link. Open it to finish, then come back here.
+                      {sentKind === 'signup' ? <>
+                        Check <strong>{sentEmail}</strong> for a confirmation link. Open it to confirm your account and continue to Bol Studio.
+                      </> : <>
+                        If an account exists for <strong>{sentEmail}</strong>, we have sent a password-reset link. Open it to choose a new password.
+                      </>}
                     </p>
                     <p className="auth-hint">It can take a minute, and it sometimes lands in spam.</p>
-                    <button type="button" className="auth-btn ghost" onClick={() => go('signin', -1)}>
+                    {formError && <p className="auth-error" role="alert">{formError}</p>}
+                    {resendNotice && <p className="auth-hint" role="status">{resendNotice}</p>}
+                    <button type="button" className="auth-btn" disabled={busy || resendRemaining > 0} onClick={() => void resendEmail()}>
+                      {busy ? 'Sending…' : resendRemaining > 0 ? `Resend in ${resendRemaining}s` : sentKind === 'signup' ? 'Resend confirmation email' : 'Resend reset email'}
+                    </button>
+                    <button type="button" className="auth-btn ghost" disabled={busy} onClick={() => {
+                      setPassword('');
+                      go(sentKind === 'signup' ? 'signup' : 'forgot', -1);
+                    }}>
+                      Use a different email
+                    </button>
+                    <button type="button" className="auth-btn ghost" disabled={busy} onClick={() => go('signin', -1)}>
                       Back to log in
                     </button>
                   </div>
