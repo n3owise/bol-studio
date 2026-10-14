@@ -36,9 +36,28 @@ jobs:
           backup_work=$(mktemp -d)
           trap 'rm -rf "$backup_work"' EXIT
           mkdir -p "$backup_work/plain" "$RUNNER_TEMP/encrypted-backup"
-          supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "$backup_work/plain/roles.sql" 2>"$backup_work/dump.log" || { echo 'Role export failed. Check connection and database permissions.'; exit 1; }
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$backup_work/plain/schema.sql" 2>"$backup_work/dump.log" || { echo 'Schema export failed.'; exit 1; }
-          supabase db dump --db-url "$SUPABASE_DB_URL" --schema public,auth,storage --data-only --use-copy -f "$backup_work/plain/data.sql" 2>"$backup_work/dump.log" || { echo 'Data export failed.'; exit 1; }
+          diagnose_dump() {
+            if grep -Eqi 'password authentication failed|SASL|authentication failed' "$backup_work/dump.log"; then
+              echo 'Database authentication failed. Check the database password and URL encoding in the GitHub secret.'
+            elif grep -Eqi 'Tenant or user not found' "$backup_work/dump.log"; then
+              echo 'Pooler tenant/user not found. Copy the session-pooler URI from the correct Supabase project.'
+            elif grep -Eqi 'could not translate host|no such host|name resolution' "$backup_work/dump.log"; then
+              echo 'Database hostname could not be resolved. Check the session-pooler hostname.'
+            elif grep -Eqi 'timeout|timed out|network is unreachable|connection refused' "$backup_work/dump.log"; then
+              echo 'Database connection was unreachable or timed out. Check session mode, port 5432, project status and network restrictions.'
+            elif grep -Eqi 'invalid.*(port|URI|url)|parse.*(URI|url)|invalid percent' "$backup_work/dump.log"; then
+              echo 'Database URI format is invalid. Check the complete URI and URL-encoded password.'
+            elif grep -Eqi 'permission denied' "$backup_work/dump.log"; then
+              echo 'Database export permission was denied.'
+            elif grep -Eqi 'docker|image|manifest' "$backup_work/dump.log"; then
+              echo 'Backup container setup failed. Check runner/container availability.'
+            else
+              echo 'Database export failed with an unclassified error. No credentials or database data were logged.'
+            fi
+          }
+          supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "$backup_work/plain/roles.sql" 2>"$backup_work/dump.log" || { diagnose_dump; exit 1; }
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$backup_work/plain/schema.sql" 2>"$backup_work/dump.log" || { diagnose_dump; exit 1; }
+          supabase db dump --db-url "$SUPABASE_DB_URL" --schema public,auth,storage --data-only --use-copy -f "$backup_work/plain/data.sql" 2>"$backup_work/dump.log" || { diagnose_dump; exit 1; }
           test -s "$backup_work/plain/roles.sql"
           test -s "$backup_work/plain/schema.sql"
           test -s "$backup_work/plain/data.sql"
