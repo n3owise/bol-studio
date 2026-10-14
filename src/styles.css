@@ -12552,7 +12552,7 @@ kbd {
 .analytics-preferences { position: fixed; bottom: 4px; right: 8px; z-index: 10; font-size: 10px; color: var(--color-text-secondary); background: var(--color-bg-panel); }
 
 /* Admin overview follows the studio's typography and surface tokens. */
-.admin-analytics { max-width:1480px; padding:28px 40px 48px; font-variant-numeric:tabular-nums; }
+.admin-analytics { max-width:1480px; height:100vh; height:100dvh; overflow-y:auto; padding:28px 40px 48px; font-variant-numeric:tabular-nums; }
 .admin-header { display:block; padding-bottom:22px; }
 .admin-brand-row,.admin-title-row { display:flex; align-items:center; justify-content:space-between; gap:24px; }
 .admin-brand-row { margin-bottom:30px; }
