@@ -342,7 +342,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
               autoComplete="name"
               maxLength={80}
               required
-              placeholder="Aman Verma"
+              placeholder="Enter your name"
               aria-invalid={nameError ? true : undefined}
               aria-describedby={nameError ? id('name-error') : undefined}
               onChange={edit(setName, setNameError)}
