@@ -54,6 +54,7 @@ export async function startProductAnalytics() {
       },
     });
     client = posthog;
+    posthog.opt_in_capturing();
     setAnalyticsUser(analyticsUser);
     posthog.capture('$pageview', { page: location.pathname === '/admin/analytics' ? 'admin' : 'studio' });
     trackEvent('studio_opened');
