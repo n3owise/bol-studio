@@ -1,10 +1,23 @@
+import type { User } from '@supabase/supabase-js';
 import type { PostHog } from 'posthog-js';
 
 export const telemetryEnabled = import.meta.env?.PROD || import.meta.env?.VITE_TELEMETRY_DEV === '1';
 let client: PostHog | null = null;
 let starting: Promise<void> | null = null;
 let monitoringStarted = false;
-export const CONSENT_KEY = 'bol_analytics_consent';
+export const CONSENT_KEY = 'bol_analytics_consent_identified_v1';
+let analyticsUser: User | null = null;
+let identifiedUserId: string | null = null;
+export function setAnalyticsUser(user: User | null) {
+  analyticsUser = user;
+  if (!client || localStorage.getItem(CONSENT_KEY) !== 'granted') return;
+  if (identifiedUserId && identifiedUserId !== user?.id) client.reset();
+  identifiedUserId = user?.id || null;
+  if (user) {
+    const name = user.user_metadata?.full_name;
+    client.identify(user.id, { ...(typeof name === 'string' && name.trim() ? {name: name.trim()} : {}), ...(user.email ? {email: user.email} : {}) });
+  }
+}
 export const telemetryEvents = ['studio_opened', 'signup_completed', 'panel_opened', 'upload_started', 'upload_completed', 'upload_failed', 'captions_started', 'captions_completed', 'captions_failed', 'export_started', 'export_completed', 'export_failed', 'preset_selected'] as const;
 export type TelemetryEvent = typeof telemetryEvents[number];
 const allowedProperties = new Set(['panel', 'preset', 'mode', 'resolution', 'fps', 'duration_seconds', 'elapsed_seconds', 'size_mb', 'media_type']);
@@ -18,7 +31,7 @@ export function trackEvent(event: TelemetryEvent, properties: Record<string, unk
 }
 export async function startProductAnalytics() {
   if (!telemetryEnabled || !import.meta.env.VITE_POSTHOG_KEY || localStorage.getItem(CONSENT_KEY) !== 'granted') return;
-  if (client) { client.opt_in_capturing(); if (import.meta.env.VITE_POSTHOG_REPLAY === '1') client.startSessionRecording(); return; }
+  if (client) { client.opt_in_capturing(); setAnalyticsUser(analyticsUser); if (import.meta.env.VITE_POSTHOG_REPLAY === '1') client.startSessionRecording(); return; }
   if (starting) return starting;
   starting = (async () => {
     const { default: posthog } = await import('posthog-js');
@@ -29,7 +42,7 @@ export async function startProductAnalytics() {
       capture_pageview: false,
       capture_pageleave: false,
       capture_heatmaps: true,
-      person_profiles: 'never',
+      person_profiles: 'identified_only',
       disable_session_recording: import.meta.env.VITE_POSTHOG_REPLAY !== '1',
       session_recording: { maskAllInputs: true, maskTextSelector: '*', maskAllElementAttributes: true,
         blockSelector: 'img, video, canvas, input[type=hidden], input[type=file], .preview, .captions-list-container, .auth-screen, .profile-popup, .admin-analytics',
@@ -41,12 +54,13 @@ export async function startProductAnalytics() {
       },
     });
     client = posthog;
+    setAnalyticsUser(analyticsUser);
     posthog.capture('$pageview', { page: location.pathname === '/admin/analytics' ? 'admin' : 'studio' });
     trackEvent('studio_opened');
   })().catch(() => { /* Analytics must never interrupt editing. */ }).finally(() => { starting = null; });
   return starting;
 }
-export function stopProductAnalytics() { client?.opt_out_capturing(); client?.stopSessionRecording(); }
+export function stopProductAnalytics() { client?.opt_out_capturing(); client?.stopSessionRecording(); client?.reset(); identifiedUserId = null; }
 
 export async function startErrorMonitoring() {
   if (!telemetryEnabled || !import.meta.env.VITE_SENTRY_DSN || monitoringStarted) return;

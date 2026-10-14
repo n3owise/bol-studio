@@ -1,10 +1,24 @@
+import { supabase } from '../lib/auth';
 import React, { useEffect, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
-import { CONSENT_KEY, startErrorMonitoring, startProductAnalytics, stopProductAnalytics, telemetryEnabled } from '../lib/telemetry';
+import { CONSENT_KEY, setAnalyticsUser, startErrorMonitoring, startProductAnalytics, stopProductAnalytics, telemetryEnabled } from '../lib/telemetry';
 
 export function AnalyticsPrivacy() {
   const [choice, setChoice] = useState(() => localStorage.getItem(CONSENT_KEY));
   useEffect(() => { void startErrorMonitoring(); }, []);
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    let authChanged = false;
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      authChanged = true;
+      setAnalyticsUser(session?.user || null);
+    });
+    void supabase.auth.getSession().then(({data: sessionData}) => {
+      if(active && !authChanged) setAnalyticsUser(sessionData.session?.user || null);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
+  }, []);
   useEffect(() => { if (choice === 'granted') void startProductAnalytics(); else stopProductAnalytics(); }, [choice]);
   if (!telemetryEnabled) return null;
   const choose = (value: string) => { localStorage.setItem(CONSENT_KEY, value); setChoice(value); };
@@ -14,7 +28,7 @@ export function AnalyticsPrivacy() {
       return { ...event, url: url.toString() };
     }} />
     {import.meta.env.VITE_POSTHOG_KEY && !choice && <div className="analytics-consent" role="region" aria-label="Optional analytics">
-      <p>Allow anonymous usage analytics to help improve Bol Studio? Inputs, captions and media previews are masked in recordings.</p>
+      <p>Allow usage analytics linked to your account name and email to help improve Bol Studio? Inputs, captions and media previews are masked in recordings.</p>
       <button type="button" className="button secondary" onClick={() => choose('declined')}>No thanks</button>
       <button type="button" className="button primary" onClick={() => choose('granted')}>Allow analytics</button>
     </div>}
