@@ -61,7 +61,7 @@ jobs:
           test -s "$backup_work/plain/roles.sql"
           test -s "$backup_work/plain/schema.sql"
           test -s "$backup_work/plain/data.sql"
-          grep -Eq 'COPY auth.users|INSERT INTO auth.users' "$backup_work/plain/data.sql" || { echo 'Account data coverage could not be verified. No backup uploaded.'; exit 1; }
+          grep -Eq '(COPY|INSERT INTO) ("?auth"?)[.]("?users"?)' "$backup_work/plain/data.sql" || { echo 'Account data coverage could not be verified. No backup uploaded.'; exit 1; }
           (cd "$backup_work/plain" && sha256sum roles.sql schema.sql data.sql > SHA256SUMS)
           tar -C "$backup_work/plain" -czf "$backup_work/database.tar.gz" .
           printf '%s' "$BACKUP_PASSPHRASE" > "$backup_work/key"
