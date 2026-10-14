@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { Undo2, Redo2, Download, ChevronDown, Keyboard } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Undo2, Redo2, Download, ChevronDown, Keyboard, MoreHorizontal } from 'lucide-react';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 import type { Project } from '../lib/types';
 import type { Health } from '../lib/shell';
@@ -45,10 +45,20 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
   onOpenExport,
   onOpenShortcuts,
 }) => {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !headerRef.current?.contains(event.target)) setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [moreOpen]);
   const accountButtonRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <header className="studio-navbar">
+    <header className="studio-navbar" ref={headerRef}>
       <div className="navbar-left">
         <div className="navbar-brand" title="Bol Studio" aria-label="Bol Studio">
           <img src="/bol.studio.svg" alt="bol.studio" className="navbar-brand-logo logo-light-only" />
@@ -78,6 +88,8 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
       <div className="navbar-center" />
 
       <div className="navbar-right">
+        <button className="mobile-more-button icon-button" aria-label="More editor actions" aria-expanded={moreOpen} aria-controls="navbar-secondary-actions" onClick={()=>setMoreOpen(!moreOpen)}><MoreHorizontal size={20}/></button>
+        <div id="navbar-secondary-actions" className={`navbar-secondary-actions ${moreOpen ? 'is-open' : ''}`} onKeyDown={e=>{if(e.key==='Escape')setMoreOpen(false);}}>
         <div className="nav-btn-group">
           <button
             className="icon-button"
@@ -114,6 +126,7 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
             <Keyboard size={16} />
           </button>
         )}
+        </div>
         {authEnabled && accountEmail && (
           <button
             ref={accountButtonRef}
