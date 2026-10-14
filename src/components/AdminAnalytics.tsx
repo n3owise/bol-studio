@@ -59,10 +59,21 @@ export function AdminAnalytics() {
     try {
       await startErrorMonitoring();
       const Sentry=await import('@sentry/react');
-      if(!Sentry.getClient())throw new Error('Monitoring is not configured');
-      const eventId=Sentry.captureException(new Error('Bol Studio live monitoring test'),{tags:{integration_test:'true',test_source:'production_browser'}});
-      const flushed=await Sentry.flush(5000);
-      setMonitorTest(flushed ? `Test sent · Event ${eventId}` : 'Delivery pending. Check Sentry before retrying.');
+      const monitoringClient=Sentry.getClient();
+      if(!monitoringClient)throw new Error('Monitoring is not configured');
+      let statusCode:number|undefined;
+      let eventId='';
+      const unsubscribe=monitoringClient.on('afterSendEvent',(event,response)=>{
+        if(event.event_id===eventId)statusCode=response?.statusCode;
+      });
+      eventId=Sentry.captureException(new Error('Bol Studio live monitoring test'),{tags:{integration_test:'true',test_source:'production_browser'}});
+      try {
+        await Sentry.flush(5000);
+        setMonitorTest(statusCode && statusCode>=200 && statusCode<300
+          ? `Sentry accepted the test · Event ${eventId}`
+          : statusCode ? `Sentry rejected the test (HTTP ${statusCode}). Event ${eventId}`
+          : 'Delivery was not confirmed. Your browser or network may be blocking Sentry. Try disabling site tracking protection for this test.');
+      } finally { unsubscribe(); }
     } catch { setMonitorTest('Could not send the test. Check monitoring configuration.'); }
   };
   const generation=useRef(0);
