@@ -1,6 +1,6 @@
 # Encrypted Supabase backups
 
-Prepared 14 October 2026. Not enabled or acceptance-tested against production yet.
+Enabled 15 October 2026 (India time). First successful production export: GitHub run 38621209293. Role/schema/data export, account-table coverage, encryption, byte-for-byte decryption verification and artifact upload passed. Artifact retention is 30 days. Recovery into an isolated Supabase project remains untested.
 
 The `Encrypted Supabase backup` GitHub workflow runs daily at approximately 02:15 India time when enabled. Only encrypted archives are uploaded as Actions artifacts, with 30-day retention. No database exports are committed to Git. GitHub repository readers may have access to encrypted artifacts; keep the encryption key separately in a password manager and restrict repository access. GitHub may delay schedules or disable them on inactive repositories. Review runs and enable GitHub failure notifications.
 
