@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ExternalLink, RefreshCw, ArrowLeft, BarChart3, Download, Users, Activity, AlertTriangle, Clock, Video, Sparkles, LockKeyhole } from 'lucide-react';
 import { request } from '../lib/api';
+import { startErrorMonitoring } from '../lib/telemetry';
 
 type Row = Record<string, unknown>;
 type Report = { key: string; status: string; rows: Row[] };
@@ -52,6 +53,18 @@ function downloadReport(data: Overview) {
 
 export function AdminAnalytics() {
   const [days,setDays]=useState(7), [data,setData]=useState<Overview|null>(null), [error,setError]=useState(''), [accountId,setAccountId]=useState(''), [loading,setLoading]=useState(true), [audience,setAudience]=useState('deviceType');
+  const [monitorTest,setMonitorTest]=useState('');
+  const sendMonitorTest=async()=>{
+    setMonitorTest('Sending test…');
+    try {
+      await startErrorMonitoring();
+      const Sentry=await import('@sentry/react');
+      if(!Sentry.getClient())throw new Error('Monitoring is not configured');
+      const eventId=Sentry.captureException(new Error('Bol Studio live monitoring test'),{tags:{integration_test:'true',test_source:'production_browser'}});
+      const flushed=await Sentry.flush(5000);
+      setMonitorTest(flushed ? `Test sent · Event ${eventId}` : 'Delivery pending. Check Sentry before retrying.');
+    } catch { setMonitorTest('Could not send the test. Check monitoring configuration.'); }
+  };
   const generation=useRef(0);
   const pinRef=useRef('');
   const [locked,setLocked]=useState(false), [pin,setPin]=useState(''), [pinError,setPinError]=useState('');
@@ -83,6 +96,7 @@ export function AdminAnalytics() {
       <div className="admin-title-row"><div><p className="admin-eyebrow">Bol Studio / Overview</p><h1>Understand your studio.</h1><p>Audience, product activity and reliability, together.</p></div>
       <div className="admin-actions"><label className="admin-sr-only" htmlFor="admin-period">Period</label><select id="admin-period" value={days} disabled={loading} onChange={e=>setDays(Number(e.target.value))}><option value={7}>Last 7 days</option><option value={30}>Last 30 days</option></select><button className="button secondary" disabled={loading} onClick={()=>void load()}><RefreshCw size={15} className={loading?'admin-spinning':''}/>{loading?'Updating…':'Refresh'}</button><button className="button secondary" disabled={!data||loading} onClick={()=>data&&downloadReport(data)}><Download size={15}/>Export CSV</button></div></div>
     </header>
+    {data && <div><button className="button secondary" disabled={monitorTest.startsWith("Sending")} onClick={()=>void sendMonitorTest()}>Test error monitoring</button><p role="status" className="admin-update">{monitorTest}</p></div>}
     <div role="status" className="admin-update">{loading ? 'Fetching reports from your connected services…' : data ? `Last updated ${new Date(data.updatedAt).toLocaleString()} · Last ${activePeriod} days` : 'Reports are available to authorized administrators.'}</div>
     {locked && !error && <section className="admin-pin-gate" aria-labelledby="admin-pin-title">
       <div className="admin-pin-icon"><LockKeyhole size={24}/></div><p className="admin-eyebrow">Owner access only</p><h2 id="admin-pin-title">Unlock your analytics</h2><p>Enter your security PIN to view this private dashboard.</p>
