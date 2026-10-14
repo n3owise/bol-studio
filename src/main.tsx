@@ -2693,8 +2693,22 @@ function App() {
     notify(`Deleted “${target.name || target.filename}”.`);
     setActiveNavPanel('caption');
   }, [flushSave, notify, refreshLimits]);
+  function pauseForExport() {
+    if (pauseTimerRef.current) {
+      clearTimeout(pauseTimerRef.current);
+      pauseTimerRef.current = null;
+    }
+    media.current?.pause();
+    captionPlayer.current?.pause();
+    setPlaying(false);
+  }
+  function openExport() {
+    pauseForExport();
+    setModal('export');
+  }
   async function startExport() {
     if (!project) return;
+    pauseForExport();
     const currentProject = project;
     const exportStartedAt = performance.now();
     trackEvent('export_started', { mode: exportMode, resolution, fps: exportFps });
@@ -2842,7 +2856,7 @@ function App() {
           });
         }
       }}
-      onOpenExport={() => setModal('export')}
+      onOpenExport={openExport}
       onOpenShortcuts={() => setModal('shortcuts')}
     />
 
@@ -3039,7 +3053,7 @@ function App() {
             authEnabled={AUTH_ENABLED}
             onSignOut={() => void signOut()}
             onDeleteProject={handleDeleteProject}
-            onOpenExports={() => setModal('export')}
+            onOpenExports={openExport}
             notify={notify}
           />
       ) : (
@@ -4386,11 +4400,11 @@ function App() {
     {hasExportRunning && modal !== 'export' && latestExport && (
       <div
         className="floating-export-badge"
-        onClick={() => setModal('export')}
+        onClick={openExport}
         role="button"
         tabIndex={0}
         title="Rendering in background — Click to view details"
-        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal('export'); } }}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openExport(); } }}
       >
         <LoaderCircle size={14} className="spin" />
         <div className="floating-export-info">
