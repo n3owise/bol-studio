@@ -1,0 +1,63 @@
+name: Encrypted Supabase backup
+
+on:
+  schedule:
+    - cron: '45 20 * * *' # Daily at 02:15 Asia/Kolkata; GitHub may delay scheduled runs.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    if: vars.BOL_BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Export and encrypt database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.BOL_BACKUP_DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BOL_BACKUP_ENCRYPTION_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -z "$SUPABASE_DB_URL" ] || [ "${#BACKUP_PASSPHRASE}" -lt 32 ]; then
+            echo 'Set the database URL and an encryption key of at least 32 random characters.'
+            exit 1
+          fi
+          backup_work=$(mktemp -d)
+          trap 'rm -rf "$backup_work"' EXIT
+          mkdir -p "$backup_work/plain" "$RUNNER_TEMP/encrypted-backup"
+          supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "$backup_work/plain/roles.sql" 2>"$backup_work/dump.log" || { echo 'Role export failed. Check connection and database permissions.'; exit 1; }
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "$backup_work/plain/schema.sql" 2>"$backup_work/dump.log" || { echo 'Schema export failed.'; exit 1; }
+          supabase db dump --db-url "$SUPABASE_DB_URL" --schema public,auth,storage --data-only --use-copy -f "$backup_work/plain/data.sql" 2>"$backup_work/dump.log" || { echo 'Data export failed.'; exit 1; }
+          test -s "$backup_work/plain/roles.sql"
+          test -s "$backup_work/plain/schema.sql"
+          test -s "$backup_work/plain/data.sql"
+          grep -Eq 'COPY auth.users|INSERT INTO auth.users' "$backup_work/plain/data.sql" || { echo 'Account data coverage could not be verified. No backup uploaded.'; exit 1; }
+          (cd "$backup_work/plain" && sha256sum roles.sql schema.sql data.sql > SHA256SUMS)
+          tar -C "$backup_work/plain" -czf "$backup_work/database.tar.gz" .
+          printf '%s' "$BACKUP_PASSPHRASE" > "$backup_work/key"
+          gpg --batch --yes --pinentry-mode loopback --passphrase-file "$backup_work/key" --cipher-algo AES256 --symmetric --output "$RUNNER_TEMP/encrypted-backup/database.tar.gz.gpg" "$backup_work/database.tar.gz"
+          gpg --batch --pinentry-mode loopback --passphrase-file "$backup_work/key" --decrypt "$RUNNER_TEMP/encrypted-backup/database.tar.gz.gpg" > "$backup_work/verified.tar.gz"
+          cmp "$backup_work/database.tar.gz" "$backup_work/verified.tar.gz"
+          echo 'Encrypted database export created and decrypt verification passed.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'A restore drill is still required; this does not back up Storage files or provider configuration.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Store encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/encrypted-backup/database.tar.gz.gpg
+          retention-days: 30
+          if-no-files-found: error
+      - name: Clean runner files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/encrypted-backup"
