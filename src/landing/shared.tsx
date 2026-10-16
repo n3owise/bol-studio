@@ -120,10 +120,14 @@ export function FinalCta({ title = 'Your next reel deserves better captions.', a
 }
 
 /**
- * The contact form, above the footer on every public page. Posts to
- * /api/contact; if that is not set up or fails, it says so and offers the
- * email address instead, so a message is never silently lost.
+ * The contact form, above the footer on every public page. Sent through
+ * FormSubmit (free, no account), which emails it to hello@bol-studio.me with
+ * the visitor's address as Reply-To. The very first message triggers a one-time
+ * activation email to that inbox; nothing is delivered until it is confirmed.
+ * If sending fails, the form says so and offers the email address instead.
  */
+const CONTACT_ENDPOINT = 'https://formsubmit.co/ajax/hello@bol-studio.me';
+
 export function ContactForm() {
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [error, setError] = useState('');
@@ -146,14 +150,21 @@ export function ContactForm() {
     }
     setState('sending'); setError(''); setField(null);
     try {
-      const res = await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const res = await fetch(CONTACT_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          name: data.name.trim(), email: data.email.trim(), message: data.message.trim(),
+          _subject: `Bol Studio contact: ${data.name.trim().slice(0, 60)}`,
+          _template: 'table', _captcha: 'false',
+          // FormSubmit's own honeypot: anything here and it drops the message.
+          _honey: data.website ?? '',
+        }),
+      });
       const body = await res.json().catch(() => ({}));
-      if (res.ok) { setState('sent'); return; }
-      setField(body.field ?? null);
-      setError(body.field || res.status === 429 ? body.error : 'Your message could not be sent right now. Please email hello@bol-studio.me instead.');
-    } catch {
-      setError('Your message could not be sent right now. Please email hello@bol-studio.me instead.');
-    }
+      if (res.ok && String(body.success) === 'true') { setState('sent'); return; }
+    } catch { /* falls through to the message below */ }
+    setError('Your message could not be sent right now. Please email hello@bol-studio.me instead.');
     setState('error');
   }
 
