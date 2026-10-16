@@ -205,7 +205,7 @@
 .lp-step-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--ink); color: var(--accent); }
 .lp-step-n { font-family: var(--display); font-size: 84px; font-weight: 700; line-height: 0.8; color: transparent; -webkit-text-stroke: 1.5px var(--ink); transition: color 0.4s ease; }
 .lp-steps .lp-step-card:hover .lp-step-n { color: var(--accent); -webkit-text-stroke-color: var(--accent-ink); }
-.lp-step-card h3 { font-size: 26px; font-weight: 700; }
+.lp-step-card h3 { font-size: 26px; font-weight: 700; line-height: 1.15; }
 .lp-step-card p { margin-top: 10px; color: var(--ink-2); }
 
 /* ---- Gallery ------------------------------------------------------------ */
@@ -279,13 +279,14 @@
 
 /* ---- Footer ------------------------------------------------------------- */
 .lp-footer { padding: 48px 0 40px; background: var(--paper); }
-.lp-footer-inner { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 30px; align-items: start; border-top: 1px solid var(--rule); padding-top: 40px; }
+.lp-footer-inner { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 30px; align-items: start; border-top: 1px solid var(--rule); padding-top: 40px; }
 .lp-footer-brand img { height: 22px; width: auto; }
 .lp-footer-brand p { margin-top: 14px; max-width: 340px; font-size: 14px; color: var(--ink-3); }
-.lp-footer-links { display: flex; flex-wrap: wrap; gap: 10px 24px; }
-.lp-footer-links a { font-size: 14px; color: var(--ink-2); text-decoration: none; }
-.lp-footer-links a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 3px; text-underline-offset: 4px; }
-.lp-footer-copy { font-size: 13px; color: var(--ink-3); }
+.lp-footer-col { display: flex; flex-direction: column; gap: 10px; }
+.lp .lp-footer-title { margin-bottom: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--ink); }
+.lp-footer-col a { font-size: 14px; color: var(--ink-2); text-decoration: none; }
+.lp-footer-col a:hover { color: var(--ink); text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 3px; text-underline-offset: 4px; }
+.lp .lp-footer-copy { margin-top: 36px; font-size: 13px; color: var(--ink-3); }
 
 /* ---- Motion primitives --------------------------------------------------- */
 .fx-shiny { background: linear-gradient(110deg, var(--ink-2) 35%, var(--emphasis) 50%, var(--ink-2) 65%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: lp-shiny 3.5s linear infinite; }
@@ -341,4 +342,78 @@
   .lp *, .lp *::before, .lp *::after { animation: none !important; transition: none !important; }
   .lp-js .fx-reveal, .lp-js .fx-split .fx-split-word { opacity: 1; transform: none; filter: none; }
   .lp-js .fx-split .fx-accent::before { transform: skewX(-8deg) rotate(-1.5deg); }
+}
+
+/* ==========================================================================
+   SEO pages (keyword guides and the styles page). Same system, new layouts.
+   ========================================================================== */
+.lp-hero-ctas.is-left { justify-content: flex-start; }
+.lp .lp-h2.is-small { font-size: clamp(26px, 3vw, 34px); }
+
+/* Hero: answer on the left, a live template on the right. */
+.lp-kw-hero { position: relative; padding: clamp(40px, 6vw, 80px) 0 clamp(60px, 8vw, 100px); }
+.lp-kw-hero-grid { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: clamp(32px, 5vw, 72px); align-items: center; }
+.lp-kw-hero-copy { display: flex; flex-direction: column; align-items: flex-start; }
+.lp .lp-kw-h1 { max-width: 15ch; font-size: clamp(42px, 6.4vw, 84px); line-height: 1.02; }
+.lp-kw-demo { transform: rotate(2deg); }
+.lp-kw-demo .lp-template-card { box-shadow: 0 0 0 6px rgba(46, 227, 104, 0.16), var(--shadow-lift); }
+
+/* Explainer and tips: heading on the left, body on the right. */
+.lp-kw-split { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: clamp(32px, 6vw, 80px); align-items: start; }
+.lp-kw-split .lp-section-head { position: sticky; top: 120px; margin-bottom: 0; }
+.lp-kw-prose { display: flex; flex-direction: column; gap: 20px; }
+.lp-kw-prose p { font-size: clamp(17px, 1.6vw, 19px); line-height: 1.7; color: var(--ink-2); }
+.lp-kw-prose p:first-child { font-size: clamp(19px, 2vw, 23px); line-height: 1.55; color: var(--ink); }
+
+/* Worked examples: crossed-out on the left, highlighted on the right. */
+.lp-kw-table-wrap { max-width: 860px; margin-inline: auto; overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--rule); background: var(--card); box-shadow: var(--shadow); }
+.lp-kw-table { width: 100%; border-collapse: collapse; font-family: var(--display); }
+.lp-kw-table th { padding: 18px 24px; text-align: left; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); background: var(--paper-2); border-bottom: 1px solid var(--rule); }
+.lp-kw-table td { padding: 18px 24px; font-size: clamp(16px, 1.8vw, 20px); font-weight: 600; letter-spacing: -0.02em; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.lp-kw-table tr:last-child td { border-bottom: none; }
+.lp-kw-table td.is-before { color: var(--ink-2); width: 50%; }
+.lp-kw-table.is-compare td.is-before { color: var(--ink-3); text-decoration: line-through; text-decoration-color: rgba(220, 38, 38, 0.55); text-decoration-thickness: 2px; }
+.lp-kw-table td.is-after mark { color: var(--ink); background: linear-gradient(transparent 50%, var(--marker) 50%, var(--marker) 92%, transparent 92%); padding: 0 2px; }
+.lp-kw-table tbody tr { transition: background 0.2s ease; }
+.lp-kw-table tbody tr:hover { background: var(--marker-soft); }
+
+/* Four steps instead of three. */
+.lp-steps-list.is-four { grid-template-columns: repeat(4, 1fr); gap: 26px; }
+.lp-steps-list.is-four .lp-step-n { font-size: 64px; }
+
+/* Three recommended styles, each with a reason. */
+.lp-gallery-grid.is-three { grid-template-columns: repeat(3, 1fr); max-width: 980px; margin-inline: auto; }
+.lp-template-why { padding: 0 8px 10px; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+.lp .lp-template-name { display: inline; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+
+/* Tips: numbered like script annotations. */
+.lp-kw-tip-list { display: flex; flex-direction: column; gap: 28px; }
+.lp-kw-tip-list h3 { display: flex; align-items: baseline; gap: 12px; font-size: 22px; font-weight: 700; }
+.lp-kw-tip-list h3 b { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--ink); color: var(--accent); font-size: 14px; transform: translateY(-2px); }
+.lp-kw-tip-list p { margin-top: 8px; padding-left: 40px; color: var(--ink-2); }
+
+/* Related guides. */
+.lp-kw-related { padding-top: 0; }
+.lp-kw-related-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.lp-kw-related-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 100%; padding: 20px 22px; border-radius: 16px; border: 1px solid var(--rule); background: var(--card); box-shadow: var(--shadow); font-family: var(--display); font-weight: 700; letter-spacing: -0.02em; text-decoration: none; transition: transform 0.4s var(--ease-out), border-color 0.2s ease, box-shadow 0.4s var(--ease-out); }
+.lp-kw-related-link:hover { transform: translateY(-4px); border-color: var(--ink); box-shadow: var(--shadow-lift); }
+.lp-kw-related-link svg { flex-shrink: 0; transition: transform 0.4s var(--ease-out); }
+.lp-kw-related-link:hover svg { transform: translate(3px, -3px); color: var(--emphasis); }
+
+/* Styles page: the full grid needs less top room under the hero. */
+.lp-styles-all { padding-top: 0; }
+
+@media (max-width: 1000px) {
+  .lp-kw-hero-grid, .lp-kw-split { grid-template-columns: 1fr; }
+  .lp-kw-split .lp-section-head { position: static; }
+  .lp-kw-demo { max-width: 340px; }
+  .lp-steps-list.is-four, .lp-kw-related-grid { grid-template-columns: 1fr 1fr; }
+  .lp-gallery-grid.is-three { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 760px) {
+  .lp-steps-list.is-four, .lp-kw-related-grid, .lp-gallery-grid.is-three { grid-template-columns: 1fr; }
+  .lp-gallery-grid.is-three { max-width: 340px; }
+  .lp-kw-table th, .lp-kw-table td { padding: 14px 16px; }
+  .lp-kw-table td { font-size: 15px; }
+  .lp-kw-tip-list p { padding-left: 0; }
 }

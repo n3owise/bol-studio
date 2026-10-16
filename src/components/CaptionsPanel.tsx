@@ -1902,7 +1902,7 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
                   className="brand-words-input"
                   value={brandWords}
                   onChange={e => setBrandWords(e.target.value)}
-                  placeholder="kalakar.io, Bol Studio, Ewa"
+                  placeholder="bol-studio.me, Bol Studio, Ewa"
                   aria-label="Brand words the recognizer should spell your way"
                 />
                 <span className="field-hint">

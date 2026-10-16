@@ -7,7 +7,7 @@ import '@fontsource/dm-sans/700.css';
 import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/700.css';
 import './landing.css';
-import { LandingPage } from './LandingPage';
+import { PublicPage } from './App';
 import { STUDIO_URL } from './content';
 
 /**
@@ -24,8 +24,9 @@ if (isAuthCallback) {
 } else {
   const root = document.getElementById('root')!;
   // Hydrate the HTML written at build time; in dev there is none, so render.
-  if (root.firstElementChild) hydrateRoot(root, <LandingPage />);
-  else createRoot(root).render(<LandingPage />);
+  const page = <PublicPage path={window.location.pathname} />;
+  if (root.firstElementChild) hydrateRoot(root, page);
+  else createRoot(root).render(page);
   (window as unknown as { __lpReady?: boolean }).__lpReady = true;
 
   // The backdrop's glow follows the pointer.

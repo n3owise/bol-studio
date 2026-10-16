@@ -25,6 +25,26 @@
       "destination": "/studio.html"
     },
     {
+      "source": "/hinglish-captions",
+      "destination": "/hinglish-captions.html"
+    },
+    {
+      "source": "/hindi-subtitles",
+      "destination": "/hindi-subtitles.html"
+    },
+    {
+      "source": "/reels-captions",
+      "destination": "/reels-captions.html"
+    },
+    {
+      "source": "/youtube-shorts-subtitles",
+      "destination": "/youtube-shorts-subtitles.html"
+    },
+    {
+      "source": "/caption-styles",
+      "destination": "/caption-styles.html"
+    },
+    {
       "source": "/((?!api/|terms\\.html$|privacy\\.html$|robots\\.txt$|sitemap\\.xml$|og-image\\.jpg$).*)",
       "destination": "/index.html"
     }
