@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, ChevronDown } from 'lucide-react';
+import { ArrowRight, Check, ChevronDown, LoaderCircle } from 'lucide-react';
 import { STUDIO_URL } from './content';
 import { MagnetLink, Reveal, SplitText } from './fx';
 
@@ -119,6 +119,88 @@ export function FinalCta({ title = 'Your next reel deserves better captions.', a
   );
 }
 
+/**
+ * The contact form, above the footer on every public page. Posts to
+ * /api/contact; if that is not set up or fails, it says so and offers the
+ * email address instead, so a message is never silently lost.
+ */
+export function ContactForm() {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [error, setError] = useState('');
+  const [field, setField] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
+    // The same rules the server applies, checked here first so a slip is
+    // pointed out at once and the right field is marked.
+    const problem =
+      !data.name?.trim() ? ['name', 'Please add your name.']
+      : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email?.trim() ?? '') ? ['email', 'Please enter a valid email address.']
+      : (data.message?.trim().length ?? 0) < 10 ? ['message', 'Please write a message of at least 10 characters.']
+      : null;
+    if (problem) {
+      setField(problem[0]); setError(problem[1]); setState('error');
+      e.currentTarget.querySelector<HTMLElement>(`[name="${problem[0]}"]`)?.focus();
+      return;
+    }
+    setState('sending'); setError(''); setField(null);
+    try {
+      const res = await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) { setState('sent'); return; }
+      setField(body.field ?? null);
+      setError(body.field || res.status === 429 ? body.error : 'Your message could not be sent right now. Please email hello@bol-studio.me instead.');
+    } catch {
+      setError('Your message could not be sent right now. Please email hello@bol-studio.me instead.');
+    }
+    setState('error');
+  }
+
+  const describedBy = (name: string) => (field === name ? 'contact-error' : undefined);
+
+  return (
+    <section id="contact" className="lp-section lp-contact" aria-labelledby="contact-title">
+      <div className="lp-container lp-contact-layout">
+        <Reveal className="lp-section-head is-left">
+          <span className="lp-kicker"><b>00:30</b>Contact</span>
+          <h2 id="contact-title" className="lp-h2">Say hello.</h2>
+          <p className="lp-sub">Questions, bugs or a caption style you wish existed. We read every message. Or write to <a href="mailto:hello@bol-studio.me">hello@bol-studio.me</a>.</p>
+        </Reveal>
+        {state === 'sent' ? (
+          <div className="lp-contact-done" role="status">
+            <Check size={22} aria-hidden="true" />
+            <p><strong>Message sent.</strong> We'll reply to the email you gave us.</p>
+          </div>
+        ) : (
+          <form className="lp-contact-form" onSubmit={submit} noValidate>
+            <label>
+              <span>Name</span>
+              <input name="name" autoComplete="name" required maxLength={100} aria-invalid={field === 'name'} aria-describedby={describedBy('name')} />
+            </label>
+            <label>
+              <span>Email</span>
+              <input name="email" type="email" autoComplete="email" required maxLength={200} aria-invalid={field === 'email'} aria-describedby={describedBy('email')} />
+            </label>
+            <label className="lp-contact-wide">
+              <span>Message</span>
+              <textarea name="message" rows={5} required minLength={10} maxLength={5000} aria-invalid={field === 'message'} aria-describedby={describedBy('message')} />
+            </label>
+            {/* Hidden from people; bots fill it in and are dropped. */}
+            <label className="lp-contact-trap" aria-hidden="true">
+              Website <input name="website" tabIndex={-1} autoComplete="off" />
+            </label>
+            {error && <p id="contact-error" className="lp-contact-error lp-contact-wide" role="alert">{error}</p>}
+            <button type="submit" className="btn btn-primary btn-md lp-contact-wide" disabled={state === 'sending'}>
+              {state === 'sending' ? <><LoaderCircle size={18} className="lp-spin" aria-hidden="true" />Sending…</> : <>Send message<ArrowRight size={18} aria-hidden="true" /></>}
+            </button>
+          </form>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function Footer() {
   return (
     <footer className="lp-footer">
@@ -136,7 +218,7 @@ export function Footer() {
           <a href={STUDIO_URL}>Open the studio</a>
           <a href="/privacy.html">Privacy</a>
           <a href="/terms.html">Terms</a>
-          <a href="mailto:hello@bol-studio.me">Contact</a>
+          <a href="#contact">Contact</a>
         </nav>
       </div>
       <div className="lp-container"><p className="lp-footer-copy">© {new Date().getFullYear()} Bol Studio</p></div>
@@ -151,7 +233,7 @@ export function PageShell({ children }: { children: React.ReactNode }) {
       <a href="#main" className="lp-skip">Skip to content</a>
       <div className="lp-backdrop" aria-hidden="true" />
       <Nav />
-      <main id="main">{children}</main>
+      <main id="main">{children}<ContactForm /></main>
       <Footer />
     </div>
   );

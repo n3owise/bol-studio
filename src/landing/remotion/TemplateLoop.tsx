@@ -29,11 +29,30 @@ export const TemplateLoop: React.FC<TemplateLoopProps> = ({ template, line, hero
   );
 };
 
+/** What changes between pages' link previews; the defaults are the home page's. */
+export type OgCardProps = {
+  /** Headline up to the highlighted word. */
+  lead?: string;
+  /** The last word, drawn with the green marker behind it. */
+  mark?: string;
+  sub?: string;
+  /** The three lines on the phone: small, hero (green plate), small. */
+  phone?: [string, string, string];
+  fontSize?: number;
+};
+
 /**
  * The 1200×630 link preview (og:image): wordmark, promise and one template
- * mid-animation. Rendered to public/og-image.jpg with `remotion still`.
+ * mid-animation. Rendered per page into public/og/ with `remotion still`;
+ * the home page's is public/og-image.jpg.
  */
-export const OgCard: React.FC = () => {
+export const OgCard: React.FC<OgCardProps> = ({
+  lead = 'Hinglish captions that sound like',
+  mark: markWord = 'you.',
+  sub = 'Animated captions for Reels, Shorts & YouTube',
+  phone = ['ekdum', 'MAST', 'captions'],
+  fontSize = 76,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const p = spring({ frame, fps, config: t.spring.smooth });
@@ -47,17 +66,17 @@ export const OgCard: React.FC = () => {
         <Img src={staticFile('bol.studio.svg')} style={{ height: 36 }} />
       </div>
       <div style={{
-        position: 'absolute', left: 72, top: 160, width: 660, fontSize: 76, lineHeight: 1.0, fontWeight: 700, letterSpacing: '-0.05em',
+        position: 'absolute', left: 72, top: 160, width: 660, fontSize, lineHeight: 1.0, fontWeight: 700, letterSpacing: '-0.05em',
         opacity: p, transform: `translateY(${interpolate(p, [0, 1], [24, 0], clamp)}px)`,
       }}>
-        Hinglish captions that sound like{' '}
+        {lead}{' '}
         <span style={{ position: 'relative', display: 'inline-block', padding: '0 6px' }}>
           <span style={{ position: 'absolute', left: -4, right: -4, top: '34%', bottom: '-6%', background: 'rgba(46,227,104,0.7)', borderRadius: '8px 22px 10px 26px', transform: `skewX(-8deg) rotate(-1.5deg) scaleX(${mark})`, transformOrigin: 'left center', zIndex: -1 }} />
-          <span style={{ position: 'relative' }}>you.</span>
+          <span style={{ position: 'relative' }}>{markWord}</span>
         </span>
       </div>
       <div style={{ position: 'absolute', left: 72, bottom: 70, fontFamily: t.fonts.body, fontSize: 28, color: '#52525b' }}>
-        Animated captions for Reels, Shorts &amp; YouTube
+        {sub}
       </div>
       <div style={{
         position: 'absolute', right: 80, top: 56, width: 330, height: 518, borderRadius: 46, padding: 9,
@@ -65,9 +84,9 @@ export const OgCard: React.FC = () => {
       }}>
         <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 37, overflow: 'hidden', background: `radial-gradient(120% 80% at 30% 15%, #1b3324 0%, ${t.colors.bgAlt} 50%, ${t.colors.bg} 100%)` }}>
           <div style={{ position: 'absolute', left: 0, right: 0, top: 190, textAlign: 'center', lineHeight: 0.95 }}>
-            <div style={{ fontSize: 40, fontWeight: 700, color: t.colors.text }}>ekdum</div>
-            <div style={{ display: 'inline-block', margin: '10px 0', padding: '6px 22px 10px', borderRadius: 18, background: t.colors.accent, color: t.colors.accentText, fontSize: 84, fontWeight: 700, letterSpacing: '-0.04em' }}>MAST</div>
-            <div style={{ fontSize: 40, fontWeight: 700, color: t.colors.text }}>captions</div>
+            <div style={{ fontSize: 40, fontWeight: 700, color: t.colors.text }}>{phone[0]}</div>
+            <div style={{ display: 'inline-block', margin: '10px 0', padding: '6px 22px 10px', borderRadius: 18, background: t.colors.accent, color: t.colors.accentText, fontSize: 84, fontWeight: 700, letterSpacing: '-0.04em' }}>{phone[1]}</div>
+            <div style={{ fontSize: 40, fontWeight: 700, color: t.colors.text }}>{phone[2]}</div>
           </div>
         </div>
       </div>

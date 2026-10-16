@@ -417,3 +417,33 @@
   .lp-kw-table td { font-size: 15px; }
   .lp-kw-tip-list p { padding-left: 0; }
 }
+
+/* ---- contact ---- */
+.lp-contact-layout { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 60px; align-items: start; }
+.lp-contact-layout .lp-section-head { margin-bottom: 0; }
+.lp-contact-form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 28px; background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: var(--shadow); }
+.lp-contact-wide { grid-column: 1 / -1; }
+.lp-contact-form label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: var(--ink); }
+.lp-contact-form input, .lp-contact-form textarea {
+  font: inherit; font-size: 16px; font-weight: 400; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--rule-2); border-radius: 10px; padding: 11px 14px; min-height: 46px; width: 100%;
+}
+.lp-contact-form textarea { resize: vertical; min-height: 130px; }
+/* Clear of the sticky nav when a slip moves focus here. */
+.lp-contact-form :is(input, textarea) { scroll-margin-top: 120px; }
+.lp-contact-form :is(input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--ink); }
+.lp-contact-form [aria-invalid="true"] { border-color: #dc2626; }
+.lp-contact-form .btn { justify-self: start; }
+.lp-contact-trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.lp-contact-error { margin: 0; font-size: 14px; color: #b91c1c; }
+.lp-contact-done { display: flex; gap: 12px; align-items: center; padding: 28px; background: var(--marker-soft); border-radius: var(--radius); color: var(--ink); }
+.lp-contact-done svg { color: var(--emphasis); flex-shrink: 0; }
+.lp-contact-done p { margin: 0; }
+.lp-spin { animation: lp-spin 0.9s linear infinite; }
+@keyframes lp-spin { to { transform: rotate(360deg); } }
+@media (max-width: 860px) {
+  .lp-contact-layout { grid-template-columns: 1fr; gap: 28px; }
+  .lp-contact-form { grid-template-columns: 1fr; padding: 20px; }
+  .lp-contact-form .btn { justify-self: stretch; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .lp-spin { animation: none; } }

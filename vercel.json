@@ -9,6 +9,10 @@
       "destination": "/api/admin/:path*"
     },
     {
+      "source": "/api/contact",
+      "destination": "/api/contact"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://n3owise-bol-studio-backend.hf.space/api/:path*"
     },
@@ -62,5 +66,6 @@
       "destination": "https://www.bol-studio.me/:path*",
       "permanent": true
     }
-  ]
+  ],
+  "trailingSlash": false
 }

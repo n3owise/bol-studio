@@ -47,7 +47,7 @@ export const Reel: React.FC<ReelProps> = ({ load, inputProps, durationInFrames, 
 
   return (
     <div ref={ref} className={`reel ${className}`} style={{ aspectRatio: `${width} / ${height}` }} role="img" aria-label={label}>
-      {poster && <img className="reel-poster" src={poster} alt="" width={width / 2} height={height / 2} loading={eager ? 'eager' : 'lazy'} decoding="async" fetchPriority={eager ? 'high' : 'auto'} />}
+      {poster && <img className="reel-poster" src={poster} alt={label} width={width / 2} height={height / 2} loading={eager ? 'eager' : 'lazy'} decoding="async" fetchPriority={eager ? 'high' : 'auto'} />}
       {show && (
         <Suspense fallback={null}>
           <LazyPlayer

@@ -39,6 +39,9 @@ for (const p of paths) {
     html = setAttr(html, /(<meta property="og:description" content=")([^"]*)(")/, meta.description);
     html = setAttr(html, /(<meta name="twitter:title" content=")([^"]*)(")/, meta.title);
     html = setAttr(html, /(<meta name="twitter:description" content=")([^"]*)(")/, meta.description);
+    html = setAttr(html, /(<meta property="og:image" content=")([^"]*)(")/, meta.image);
+    html = setAttr(html, /(<meta name="twitter:image" content=")([^"]*)(")/, meta.image);
+    if (meta.imageAlt) html = setAttr(html, /(<meta property="og:image:alt" content=")([^"]*)(")/, meta.imageAlt);
   }
   const body = renderPage(p);
   html = html.replace('<!--landing-html-->', body).replace('<!--landing-jsonld-->', structuredData(p).replace(/</g, '\\u003c'));

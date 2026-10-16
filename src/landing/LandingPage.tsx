@@ -51,7 +51,7 @@ function Hero() {
           <span className="lp-phone-tag">Typical auto-captions</span>
           <p className="lp-note is-wrong" aria-hidden="true"><span>yar? kamal?</span><em>spelling it wrong</em></p>
           <Tilt className="lp-phone is-small">
-            <Reel load={loadPlain} durationInFrames={HERO_FRAMES} fps={HERO_FPS} width={1080} height={1920} poster="/landing/hero-before.jpg" label="A generic auto-caption, misspelling Hinglish" eager />
+            <Reel load={loadPlain} durationInFrames={HERO_FRAMES} fps={HERO_FPS} width={1080} height={1920} poster="/landing/hero-before.webp" label="A generic auto-caption, misspelling Hinglish" eager />
           </Tilt>
         </div>
         {/* A pen-drawn arrow, sketched in when the phones scroll into view. */}
@@ -70,7 +70,7 @@ function Hero() {
             <li className="lp-note n3"><b>03</b>The punchline word highlighted, automatically</li>
           </ul>
           <Tilt className="lp-phone is-hero">
-            <Reel load={loadHero} durationInFrames={HERO_FRAMES} fps={HERO_FPS} width={1080} height={1920} poster="/landing/hero-after.jpg" label="Animated Hinglish captions in four Bol Studio templates" eager />
+            <Reel load={loadHero} durationInFrames={HERO_FRAMES} fps={HERO_FPS} width={1080} height={1920} poster="/landing/hero-after.webp" label="Animated Hinglish captions in four Bol Studio templates" eager />
           </Tilt>
         </div>
       </Reveal>

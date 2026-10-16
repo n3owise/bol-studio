@@ -1,4 +1,5 @@
 import React from 'react';
+import { OG_CARDS, ogImageFor } from './og';
 import { renderToString } from 'react-dom/server';
 import { PublicPage, normalisePath } from './App';
 import { FAQ, SITE_URL } from './content';
@@ -23,7 +24,11 @@ export function metaFor(path: string) {
   const p = normalisePath(path);
   const kw = KEYWORD_PAGES.find(k => k.path === p);
   const base = kw ?? (p === STYLES_PAGE.path ? STYLES_PAGE : HOME_META);
-  return { title: base.title, description: base.description, canonical: canonicalFor(p) };
+  const og = OG_CARDS[p];
+  return {
+    title: base.title, description: base.description, canonical: canonicalFor(p),
+    image: `${SITE_URL}${ogImageFor(p)}`, imageAlt: og?.alt,
+  };
 }
 
 const org = {
