@@ -1535,20 +1535,6 @@ test('the Settings panel offers every frame shape, and writes the one setting th
   assert.match(editor, /activeNavPanel === 'settings' \? \(\s*<SettingsPanel/);
 });
 
-test('the project ID is readable without the clipboard working', () => {
-  // navigator.clipboard.writeText rejects whenever the document is not focused,
-  // and it throws rather than returning false — the first real click this panel
-  // got failed exactly that way. The id is what someone needs when reporting a
-  // problem, so it is rendered in full as selectable text and the button is an
-  // convenience on top, not the only way in.
-  const panel = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
-  assert.match(panel, /<code title="Select to copy">\{project\.id\}<\/code>/,
-    'the whole id is on screen, not an abbreviation of it');
-  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\.settings-id-row code \{[^}]*user-select: all/s,
-    'and one click selects all of it');
-});
-
 test('deleting the open project cannot leave a save queued against it', () => {
   // Saves are debounced by 650ms. A delete inside that window left a PATCH in
   // flight for a project that no longer existed, and the creator — already

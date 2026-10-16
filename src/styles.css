@@ -10792,31 +10792,6 @@ kbd {
   background: var(--bg-surface);
 }
 
-.settings-id-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.settings-id-row > span {
-  flex-shrink: 0;
-}
-.settings-id-row code {
-  flex: 1;
-  min-width: 0;
-  font-size: 11px;
-  letter-spacing: 0.2px;
-  color: var(--color-text-primary);
-  overflow-wrap: anywhere;
-  /* One click selects the whole id. This is the part that always works when the
-     clipboard refuses, so it has to be easy to grab by hand. */
-  user-select: all;
-}
-
 .settings-copy-btn {
   display: inline-flex;
   align-items: center;
