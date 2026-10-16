@@ -2,20 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Google tag (gtag.js). Consent mode keeps analytics cookies off until the
-         visitor allows analytics in the app's own banner (AnalyticsPrivacy.tsx,
-         same localStorage key); until then Google receives cookieless pings only. -->
+    <!-- Google tag (gtag.js). Analytics cookies on for every visitor; ad storage
+         and ad personalisation stay off. The in-app consent banner covers PostHog
+         only (AnalyticsPrivacy.tsx), not this tag. -->
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
-      (function() {
-        var granted = false;
-        try { granted = localStorage.getItem('bol_analytics_consent_identified_v1') === 'granted'; } catch (e) {}
-        gtag('consent', 'default', {
-          analytics_storage: granted ? 'granted' : 'denied',
-          ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
-        });
-      })();
+      gtag('consent', 'default', {
+        analytics_storage: 'granted',
+        ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+      });
       gtag('js', new Date());
       gtag('config', 'G-BMKXG00R6M');
     </script>

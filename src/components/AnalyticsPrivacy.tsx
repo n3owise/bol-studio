@@ -30,12 +30,6 @@ export function AnalyticsPrivacy() {
     return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
   useEffect(() => { if (choice === 'granted') void startProductAnalytics(); else stopProductAnalytics(); }, [choice]);
-  // The Google tag in index.html starts with analytics cookies denied unless this
-  // same choice was already saved; keep it in step when the visitor changes it.
-  useEffect(() => {
-    const gtag = (window as unknown as { gtag?: (...args: unknown[]) => void }).gtag;
-    gtag?.('consent', 'update', { analytics_storage: choice === 'granted' ? 'granted' : 'denied' });
-  }, [choice]);
   if (!telemetryEnabled) return null;
   const choose = (value: string) => { localStorage.setItem(CONSENT_KEY, value); setChoice(value); };
   return <>
