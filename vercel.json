@@ -43,15 +43,24 @@
     {
       "source": "/caption-styles",
       "destination": "/caption-styles.html"
-    },
-    {
-      "source": "/((?!api/|terms\\.html$|privacy\\.html$|robots\\.txt$|sitemap\\.xml$|og-image\\.jpg$).*)",
-      "destination": "/index.html"
     }
   ],
   "functions": {
     "api/admin/*.ts": {
       "maxDuration": 30
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "bol-studio.me"
+        }
+      ],
+      "destination": "https://www.bol-studio.me/:path*",
+      "permanent": true
+    }
+  ]
 }

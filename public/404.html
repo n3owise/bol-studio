@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en-IN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Served by Vercel with a real 404 status for any address that is not a
+         page, so Google drops it instead of indexing a copy of the home page. -->
+    <meta name="robots" content="noindex" />
+    <title>Page not found — Bol Studio</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --bg: #fcfcfd; --ink: #09090b; --muted: #52525b; --border: #e5e7eb;
+        --accent: #2ee368; --accent-text: #052e16; color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #0a0b0d; --ink: #f4f4f6; --muted: #a1a1aa; --border: rgba(255,255,255,0.15); color-scheme: dark; }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px;
+        background: var(--bg); color: var(--ink);
+        font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        text-align: center;
+      }
+      main { max-width: 420px; }
+      .code { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.08em; color: var(--muted); }
+      h1 { font-family: 'Space Grotesk', sans-serif; font-size: 30px; line-height: 1.15; margin: 8px 0 10px; }
+      p { font-size: 15px; line-height: 1.55; color: var(--muted); margin: 0 0 24px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+      a {
+        display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 8px;
+        font-weight: 600; font-size: 15px; text-decoration: none; color: var(--ink); border: 1px solid var(--border);
+      }
+      a.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+      a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="code">404</div>
+      <h1>This page doesn't exist.</h1>
+      <p>The link may be mistyped or out of date.</p>
+      <div class="actions">
+        <a class="primary" href="/">Go to home</a>
+        <a href="/studio">Open the studio</a>
+      </div>
+    </main>
+  </body>
+</html>
