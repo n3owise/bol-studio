@@ -10,22 +10,56 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <style>
       :root {
-        --bg: #fcfcfd; --ink: #09090b; --muted: #52525b; --border: #e5e7eb;
-        --accent: #2ee368; --accent-text: #052e16; color-scheme: light;
+        --bg: #fcfcfd; --ink: #09090b; --muted: #52525b; --border: #d1d5db;
+        --cell-line: rgba(255, 255, 255, 0.35);
+        --accent: #2ee368; --accent-text: #052e16;
+        --px: clamp(7px, 1.6vw, 13px);
+        color-scheme: light;
       }
       @media (prefers-color-scheme: dark) {
-        :root { --bg: #0a0b0d; --ink: #f4f4f6; --muted: #a1a1aa; --border: rgba(255,255,255,0.15); color-scheme: dark; }
+        :root {
+          --bg: #0a0b0d; --ink: #ececef; --muted: #a1a1aa; --border: rgba(255, 255, 255, 0.15);
+          --cell-line: rgba(10, 11, 13, 0.18);
+          color-scheme: dark;
+        }
       }
       * { box-sizing: border-box; }
       body {
-        margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px;
+        margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 32px 16px;
         background: var(--bg); color: var(--ink);
         font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         text-align: center;
       }
-      main { max-width: 420px; }
-      .code { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 0.08em; color: var(--muted); }
-      h1 { font-family: 'Space Grotesk', sans-serif; font-size: 30px; line-height: 1.15; margin: 8px 0 10px; }
+      main { display: flex; flex-direction: column; align-items: center; }
+
+      /* ---- the pixel lettering ----
+         Each glyph is a grid of cells drawn twice: a hollow outline copy
+         pushed down and right, and the filled copy on top, so the numbers
+         read as printed blocks casting a thin offset shadow. */
+      .digits { display: flex; gap: calc(var(--px) * 2); }
+      .glyph { position: relative; }
+      .glyph .layer {
+        display: grid; grid-template-columns: repeat(var(--cols), var(--px)); grid-auto-rows: var(--px);
+      }
+      .glyph .shadow { position: absolute; inset: 0; transform: translate(calc(var(--px) * 0.55), calc(var(--px) * 0.85)); }
+      .glyph .fill { position: relative; z-index: 1; }
+      .layer i { display: block; }
+      .fill i.on { background: var(--ink); box-shadow: inset -1px -1px 0 var(--cell-line); }
+      /* The shadow copy is filled with the page colour and traced on all four
+         sides, which outlines the shape as a whole rather than every cell. */
+      .shadow i.on { background: var(--bg); }
+      .glyph .shadow {
+        filter: drop-shadow(1px 0 0 var(--ink)) drop-shadow(-1px 0 0 var(--ink))
+                drop-shadow(0 1px 0 var(--ink)) drop-shadow(0 -1px 0 var(--ink));
+        opacity: 0.7;
+      }
+
+      .ghost { margin-top: calc(var(--px) * 3); animation: float 2.4s ease-in-out infinite; }
+      .ghost .fill i.on { background: var(--accent); box-shadow: inset -1px -1px 0 rgba(5, 46, 22, 0.18); }
+      .ghost .fill i.eye { background: var(--bg); }
+      @keyframes float { 50% { transform: translateY(calc(var(--px) * -0.8)); } }
+
+      h1 { font-family: 'Space Grotesk', sans-serif; font-size: 22px; line-height: 1.25; margin: 36px 0 8px; }
       p { font-size: 15px; line-height: 1.55; color: var(--muted); margin: 0 0 24px; }
       .actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
       a {
@@ -34,17 +68,55 @@
       }
       a.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; }
       a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+      @media (prefers-reduced-motion: reduce) { .ghost { animation: none; } }
     </style>
   </head>
   <body>
     <main>
-      <div class="code">404</div>
-      <h1>This page doesn't exist.</h1>
+      <div class="digits" aria-hidden="true" data-glyphs="4 0 4"></div>
+      <div class="ghost glyph" aria-hidden="true" data-glyph="ghost"></div>
+      <h1>404 · This page doesn't exist.</h1>
       <p>The link may be mistyped or out of date.</p>
       <div class="actions">
         <a class="primary" href="/">Go to home</a>
         <a href="/studio">Open the studio</a>
       </div>
     </main>
+    <script>
+      // 1 = filled cell, e = ghost eye (cut out of the body), 0 = empty.
+      var GLYPHS = {
+        '4': ['11000011', '11000011', '11000011', '11000011', '11000011', '11111111', '11111111',
+              '00000011', '00000011', '00000011', '00000011'],
+        '0': ['11111111', '11111111', '11000011', '11000011', '11000011', '11000011', '11000011',
+              '11000011', '11000011', '11111111', '11111111'],
+        ghost: ['000111000', '011111110', '111111111', '1ee11ee11', '1ee11ee11', '111111111',
+                '111111111', '111111111', '101101101']
+      };
+      function layer(rows, cls) {
+        var el = document.createElement('div');
+        el.className = 'layer ' + cls;
+        rows.join('').split('').forEach(function (c) {
+          var i = document.createElement('i');
+          if (c === '1') i.className = 'on';
+          if (c === 'e') i.className = cls === 'fill' ? 'on eye' : 'on';
+          el.appendChild(i);
+        });
+        return el;
+      }
+      function draw(host, rows) {
+        host.style.setProperty('--cols', rows[0].length);
+        host.appendChild(layer(rows, 'shadow'));
+        host.appendChild(layer(rows, 'fill'));
+      }
+      var digits = document.querySelector('.digits');
+      digits.dataset.glyphs.split(' ').forEach(function (g) {
+        var host = document.createElement('div');
+        host.className = 'glyph';
+        draw(host, GLYPHS[g]);
+        digits.appendChild(host);
+      });
+      draw(document.querySelector('.ghost'), GLYPHS.ghost);
+    </script>
   </body>
 </html>
