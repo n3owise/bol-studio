@@ -16,6 +16,27 @@ import { formatBytes, formatMinutes } from '../src/lib/utils.ts';
 import { ffmpegArguments, registerRenderFonts, renderCaptionVideo, validateRenderProject, canRenderGreenDirectly } from '../server/render.ts';
 import { createOrderedDispatcher, captionRenderConcurrency, directCaptionConcurrency } from '../server/remotion-captions.ts';
 
+/**
+ * The shell and the editor as one string: main.tsx, Studio.tsx and the pieces
+ * Studio was split into. Checks that read "the editor" use this, so moving a
+ * block from Studio into one of these files does not read as the block vanishing.
+ */
+const STUDIO_FILES = [
+  '../src/main.tsx',
+  '../src/Studio.tsx',
+  '../src/components/StudioTimeline.tsx',
+  '../src/components/PreviewStage.tsx',
+  '../src/components/UploadDropzone.tsx',
+  '../src/components/ExportModal.tsx',
+  '../src/lib/useStudioTheme.ts',
+  '../src/lib/stage-file-drop.ts',
+  '../src/lib/caption-anchors.ts',
+  '../src/lib/timecode.ts',
+];
+const studioSource = () => STUDIO_FILES
+  .map(file => readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n');
+
 const word = (text: string, start: number, end: number, emphasis = false): Word => ({
   id: `${text}-${start}`, text, original: text, start, end, confidence: .95, emphasis, emphasisScore: emphasis ? .9 : .2,
 });
@@ -803,7 +824,7 @@ test('the hero colour and the supporting-word colour are separate settings', () 
     'an accented word takes the accent and nothing else decides its colour');
   assert.ok(/settings\.accentSecondary/.test(page),
     'the third line of a stacked lockup can carry its own colour, as composition 2 does');
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(!/textColor: color, accent: color/.test(editor),
     'the colour picker must not write the same value into both fields');
 });
@@ -857,7 +878,7 @@ test('every font role can render Devanagari', () => {
  * than main.tsx alone. Pinning them to one file made them fail the moment the
  * Style panel was lifted out, reporting a missing control that had simply moved.
  */
-const editorSource = () => ['../src/main.tsx', '../src/components/StylePanel.tsx', '../src/components/TextPanel.tsx']
+const editorSource = () => [...STUDIO_FILES, '../src/components/StylePanel.tsx', '../src/components/TextPanel.tsx']
   .map(file => readFileSync(new URL(file, import.meta.url), 'utf8'))
   .join('\n');
 
@@ -906,7 +927,7 @@ test('the always-promote rule is keyed off the layout, not a template list', () 
 });
 
 test('the preview overlay aligns text with the align icons and moves with the arrows', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   const bar = editor.slice(editor.indexOf('caption-move-row'), editor.indexOf('caption-move-scope'));
   assert.ok(/updateSettings\(\{ align: option\.align \}\)/.test(bar),
     'the three align icons set text alignment — they used to set the horizontal position, '
@@ -916,7 +937,7 @@ test('the preview overlay aligns text with the align icons and moves with the ar
 });
 
 test('grabbing the caption handle does not move it', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(/const grabX = /.test(editor) && /- grabX\)/.test(editor),
     'the drag keeps the pointer’s offset inside the handle; without it the caption jumped so '
     + 'its anchor sat under the cursor the moment the handle was touched');
@@ -925,7 +946,7 @@ test('grabbing the caption handle does not move it', () => {
 });
 
 test('a dragged caption lands on the nine anchors, not a fine grid', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(!/Math\.round\(v \/ 5\) \* 5/.test(editor),
     'the 5% grid gave 441 landing spots, so the caption twitched to a new one on almost '
     + 'every pixel of mouse travel without ever helping anything line up');
@@ -941,7 +962,7 @@ test('a dragged caption lands on the nine anchors, not a fine grid', () => {
 });
 
 test('the timeline and the caption panel open the same word inspector', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   const panel = readFileSync(new URL('../src/components/CaptionsPanel.tsx', import.meta.url), 'utf8');
   for (const [name, source] of [['main.tsx', editor], ['CaptionsPanel.tsx', panel]] as const) {
     assert.ok(/<WordInspector\b/.test(source),
@@ -999,7 +1020,7 @@ test('caption text never takes its colour from the inverse token', () => {
 });
 
 test('a processing project has no source attached to the player', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(/const busy = .*\['queued','processing','transcribing','extracting'\]\.includes\(project\.status\)/.test(editor),
     'these are the states in which the media may be rewritten or replaced on the server');
   assert.ok(/src=\{busy \? undefined :/.test(editor),
@@ -1009,7 +1030,7 @@ test('a processing project has no source attached to the player', () => {
 });
 
 test('the play button reads the player, not a state that can drift from it', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
 
   assert.ok(/if \(!media\.current\.paused\) media\.current\.pause\(\);/.test(editor),
     'playback locked up silently: one path set `playing` optimistically and swallowed a failed '
@@ -1021,7 +1042,7 @@ test('the play button reads the player, not a state that can drift from it', () 
 });
 
 test('a play that was interrupted does not accuse the file of being broken', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(/error\?\.name === 'AbortError'\) return;/.test(editor),
     'the browser rejects a pending play() whenever the source reloads or pause() is called, which '
     + 'an edit elsewhere in the editor causes — reporting that as an unplayable file sent people '
@@ -1032,7 +1053,7 @@ test('a play that was interrupted does not accuse the file of being broken', () 
 
 test('a media element is given no source until an authorised one exists', () => {
   const api = readFileSync(new URL('../src/lib/api.ts', import.meta.url), 'utf8');
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
 
   assert.ok(/if \(!token\) return '';/.test(api),
     'mediaUrl returns nothing rather than a URL that is certain to be refused: the first render '
@@ -1437,7 +1458,7 @@ test('turning highlighting off actually leaves every word even', () => {
   // onto the best-scoring word of each line. That field means "the creator
   // chose this word", so an automatic guess was recorded as a decision and then
   // correctly honoured as one.
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   // A call, not the name: the comment explaining why it went is allowed to
   // mention it, and should.
   assert.ok(!editor.includes('autoDetectHighlights('),
@@ -1489,7 +1510,7 @@ test('the Settings panel offers every frame shape, and writes the one setting th
   // writes its own field it becomes the ALL CAPS toggle again, drawn as active
   // and changing nothing.
   const panel = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.match(panel, /updateSettings\(\{ aspect: option\.id \}\)/);
   assert.match(editor, /updateSettings\(\{aspect:e\.target\.value as Settings\['aspect'\]\}\)/,
     'the toolbar select still writes the same field');
@@ -1540,7 +1561,7 @@ test('deleting the open project cannot leave a save queued against it', () => {
   // likely. The queue is emptied before the request goes out, which closes the
   // window instead of narrowing it, and a refused delete has then not silently
   // dropped the creator's last edit either.
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   const start = editor.indexOf('const handleDeleteProject');
   assert.ok(start > 0, 'the handler exists');
   // Ended on the useCallback's closing line rather than on its dependency list:
@@ -1592,14 +1613,14 @@ test('moveWordsToLine respects project duration and never overflows duration bou
 });
 
 test('temporary editor has no saved-project entry point, and send behind is removed', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(!editor.includes("setModal('projects')"), 'saved-project modal is not an active editor entry point');
   assert.ok(!editor.includes("Send Behind"), 'faux send behind control is removed from editor');
   assert.ok(!editor.includes("id: 'audio'"), 'dead audio tab is removed from NAV_PANELS');
 });
 
 test('keyboard shortcuts modal and project search/sort are mounted and functional', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   const modals = readFileSync(new URL('../src/components/StudioModals.tsx', import.meta.url), 'utf8');
   const shortcuts = readFileSync(new URL('../src/components/ShortcutModal.tsx', import.meta.url), 'utf8');
   const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
@@ -1635,7 +1656,7 @@ test('plainTranscript produces clean readable paragraphs without timestamps', ()
 });
 
 test('playback speed pill, floating export badge, and hover guide are in place', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   assert.ok(editor.includes("timeline-speed-pill"), 'timeline transport includes playback speed pill');
   assert.ok(editor.includes("floating-export-badge"), 'editor includes floating background export tracker');
   assert.ok(editor.includes("timeline-hover-indicator"), 'timeline includes hover timecode scrub guide');
@@ -1644,7 +1665,7 @@ test('playback speed pill, floating export badge, and hover guide are in place',
 });
 
 test('Phase 7: audio download, waveform normalization, and interactive onboarding tour', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   const tour = readFileSync(new URL('../src/components/OnboardingTour.tsx', import.meta.url), 'utf8');
   const modals = readFileSync(new URL('../src/components/StudioModals.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
@@ -1681,7 +1702,7 @@ test('csvTranscript outputs formatted CSV with headers and timing metadata', () 
 });
 
 test('Phase 8: timeline nudging, batch line casing, command palette, and CSV export', () => {
-  const editor = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  const editor = studioSource();
   const captionsPanel = readFileSync(new URL('../src/components/CaptionsPanel.tsx', import.meta.url), 'utf8');
   const palette = readFileSync(new URL('../src/components/CommandPalette.tsx', import.meta.url), 'utf8');
   const shortcuts = readFileSync(new URL('../src/components/ShortcutModal.tsx', import.meta.url), 'utf8');

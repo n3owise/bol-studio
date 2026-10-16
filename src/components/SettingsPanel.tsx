@@ -1,8 +1,9 @@
 import { PanelHeading } from './PanelHeading';
+import FuseButton from './FuseButton';
 import React, { useEffect, useState } from 'react';
-import { Check, Copy, Download, HardDrive, LoaderCircle, LogOut, RotateCcw, Scan, Trash2, Zap } from 'lucide-react';
+import { Download, HardDrive, LoaderCircle, LogOut, RotateCcw, Scan, Trash2 } from 'lucide-react';
 import { dimensions } from '../lib/captions';
-import { copyText, formatBytes, formatMinutes } from '../lib/utils';
+import { formatBytes, formatMinutes } from '../lib/utils';
 import { Modal } from './Modal';
 import type { Limits } from '../lib/api';
 import type { Health } from '../lib/shell';
@@ -44,7 +45,7 @@ const timecode = (s: number) =>
  * browser must never hold, so it could only be a no-op.
  */
 export function SettingsPanel({
-  project, settings, updateSettings, busy, limits, health, onRefreshLimits,
+  project, settings, updateSettings, busy, limits, onRefreshLimits,
   accountEmail, accountName, authEnabled, onSignOut, onDeleteProject, onOpenExports, notify,
 }: {
   project: Project | null;
@@ -70,7 +71,6 @@ export function SettingsPanel({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
-  const [copiedId, setCopiedId] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
   // An armed confirmation must not survive the project it was armed for.
@@ -80,7 +80,6 @@ export function SettingsPanel({
     setConfirmingDelete(false);
     setConfirmText('');
     setDeleting(false);
-    setCopiedId(false);
   }, [project?.id]);
 
   const aspectOptions: { id: Settings['aspect']; label: string; note: string }[] = [
@@ -109,10 +108,6 @@ export function SettingsPanel({
    * withholding it for something the server would in fact allow.
    */
   const workerHasIt = !!project && ['processing', 'transcribing', 'extracting'].includes(project.status);
-  // A path for the sherpa models, a plain name for the Whisper ones. Only the
-  // last segment identifies it, and the rest is this machine's directory layout.
-  const modelName = (health?.model ?? '').split('/').filter(Boolean).at(-1) ?? '';
-
   const projectLabel = project ? (project.name || project.filename) : '';
   /**
    * What has to be typed to arm the delete.
@@ -147,16 +142,6 @@ export function SettingsPanel({
   const retryLimits = () => {
     setRetrying(true);
     void onRefreshLimits().finally(() => setRetrying(false));
-  };
-
-  const copyProjectId = () => {
-    if (!project) return;
-    void copyText(project.id).then(copied => {
-      setCopiedId(copied);
-      // The id is on screen either way, so the failure message points at it
-      // rather than being an apology with nothing behind it.
-      notify(copied ? 'Project ID copied.' : 'Copying was blocked — select the ID above instead.');
-    });
   };
 
   /**
@@ -255,96 +240,31 @@ export function SettingsPanel({
           )}
         </div>
 
-        <div className="settings-block">
-          <div className="section-label"><Zap size={13} /> Worker</div>
-          <dl className="settings-facts">
-            <div>
-              <dt>Connection</dt>
-              <dd className={health ? '' : 'settings-bad'}>{health ? 'Connected' : 'Not responding'}</dd>
-            </div>
-            {/* Omitted rather than blanked while the worker is silent. A
-                Recogniser row reading "Unknown" beside a Connection row reading
-                "Not responding" invites the reading that the model is the
-                problem, when nothing has been asked yet. */}
-            {health && (
-              <>
-                <div>
-                  <dt>Recogniser</dt>
-                  <dd className={health.available === false ? 'settings-bad' : ''}>
-                    {modelName || health.backend || 'Unknown'}
-                    {health.available === false ? ' · not installed' : ''}
-                  </dd>
-                </div>
-                <div>
-                  <dt>ffmpeg</dt>
-                  <dd className={health.ffmpeg ? '' : 'settings-bad'}>
-                    {health.ffmpeg ? 'Available' : 'Missing'}
-                  </dd>
-                </div>
-              </>
-            )}
-          </dl>
-          {/* Shown in full and selectable rather than abbreviated behind a copy
-              button. A truncated id is no use to anyone reporting a problem,
-              and a button is the part of this that can fail — the clipboard
-              refuses whenever the document is not focused — so the text has to
-              stand on its own. */}
-          {project && (
-            <div className="settings-id-row">
-              <span>Project ID</span>
-              <code title="Select to copy">{project.id}</code>
-              <button
-                type="button"
-                className="settings-copy-btn"
-                aria-label="Copy the project ID"
-                onClick={copyProjectId}
-              >
-                {copiedId ? <Check size={12} /> : <Copy size={12} />}
-              </button>
-            </div>
-          )}
-          {/* scripts/prepare-hinglish-model.py is named because it exists —
-              checked, not remembered. Copy that quotes a command which was
-              renamed or never written sends someone off to run nothing. */}
-          {health && health.available === false && (
-            <p className="setting-warning">
-              Transcription will fail until the speech model is downloaded. Run
-              <code> scripts/prepare-hinglish-model.py</code> on the worker, or check its logs.
-            </p>
-          )}
-          {health && !health.ffmpeg && (
-            <p className="setting-warning">
-              Uploads and exports both need ffmpeg and ffprobe on the worker's PATH.
-            </p>
-          )}
-        </div>
-
-        <div className="settings-block danger">
-          <div className="section-label"><Trash2 size={13} /> Delete project</div>
+        <div className="settings-block danger settings-delete-compact">
           {project ? (
             <>
-              <p className="setting-note">
-                Removes <strong>{projectLabel}</strong> and everything uploaded to it — the media,
-                the transcript and any exports still on the worker. Exports you have already
-                downloaded are yours and are not touched. This cannot be undone.
-              </p>
-              <button
-                type="button"
-                className="button secondary full settings-danger-arm"
+              <p className="setting-note">{workerHasIt ? 'Available when processing finishes.' : 'Permanently removes this project and its files.'}</p>
+              <FuseButton
+                key={project.id}
+                label="Delete project"
+                undoLabel="Cancel deletion"
+                doneLabel="Confirm deletion"
+                icon={<Trash2 size={16} />}
+                color="var(--color-danger, #c62d36)"
+                background="var(--color-bg-panel, #fff)"
+                fuseColor="#ef4444"
+                radius={12}
+                size="md"
+                commitOn="fuseEnd"
+                undoWindow={3000}
+                pauseOnHover={false}
+                className="settings-delete-fuse"
                 disabled={workerHasIt}
-                onClick={() => { setConfirmText(''); setConfirmingDelete(true); }}
-              >
-                <Trash2 size={15} />Delete this project
-              </button>
-              {workerHasIt && (
-                <p className="setting-note">
-                  Not while this clip is being transcribed — the worker is still writing to it.
-                  It can be deleted as soon as that finishes.
-                </p>
-              )}
+                onCommit={() => { if (!workerHasIt) { setConfirmText(''); setConfirmingDelete(true); } }}
+              />
             </>
           ) : (
-            <p className="setting-note">Open a project to delete it.</p>
+            <p className="setting-note">Upload a video to start a project.</p>
           )}
         </div>
       </div>

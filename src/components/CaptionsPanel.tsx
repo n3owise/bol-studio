@@ -212,6 +212,13 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
    * finding nothing there reads as the feature being absent.
    */
   const [insertMenu, setInsertMenu] = useState<{ wordId: string; x: number; y: number } | null>(null);
+  // The backdrop closes it for a pointer; Escape is the keyboard's way out.
+  useEffect(() => {
+    if (!insertMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setInsertMenu(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [insertMenu]);
   const captionScript = project?.script || 'roman';
   const [startingGeneration, setStartingGeneration] = useState(false);
 
@@ -1102,23 +1109,21 @@ export const CaptionsPanel: React.FC<CaptionsPanelProps> = ({
             <Captions size={44} strokeWidth={1.5} className="empty-cc-icon" />
           </div>
           {project?.status === 'error' && <p role="alert" className="empty-description">{project.message || 'Caption generation failed. Please retry.'}</p>}
-          <h3 className="empty-title">Create captions for your video</h3>
+          <h3 className="empty-title">Make every word count.</h3>
           <p className="empty-description">
-            Generate accurate captions from your video's speech.
+            Hindi, English or Hinglish. Your style.
           </p>
 
           <button
             type="button"
             className="button primary generate-main-btn"
+            data-snap-target
             disabled={busy || startingGeneration}
             onClick={() => project ? void handleGenerate() : onGoToMedia()}
           >
             <Sparkles size={16} />
-            <span>Generate Captions</span>
+            <span>Generate captions</span>
           </button>
-          <p className="empty-subtext">
-            Supports Hindi, English, Hinglish and other supported languages.
-          </p>
         </div>
       )}
 

@@ -6,6 +6,22 @@
       "name": "bol-dev",
       "port": 5173,
       "url": "http://localhost:5173"
+    },
+    {
+      "name": "showreel-studio",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "/Users/av/Documents/showreel", "run", "studio", "--", "--port", "3100", "--no-open"],
+      "port": 3100,
+      "autoPort": false
+    },
+    {
+      "//": "Farmest website (on the Desktop) in dev mode. Port 3000 is its `npm start` production server, so dev runs on 3001.",
+      "name": "farmest-dev",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "cd '/Users/av/Desktop/FARMEST WEBSITE/website' && exec npx next dev --hostname 127.0.0.1 --port 3001"],
+      "port": 3001,
+      "url": "http://127.0.0.1:3001",
+      "autoPort": false
     }
   ]
 }

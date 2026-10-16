@@ -85,6 +85,6 @@ export default defineConfig({
   server: {
     host: '::',
     port: 5173,
-    proxy: { '/api': 'http://localhost:8765' },
+    proxy: { '/api': process.env.BOL_DEV_API_TARGET || 'http://localhost:8765' },
   },
 });

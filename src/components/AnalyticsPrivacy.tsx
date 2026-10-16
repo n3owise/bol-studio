@@ -5,7 +5,17 @@ import { CONSENT_KEY, setAnalyticsUser, startErrorMonitoring, startProductAnalyt
 
 export function AnalyticsPrivacy() {
   const [choice, setChoice] = useState(() => localStorage.getItem(CONSENT_KEY));
-  useEffect(() => { void startErrorMonitoring(); }, []);
+  // Once the page is idle rather than on first paint: the error reporter is a
+  // large download and nothing on screen needs it to draw.
+  useEffect(() => {
+    const start = () => void startErrorMonitoring();
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(start, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(start, 2000);
+    return () => clearTimeout(id);
+  }, []);
   useEffect(() => {
     if (!supabase) return;
     let active = true;
@@ -20,6 +30,12 @@ export function AnalyticsPrivacy() {
     return () => { active = false; data.subscription.unsubscribe(); };
   }, []);
   useEffect(() => { if (choice === 'granted') void startProductAnalytics(); else stopProductAnalytics(); }, [choice]);
+  // The Google tag in index.html starts with analytics cookies denied unless this
+  // same choice was already saved; keep it in step when the visitor changes it.
+  useEffect(() => {
+    const gtag = (window as unknown as { gtag?: (...args: unknown[]) => void }).gtag;
+    gtag?.('consent', 'update', { analytics_storage: choice === 'granted' ? 'granted' : 'denied' });
+  }, [choice]);
   if (!telemetryEnabled) return null;
   const choose = (value: string) => { localStorage.setItem(CONSENT_KEY, value); setChoice(value); };
   return <>

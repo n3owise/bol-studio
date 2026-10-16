@@ -2,6 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Google tag (gtag.js). Consent mode keeps analytics cookies off until the
+         visitor allows analytics in the app's own banner (AnalyticsPrivacy.tsx,
+         same localStorage key); until then Google receives cookieless pings only. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      (function() {
+        var granted = false;
+        try { granted = localStorage.getItem('bol_analytics_consent_identified_v1') === 'granted'; } catch (e) {}
+        gtag('consent', 'default', {
+          analytics_storage: granted ? 'granted' : 'denied',
+          ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+        });
+      })();
+      gtag('js', new Date());
+      gtag('config', 'G-BMKXG00R6M');
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-BMKXG00R6M"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="Turn your Hindi and Hinglish videos into word-perfect, animated captions. A local caption studio for creators." />
@@ -22,13 +40,12 @@
     <script>
       (function() {
         try {
-          // Light unless this browser has been told otherwise. The machine's
-          // preference is deliberately not consulted: the studio is a light
-          // product by default, and the sign-in screen it opens behind is light
-          // unconditionally, so following the OS here meant the page changed
-          // colour the moment somebody logged in.
+          // The saved choice if there is one, otherwise the machine's. The
+          // sign-in screen follows the same theme, so nothing changes colour
+          // at the moment somebody logs in.
           var saved = localStorage.getItem('bol_theme');
-          var theme = saved === 'dark' ? 'dark' : 'light';
+          var theme = saved === 'dark' || saved === 'light' ? saved
+            : (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
           document.documentElement.setAttribute('data-theme', theme);
           if (theme === 'dark') {
             document.documentElement.classList.add('theme-dark');

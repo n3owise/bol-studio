@@ -1,6 +1,6 @@
 # Authentication email setup
 
-Prepared 14 October 2026. Templates are ready but are not applied to hosted Supabase yet.
+Configured 14 October 2026. Resend domain verification is complete, custom SMTP is saved in hosted Supabase, and both HTML templates are applied. A password-reset request from the production website was reported Delivered by Resend to the owner's Gmail. Inbox placement and completion of the password change remain owner acceptance steps; signup confirmation and expired-link acceptance remain unverified.
 
 Verify bol-studio.me in Resend. Preserve Cloudflare inbound MX records; use a separate sending subdomain (such as send.bol-studio.me) for any Resend return-path MX record. Add only the DNS values Resend actually supplies. Disable email link tracking for authentication emails.
 

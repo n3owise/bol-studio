@@ -155,7 +155,7 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
     const meta = document.querySelector('meta[name="theme-color"]');
     if (!meta) return;
     const previous = meta.getAttribute('content');
-    meta.setAttribute('content', '#fcfcfd');
+    meta.setAttribute('content', document.documentElement.getAttribute('data-theme') === 'dark' ? '#0a0b0d' : '#fcfcfd');
     return () => { if (previous !== null) meta.setAttribute('content', previous); };
   }, []);
 
@@ -488,17 +488,9 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
     <div className="auth-screen">
       <div className="auth-stage">
         <div className="auth-brand">
-          {/* One file, not the navbar's light/dark pair: this screen is always
-              light, so only the dark-ink mark is ever correct here. Keeping the
-              pair meant the white wordmark won on a white card whenever a dark
-              theme was saved — present, sized and invisible. */}
-          <img
-            src="/bol.studio.svg"
-            alt="bol.studio"
-            className="auth-logo"
-            width={145}
-            height={34}
-          />
+          {/* Both marks, as in the navbar; the theme shows the one that reads. */}
+          <img src="/bol.studio.svg" alt="bol.studio" className="auth-logo logo-light-only" width={145} height={34} />
+          <img src="/bol.studio-white.svg" alt="bol.studio" className="auth-logo logo-dark-only" width={145} height={34} />
           <span className="auth-tagline">Motion captions for creators.</span>
         </div>
 
@@ -508,18 +500,13 @@ export const AuthScreen: React.FC<{ initialMode?: Mode }> = ({ initialMode }) =>
             the card was still moving. It fades and goes inert instead, and the
             row keeps its height. */}
         <div className={`auth-switch${toggleShown ? '' : ' is-away'}`} inert={!toggleShown || undefined}>
-          <span className={mode === 'signin' ? 'is-on' : ''}>Log in</span>
-          <label className="auth-toggle">
-            <input
-              type="checkbox"
-              role="switch"
-              checked={mode === 'signup'}
-              aria-label="Sign up instead"
-              onChange={(e) => (e.target.checked ? go('signup', 1) : go('signin', -1))}
-            />
-            <span className="auth-slider" aria-hidden="true" />
-          </label>
-          <span className={mode === 'signup' ? 'is-on' : ''}>Sign up</span>
+          {/* Two labelled segments rather than a switch with words either side:
+              each half says what it does, and the sliding plate shows which. */}
+          <div className={`auth-segment${mode === 'signup' ? ' is-signup' : ''}`} role="group" aria-label="Account">
+            <span className="auth-segment-plate" aria-hidden="true" />
+            <button type="button" aria-pressed={mode === 'signin'} onClick={() => mode !== 'signin' && go('signin', -1)}>Log in</button>
+            <button type="button" aria-pressed={mode === 'signup'} onClick={() => mode !== 'signup' && go('signup', 1)}>Sign up</button>
+          </div>
         </div>
 
         <div className="auth-flip" style={cardHeight ? { height: cardHeight } : undefined}>
