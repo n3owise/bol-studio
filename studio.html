@@ -36,12 +36,10 @@
     <script>
       (function() {
         try {
-          // The saved choice if there is one, otherwise the machine's. The
-          // sign-in screen follows the same theme, so nothing changes colour
-          // at the moment somebody logs in.
-          var saved = localStorage.getItem('bol_theme');
-          var theme = saved === 'dark' || saved === 'light' ? saved
-            : (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          // Light unless this browser chose dark with the theme switch. The
+          // sign-in screen uses the same theme, so nothing changes colour at
+          // the moment somebody logs in.
+          var theme = localStorage.getItem('bol_theme') === 'dark' ? 'dark' : 'light';
           document.documentElement.setAttribute('data-theme', theme);
           if (theme === 'dark') {
             document.documentElement.classList.add('theme-dark');
