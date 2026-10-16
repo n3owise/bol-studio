@@ -48,8 +48,26 @@ const controlPlane: Plugin = {
   },
 };
 
+/**
+ * Two pages: the public landing page at / (index.html) and the editor at
+ * /studio (studio.html). Vercel rewrites do this in production; this is the
+ * same mapping for the dev server, where /studio would otherwise get index.html.
+ */
+const studioRoutes: Plugin = {
+  name: 'bol-studio-routes',
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      const route = req.url?.split('?')[0] ?? '';
+      if (route === '/studio' || route.startsWith('/studio/') || route.startsWith('/admin/')) {
+        req.url = '/studio.html' + (req.url!.includes('?') ? req.url!.slice(req.url!.indexOf('?')) : '');
+      }
+      next();
+    });
+  },
+};
+
 export default defineConfig({
-  plugins: [controlPlane,react(), excludeLocalFonts(), ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT ? [sentryVitePlugin({
+  plugins: [controlPlane, studioRoutes, react(), excludeLocalFonts(), ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT ? [sentryVitePlugin({
     authToken: process.env.SENTRY_AUTH_TOKEN, org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT,
     release: { name: process.env.VITE_APP_RELEASE || process.env.VERCEL_GIT_COMMIT_SHA },
     sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] }, telemetry: false,
@@ -62,6 +80,10 @@ export default defineConfig({
   build: {
     sourcemap: Boolean(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT),
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        studio: path.resolve(__dirname, 'studio.html'),
+      },
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
@@ -76,6 +98,9 @@ export default defineConfig({
             if (id.includes('@supabase')) {
               return 'vendor-supabase';
             }
+            // React on its own, so the landing page does not download the
+            // editor's other dependencies along with it.
+            if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
             return 'vendor';
           }
         },

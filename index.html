@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-IN">
   <head>
     <meta charset="UTF-8" />
     <!-- Google tag (gtag.js). Analytics cookies on for every visitor; ad storage
@@ -17,8 +17,31 @@
     </script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-BMKXG00R6M"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
-    <meta name="description" content="Turn your Hindi and Hinglish videos into word-perfect, animated captions. A local caption studio for creators." />
+    <meta name="theme-color" content="#fcfcfd" />
+    <meta name="color-scheme" content="light" />
+
+    <title>Bol Studio — Hinglish Captions &amp; Hindi Subtitles for Reels and Shorts</title>
+    <meta name="description" content="Add animated Hinglish, Hindi and English captions to Instagram Reels, YouTube Shorts and videos. Word-perfect timing, 24 caption styles, export up to 4K with no watermark." />
+    <meta name="keywords" content="Hinglish captions, Hindi subtitles, Hinglish subtitles, Reels captions, YouTube Shorts subtitles, animated captions, auto captions Hindi, caption generator India" />
+    <link rel="canonical" href="https://www.bol-studio.me/" />
+    <link rel="alternate" hreflang="en-IN" href="https://www.bol-studio.me/" />
+    <link rel="alternate" hreflang="x-default" href="https://www.bol-studio.me/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Bol Studio" />
+    <meta property="og:url" content="https://www.bol-studio.me/" />
+    <meta property="og:title" content="Bol Studio — Hinglish captions that sound like you" />
+    <meta property="og:description" content="Animated Hinglish, Hindi and English captions for Reels, Shorts and YouTube. Word-perfect timing, 24 styles, no watermark." />
+    <meta property="og:image" content="https://www.bol-studio.me/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Bol Studio: Hinglish captions that sound like you" />
+    <meta property="og:locale" content="en_IN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Bol Studio — Hinglish captions that sound like you" />
+    <meta name="twitter:description" content="Animated Hinglish, Hindi and English captions for Reels, Shorts and YouTube." />
+    <meta name="twitter:image" content="https://www.bol-studio.me/og-image.jpg" />
 
     <!-- Favicon & App Icons -->
     <link rel="shortcut icon" href="/favicon.ico?v=bol4" />
@@ -32,31 +55,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=bol4" />
     <link rel="manifest" href="/site.webmanifest?v=bol4" />
 
-    <!-- Zero-flash theme initialization -->
-    <script>
-      (function() {
-        try {
-          // The saved choice if there is one, otherwise the machine's. The
-          // sign-in screen follows the same theme, so nothing changes colour
-          // at the moment somebody logs in.
-          var saved = localStorage.getItem('bol_theme');
-          var theme = saved === 'dark' || saved === 'light' ? saved
-            : (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-          document.documentElement.setAttribute('data-theme', theme);
-          if (theme === 'dark') {
-            document.documentElement.classList.add('theme-dark');
-            var meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', '#111215');
-          }
-        } catch (e) {}
-      })();
-    </script>
+    <link rel="preload" as="image" href="/landing/hero-after.jpg" fetchpriority="high" />
 
-    <title>Bol — Hinglish caption studio</title>
+    <!-- Hidden start states for scroll reveals apply only while the script is
+         expected; if it has not run within 3s, everything simply shows. -->
+    <script>
+      document.documentElement.classList.add('lp-js');
+      setTimeout(function () { if (!window.__lpReady) document.documentElement.classList.remove('lp-js'); }, 3000);
+    </script>
+    <script type="application/ld+json"><!--landing-jsonld--></script>
+    <style>html,body{margin:0;background:#fcfcfd}</style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="root"><!--landing-html--></div>
+    <script type="module" src="/src/landing/main.tsx"></script>
   </body>
 </html>
-

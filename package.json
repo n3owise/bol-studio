@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --host :: --port 5173",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build --ssr src/landing/ssr.tsx --outDir .ssr-landing --emptyOutDir && node scripts/prerender-landing.mjs",
     "preview": "vite preview --host :: --port 5173",
     "test": "tsx --test tests/*.test.ts && .venv/bin/python -m pytest tests -q"
   },

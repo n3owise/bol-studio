@@ -31,3 +31,4 @@ public/fonts/satoshi/
 # it is a per-developer choice which agents get symlinks.
 .agents/skills/
 .claude/skills/
+.ssr-landing/

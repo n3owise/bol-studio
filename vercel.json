@@ -13,7 +13,19 @@
       "destination": "https://n3owise-bol-studio-backend.hf.space/api/:path*"
     },
     {
-      "source": "/((?!api/|terms\\.html$|privacy\\.html$).*)",
+      "source": "/studio",
+      "destination": "/studio.html"
+    },
+    {
+      "source": "/studio/:path*",
+      "destination": "/studio.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/studio.html"
+    },
+    {
+      "source": "/((?!api/|terms\\.html$|privacy\\.html$|robots\\.txt$|sitemap\\.xml$|og-image\\.jpg$).*)",
       "destination": "/index.html"
     }
   ],

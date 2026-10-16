@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Google tag (gtag.js). Analytics cookies on for every visitor; ad storage
+         and ad personalisation stay off. The in-app consent banner covers PostHog
+         only (AnalyticsPrivacy.tsx), not this tag. -->
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('consent', 'default', {
+        analytics_storage: 'granted',
+        ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied'
+      });
+      gtag('js', new Date());
+      gtag('config', 'G-BMKXG00R6M');
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-BMKXG00R6M"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Turn your Hindi and Hinglish videos into word-perfect, animated captions. A local caption studio for creators." />
+
+    <!-- Favicon & App Icons -->
+    <link rel="shortcut icon" href="/favicon.ico?v=bol4" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=bol4" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png?v=bol4" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=bol4" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=bol4" />
+    <link rel="icon" type="image/png" href="/favicon.png?v=bol4" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=bol4" />
+    <link rel="mask-icon" href="/safari-pinned-tab.svg?v=bol4" color="#2ee368" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=bol4" />
+    <link rel="manifest" href="/site.webmanifest?v=bol4" />
+
+    <!-- Zero-flash theme initialization -->
+    <script>
+      (function() {
+        try {
+          // The saved choice if there is one, otherwise the machine's. The
+          // sign-in screen follows the same theme, so nothing changes colour
+          // at the moment somebody logs in.
+          var saved = localStorage.getItem('bol_theme');
+          var theme = saved === 'dark' || saved === 'light' ? saved
+            : (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', theme);
+          if (theme === 'dark') {
+            document.documentElement.classList.add('theme-dark');
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', '#111215');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
+    <meta name="robots" content="noindex" />
+    <title>Bol Studio — Editor</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
