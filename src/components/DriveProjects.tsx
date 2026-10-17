@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, LoaderCircle, Cloud, X, ShieldCheck, ArrowUpRight, RefreshCw, AlertTriangle, Clock3 } from 'lucide-react';
+import { FolderOpen, LoaderCircle, Cloud, X, ShieldCheck, ArrowUpRight, RefreshCw, AlertTriangle, Clock3, Unplug } from 'lucide-react';
 import { Modal } from './Modal';
 import { StudioNotice } from './StudioNotice';
 import { connectDrive, driveStatus, savedProjects, type SavedProject } from '../lib/drive';
 import { request } from '../lib/api';
-export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject }: {
+export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject, onDisconnect, transferBusy = false }: {
   hasOpenProject: boolean;
+  transferBusy?: boolean;
+  onDisconnect: () => Promise<void>;
   onClose: () => void; onOpen: (id: string) => Promise<void>; onMode: (mode: 'temporary' | 'drive') => void; notify: (s: string) => void;
 }) {
   const [status, setStatus] = useState<{ configured: boolean; connected: boolean } | null>(null);
@@ -48,7 +50,8 @@ export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject 
         </div>)}</div>
         {projects.length === 0 && <div className="workspace-empty"><FolderOpen size={28}/><h3>Your next project starts here</h3><p>Upload a video to save it to your Drive workspace.</p></div>}
         <button className="button primary workspace-primary" disabled={working} onClick={() => { onMode('drive'); onClose(); }}><Cloud size={17}/> {hasOpenProject ? 'Use Drive for new uploads' : 'Upload a new video'}</button>
-        <details className="workspace-details"><summary>Storage &amp; privacy</summary><p>Bol Studio uses your Google storage and only accesses files it creates or you select. Audio goes to our caption processor; captions and edits are saved to your account.</p><button className="button" disabled={working} onClick={() => setConfirmation({title:'Disconnect Google Drive?',body:'Your files stay in Drive. Reconnect to open saved projects or save new uploads.',label:'Disconnect',action:async () => { await request('/cloud/connection', { method:'DELETE' }); onMode('temporary'); await refresh(); notify('Drive disconnected. Your files remain in Google Drive.'); }})}>Disconnect Drive</button><button className="button" disabled={working} onClick={() => { onMode('temporary'); onClose(); }}>Use temporary mode</button></details>
+        <div className="workspace-disconnect-row"><div><strong>Google Drive</strong><span>{transferBusy ? 'Finish the current transfer before unlinking.' : 'You can disconnect at any time.'}</span></div><button className="button" disabled={working || transferBusy} onClick={() => setConfirmation({title:'Unlink Google Drive?',body:'This revokes Bol Studio’s Drive access. Your files stay in Google Drive, and you remain signed in to Bol Studio. Reconnect to open saved projects or save further edits.',label:'Unlink Drive',action:async () => { await onDisconnect(); await refresh(); notify('Google Drive unlinked. Your files remain in Drive.'); }})}><Unplug size={16}/>Unlink Drive</button></div>
+        <details className="workspace-details"><summary>Storage &amp; privacy</summary><p>Bol Studio uses your Google storage and only accesses files it creates or you select. Audio goes to our caption processor; captions and edits are saved to your account.</p><button className="button" disabled={working} onClick={() => { onMode('temporary'); onClose(); }}>Use temporary mode</button></details>
       </>}
       {!loading && status && !status.connected && <div className="workspace-choices">
         <div className="workspace-choice"><span className="workspace-choice-icon"><Cloud size={22}/></span><h3>Keep it in your Drive</h3><p>Save videos, captions and edits. Continue on any device.</p><div className="workspace-privacy"><ShieldCheck size={16}/><span>Only app-created or selected files. Your other files stay private.</span></div><button className="button primary" disabled={working || !status.configured} onClick={() => {

@@ -2831,6 +2831,14 @@ export default function App() {
     />
 
     {workspaceOpen && <DriveProjects onClose={() => setWorkspaceOpen(false)} notify={notify} hasOpenProject={!!project}
+      transferBusy={uploadProgress !== null || exportDriveBusy || !!project?.cloudAudioOnly}
+      onDisconnect={async () => {
+        await flushSave();
+        if (projectRef.current) await waitForDrive(projectRef.current);
+        await request('/cloud/connection', { method: 'DELETE' });
+        setDriveReady(false); modeChosen.current = true; setStorageMode('temporary');
+        if (projectRef.current?.cloudId) setSaveStatus('Drive unlinked · reconnect to save edits');
+      }}
       onMode={mode => { modeChosen.current = true; setStorageMode(mode); if (mode === 'drive') setDriveReady(true); }}
       onOpen={async id => {
         try { await flushSave(); if (projectRef.current) await waitForDrive(projectRef.current); } catch {
