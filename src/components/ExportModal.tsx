@@ -1,6 +1,7 @@
 import { Check, Download, Layers, LoaderCircle, MonitorPlay } from 'lucide-react';
 import { dimensions } from '../lib/captions';
 import { Modal } from './Modal';
+import { StudioNotice } from './StudioNotice';
 import type { ExportJob, Project, Settings } from '../lib/types';
 
 /** The export dialog: export type, resolution and frame rate, the run/progress block, and the subtitle and audio downloads. Pure view; every value and handler comes from Studio. */
@@ -34,7 +35,7 @@ export interface ExportModalProps {
 export function ExportModal({ driveAvailable, startDriveExport, retryDriveExport, exportDriveBusy, setModal, exportMode, setExportMode, project, settings, resolution, setResolution, exportFps, setExportFps, hasExportRunning, latestExport, overExportLimit, duration, maxExportSeconds, startExport, exporting, lastDownloadedExportId, downloadTranscript, downloadAudioTrack, copyTranscript }: ExportModalProps) {
   return (
     <>
-      <Modal title="Export video" className="export-modal" onClose={() => setModal(null)} wide>
+      <Modal icon={<Download size={22}/>} title="Export video" className="export-modal" onClose={() => setModal(null)} wide>
         <p className="modal-description">
           Choose your format and where to save the finished video.
         </p>
@@ -96,7 +97,7 @@ export function ExportModal({ driveAvailable, startDriveExport, retryDriveExport
 
         {exportMode === 'green' && (
           <p className="export-note">
-            💡 <strong>Pro-Tip:</strong> Key out pure green (#00FF00) in your video editor. Pick an accent color other than green in Settings for clean chroma keying.
+            <strong>Editing tip:</strong> Remove the green background in your video editor. Use a different caption accent colour for a clean result.
           </p>
         )}
 
@@ -234,7 +235,7 @@ export function ExportModal({ driveAvailable, startDriveExport, retryDriveExport
         )}
 
         {latestExport?.status === 'error' && (
-          <p className="error-message export-error-alert">{latestExport.message}</p>
+          <StudioNotice tone="error" title="Export couldn’t finish">{latestExport.message}</StudioNotice>
         )}
 
         <div className="subtitle-downloads">

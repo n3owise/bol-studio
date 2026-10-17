@@ -1,3 +1,6 @@
+import { StudioNotice } from './components/StudioNotice';
+import { useStudioConfirm } from './components/useStudioConfirm';
+import { CloudUpload, ShieldCheck } from 'lucide-react';
 import './drive-storage.css';
 import { DriveProjects } from './components/DriveProjects';
 import { driveStatus, uploadDrive, openDriveProject, saveDriveProject, exportToDrive, waitForDrive, retryDriveSave } from './lib/drive';
@@ -65,6 +68,7 @@ const NAV_PANELS: { id: NavPanelId; label: string; icon: React.ReactNode }[] = [
 
 export default function App() {
   const { theme, persistTheme, toggleTheme } = useStudioTheme();
+  const { confirm: confirmUnsaved, dialog: unsavedDialog } = useStudioConfirm();
 
   const [project, setProject] = useState<Project | null>(null);
   const modeChosen = useRef(false);
@@ -2826,20 +2830,11 @@ export default function App() {
       workspaceLabel={storageMode === 'drive' ? 'Drive workspace and saved projects' : 'Temporary mode · saved projects and storage options'}
     />
 
-    {storageMessage && !uploadPreview && <div className="drive-transfer-status" role="status">
-      <span>{storageMessage}</span>
-      {project?.cloudAudioOnly && storageMessage.includes('interrupted') && <button type="button" className="button" onClick={() => void retryDriveSave(project).catch(e => notify((e as Error).message))}>Retry Drive save</button>}
-    </div>}
-    {driveCheck === 'failed' && <div className="drive-transfer-status" role="alert">
-      <span>We couldn't check your saved workspace.</span>
-      <button className="button" onClick={() => setConnectionAttempt(n => n + 1)}>Retry</button>
-      <button className="button" onClick={() => { modeChosen.current = true; setStorageMode('temporary'); setDriveCheck('ready'); dismissSessionNotice(); }}>Work temporarily</button>
-    </div>}
     {workspaceOpen && <DriveProjects onClose={() => setWorkspaceOpen(false)} notify={notify} hasOpenProject={!!project}
       onMode={mode => { modeChosen.current = true; setStorageMode(mode); if (mode === 'drive') setDriveReady(true); }}
       onOpen={async id => {
         try { await flushSave(); if (projectRef.current) await waitForDrive(projectRef.current); } catch {
-          if (!window.confirm('Some edits have not been saved. Opening a saved project will discard those unsaved edits in this tab. Continue?')) return;
+          if (!await confirmUnsaved('Your latest edits haven’t finished saving. Opening another project will discard those edits in this tab.')) return;
         }
         const saved = await openDriveProject(id); savedDirty.current = dirtyRef.current; conflictRef.current = null; await openProject(saved);
         setWorkspaceOpen(false); setStorageMode('drive'); setDriveReady(true);
@@ -3237,8 +3232,13 @@ export default function App() {
       }}>Discard my edits and load latest</button>
     </Modal>}
     <LiveAnnouncer notice={notice} saveStatus={saveStatus} uploadProgress={uploadProgress} busy={busy} />
-    {notice&&<div className="toast" role="status"><CircleHelp size={18}/><span>{notice}</span><button className="icon-button tiny" aria-label="Dismiss notification" onClick={()=>setNotice('')}><X size={16}/></button></div>}
-    {uploadProgress!==null&&<div className="upload-toast" role="status"><LoaderCircle className="spin" size={18}/>Uploading file… {uploadProgress}%</div>}
+    <div className="studio-notifications" aria-label="Studio notifications">
+      {driveCheck === 'failed' && <StudioNotice tone="warning" title="Can’t reach your workspace" actions={<><button className="button" onClick={() => setConnectionAttempt(n => n + 1)}>Try again</button><button className="button" onClick={() => { modeChosen.current = true; setStorageMode('temporary'); setDriveCheck('ready'); dismissSessionNotice(); }}>Work temporarily</button></>}>Your saved projects are safe. Check your connection and retry.</StudioNotice>}
+      {storageMessage && !uploadPreview && <StudioNotice tone={storageMessage.includes('interrupted') ? 'warning' : 'progress'} title={storageMessage.includes('interrupted') ? 'Drive save paused' : 'Saving to your Drive'} actions={project?.cloudAudioOnly && storageMessage.includes('interrupted') ? <button className="button" onClick={() => void retryDriveSave(project).catch(e => notify((e as Error).message))}>Retry save</button> : undefined}>{storageMessage.includes('interrupted') ? 'Keep this tab open. Retry before exporting.' : storageMessage}</StudioNotice>}
+      {notice && <StudioNotice title={notice} onDismiss={() => setNotice('')}/>}
+      {uploadProgress !== null && !uploadPreview && <StudioNotice tone="progress" title={`Uploading your video · ${Math.round(uploadProgress)}%`} progress={uploadProgress}>Keep this tab open. We’ll take it from here.</StudioNotice>}
+    </div>
+    {unsavedDialog}
     {modal === 'export' && (
       <ExportModal
         setModal={setModal}
@@ -3286,15 +3286,15 @@ export default function App() {
       three-second decision into a form. They live with the rest of the
       generation options in the Captions panel.
     */}
-    {uploadPreview && uploadProgress !== null && <Modal title={storageMode === 'drive' ? 'Saving your video' : 'Preparing your video'} onClose={() => {}}>
+    {uploadPreview && uploadProgress !== null && <Modal title={storageMode === 'drive' ? 'Saving your video' : 'Preparing your video'} icon={<CloudUpload size={22}/>} className="upload-progress-modal" dismissible={false} onClose={() => {}}>
       {uploadPreviewType === 'video' ? <video className="drive-upload-preview" src={uploadPreview} controls playsInline/> : <audio src={uploadPreview} controls/>}
-      <p role="status">{storageMessage} {uploadProgress < 100 ? `${uploadProgress}%` : ''}</p>
-      <p>You can preview the local file now. Keep this tab open until preparation finishes.</p>
+      <StudioNotice tone="progress" title={uploadProgress < 100 ? `Uploading · ${Math.round(uploadProgress)}%` : 'Preparing your editing session'} progress={uploadProgress}>{storageMessage || 'Getting your video ready…'}</StudioNotice>
+      <p className="upload-reassurance">Preview while you wait. Keep this tab open until we’re done.</p>
     </Modal>}
-    {sessionNotice && driveCheck === 'ready' && !driveReady && !workspaceOpen && <Modal title="Choose how you work" className="session-notice-modal" onClose={dismissSessionNotice}>
-      <p className="modal-lede">Make a quick edit, or save projects to your own Google Drive.</p>
-      {!AUTH_ENABLED && <p>Google Drive saving requires a signed-in account.</p>}
-      <p>Temporary mode sends media to our processor, then cleans up its working files. Download your work before leaving; your project is not saved to your account.</p>
+    {sessionNotice && driveCheck === 'ready' && !driveReady && !workspaceOpen && <Modal title="Your next project" icon={<ShieldCheck size={22}/>} className="session-notice-modal" onClose={dismissSessionNotice}>
+      <p className="modal-lede">Edit once, or save it for later. Your choice.</p>
+      {!AUTH_ENABLED && <p className="session-signin-note"><ShieldCheck size={15}/> Sign in to save with Google Drive.</p>}
+      <div className="session-mode-note"><Clock size={19}/><div><strong>Just this session</strong><p>Media goes to our caption processor. Download before leaving; temporary edits aren’t saved to your account.</p></div></div>
       <div className="modal-actions">
         <button type="button" className="button" onClick={() => { modeChosen.current = true; setStorageMode('temporary'); dismissSessionNotice(); }}>Continue temporarily</button>
         <button type="button" className="button primary" disabled={!AUTH_ENABLED} onClick={() => { dismissSessionNotice(); setWorkspaceOpen(true); }}>Save with Google Drive</button>

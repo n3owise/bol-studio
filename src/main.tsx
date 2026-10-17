@@ -8,6 +8,7 @@ import '@fontsource/space-grotesk/500.css';
 import '@fontsource/space-grotesk/700.css';
 import './styles.css';
 import './mobile.css';
+import './studio-feedback.css';
 import { AnalyticsPrivacy } from './components/AnalyticsPrivacy';
 import { TargetCursor } from './components/TargetCursor';
 import { AdminAnalytics } from './components/AdminAnalytics';

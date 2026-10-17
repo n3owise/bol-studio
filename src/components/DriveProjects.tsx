@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, LoaderCircle, Cloud, X } from 'lucide-react';
+import { FolderOpen, LoaderCircle, Cloud, X, ShieldCheck, ArrowUpRight, RefreshCw, AlertTriangle, Clock3 } from 'lucide-react';
 import { Modal } from './Modal';
+import { StudioNotice } from './StudioNotice';
 import { connectDrive, driveStatus, savedProjects, type SavedProject } from '../lib/drive';
 import { request } from '../lib/api';
 export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject }: {
@@ -10,12 +11,16 @@ export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject 
   const [status, setStatus] = useState<{ configured: boolean; connected: boolean } | null>(null);
   const [projects, setProjects] = useState<SavedProject[]>([]);
   const [working, setWorking] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [confirmation, setConfirmation] = useState<{ title: string; body: string; label: string; action: () => Promise<void> } | null>(null);
   const refresh = async () => {
+    setLoading(true); setError('');
     try {
       const state = await driveStatus(); setStatus(state);
-      if (state.connected) setProjects(await savedProjects());
+      setProjects(state.connected ? await savedProjects() : []);
     } catch (e) { setError((e as Error).message); }
+    finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, []);
   const run = async (action: () => Promise<void>) => {
@@ -23,38 +28,37 @@ export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject 
     try { await action(); } catch (e) { setError((e as Error).message); }
     finally { setWorking(false); }
   };
-  return <Modal title="Your workspace" onClose={onClose}>
-    <p className="modal-lede">{status?.connected ? "Google Drive is connected to your account. Open a saved project to continue on this device." : "Work once, or keep projects in your own Google Drive."}</p>
-    <div className="drive-options">
-      <button className="button" disabled={working} onClick={() => { onMode('temporary'); onClose(); }}>Continue temporarily</button>
-      <p>Temporary files are processed on our server and cleaned up. Download your work before leaving; this mode does not save a project to your account.</p>
-      <div className="drive-option">
-        <h3><Cloud size={18}/> Save with Google Drive</h3>
-        <p>We create a Bol Studio folder and request access only to files the app creates or you explicitly select—not your entire Drive. Audio is sent to our caption processor; editing settings are saved to your Bol Studio account.</p>
-        <p>Your available Google storage is used. Disconnecting does not delete your Drive files.</p>
-        {!status && !error && <LoaderCircle className="spin" aria-label="Checking Drive connection"/>}
-        {status?.connected ? <div className="modal-actions">
-          <button className="button primary" disabled={working} onClick={() => { onMode('drive'); onClose(); }}>Use Drive for new uploads</button>
-          <button className="button" disabled={working} onClick={() => void run(async () => {
-            await request('/cloud/connection', { method: 'DELETE' }); onMode('temporary'); setProjects([]); await refresh(); notify('Drive disconnected. Your files remain in Google Drive.');
-          })}>Disconnect</button>
-        </div> : <button className="button primary" disabled={working || !status?.configured} onClick={() => { if (!hasOpenProject || window.confirm('Connecting Google Drive leaves this temporary session. Download any work you want to keep before continuing. Continue connecting?')) void run(connectDrive); }}>Connect Google Drive</button>}
-        {status && !status.configured && <p role="status">Drive saving is not available yet. You can continue temporarily.</p>}
-      </div>
-    </div>
-    <h3>Saved projects</h3>
-    {status?.connected && projects.length === 0 && <p>No saved projects yet. Choose Drive mode and upload a video.</p>}
-    <div className="drive-project-list">{projects.map(p => <div className="drive-project" key={p.id}>
-      <button className="button" disabled={working} onClick={() => void run(() => onOpen(p.id))}>
-        <FolderOpen size={18}/><span>{p.name}<small>{p.revision === 0 ? 'Upload pending · retry opening' : new Date(p.updated_at).toLocaleString()}</small></span>
-      </button>
-      <button className="icon-button" disabled={working} aria-label={`Remove ${p.name} from saved projects`} onClick={() => {
-        if (window.confirm('Remove this project from Bol Studio? Its files will remain in your Google Drive.')) void run(async () => {
-          await request(`/cloud/projects/${p.id}`, { method: 'DELETE' }); await refresh();
-        });
-      }}><X size={17}/></button>
-    </div>)}</div>
-    {working && <p role="status"><LoaderCircle size={16} className="spin"/> Working… Keep this tab open.</p>}
-    {error && <p role="alert">{error}</p>}
+  return <Modal title={status?.connected ? 'Your saved projects' : 'Your workspace'} icon={<Cloud size={22}/>} className="drive-workspace-modal" onClose={onClose} dismissible={!working}>
+    {confirmation ? <div className="workspace-confirmation">
+      <span className="workspace-warning-symbol"><AlertTriangle size={25}/></span>
+      <h3>{confirmation.title}</h3><p>{confirmation.body}</p>
+      <div className="modal-actions"><button className="button" disabled={working} onClick={() => setConfirmation(null)}>Go back</button><button className="button primary" disabled={working} onClick={() => void run(async () => { await confirmation.action(); setConfirmation(null); })}>{working ? <LoaderCircle size={16} className="spin"/> : null}{confirmation.label}</button></div>
+    </div> : <>
+      {status?.connected ? <>
+        <div className="workspace-connected"><span><span className="workspace-status-dot"/> Google Drive connected</span><button className="icon-button" aria-label="Refresh saved projects" disabled={loading || working} onClick={() => void refresh()}><RefreshCw size={16} className={loading ? 'spin' : ''}/></button></div>
+        <p className="modal-lede">Pick up where you left off, on any device.</p>
+      </> : <p className="modal-lede">A quick edit, or a project you can come back to.</p>}
+      {loading && <div className="workspace-skeleton" role="status" aria-label="Loading your workspace"><span/><span/><span/></div>}
+      {!loading && status?.connected && <>
+        <div className="drive-project-list">{projects.map(p => <div className="drive-project" key={p.id}>
+          <button className="button" disabled={working} onClick={() => void run(() => onOpen(p.id))}>
+            <span className="workspace-file-icon"><FolderOpen size={21}/></span><span className="workspace-file-name">{p.name}<small>{p.revision === 0 ? 'Finishing upload · open to retry' : new Date(p.updated_at).toLocaleString()}</small></span><ArrowUpRight size={16}/>
+          </button>
+          <button className="icon-button" disabled={working} aria-label={`Remove ${p.name} from saved projects`} onClick={() => setConfirmation({title:'Remove saved project?', body:'This removes it from Bol Studio. Your original files stay in Google Drive.', label:'Remove project', action:async () => { await request(`/cloud/projects/${p.id}`, { method: 'DELETE' }); await refresh(); }})}><X size={16}/></button>
+        </div>)}</div>
+        {projects.length === 0 && <div className="workspace-empty"><FolderOpen size={28}/><h3>Your next project starts here</h3><p>Upload a video to save it to your Drive workspace.</p></div>}
+        <button className="button primary workspace-primary" disabled={working} onClick={() => { onMode('drive'); onClose(); }}><Cloud size={17}/> {hasOpenProject ? 'Use Drive for new uploads' : 'Upload a new video'}</button>
+        <details className="workspace-details"><summary>Storage &amp; privacy</summary><p>Bol Studio uses your Google storage and only accesses files it creates or you select. Audio goes to our caption processor; captions and edits are saved to your account.</p><button className="button" disabled={working} onClick={() => setConfirmation({title:'Disconnect Google Drive?',body:'Your files stay in Drive. Reconnect to open saved projects or save new uploads.',label:'Disconnect',action:async () => { await request('/cloud/connection', { method:'DELETE' }); onMode('temporary'); await refresh(); notify('Drive disconnected. Your files remain in Google Drive.'); }})}>Disconnect Drive</button><button className="button" disabled={working} onClick={() => { onMode('temporary'); onClose(); }}>Use temporary mode</button></details>
+      </>}
+      {!loading && status && !status.connected && <div className="workspace-choices">
+        <div className="workspace-choice"><span className="workspace-choice-icon"><Cloud size={22}/></span><h3>Keep it in your Drive</h3><p>Save videos, captions and edits. Continue on any device.</p><div className="workspace-privacy"><ShieldCheck size={16}/><span>Only app-created or selected files. Your other files stay private.</span></div><button className="button primary" disabled={working || !status.configured} onClick={() => {
+          if (hasOpenProject) setConfirmation({ title:'Connect your Drive?', body:'Connecting leaves this editing session. Download any unsaved work before continuing.', label:'Continue to Google', action:connectDrive });
+          else void run(connectDrive);
+        }}><Cloud size={16}/>Connect Google Drive<ArrowUpRight size={15}/></button>{!status.configured && <p>Drive saving is unavailable right now.</p>}</div>
+        <div className="workspace-choice workspace-choice--temporary"><Clock3 size={20}/><div><h3>Just this session</h3><p>Download your work before leaving. It won’t be saved to your account.</p></div><button className="button" disabled={working} onClick={() => { onMode('temporary'); onClose(); }}>Continue temporarily</button></div>
+      </div>}
+    </>}
+    {working && <StudioNotice tone="progress" title="Working on it">Keep this tab open while we finish.</StudioNotice>}
+    {error && <StudioNotice tone="error" title="Workspace unavailable" actions={<button className="button" disabled={working || loading} onClick={() => void refresh()}><RefreshCw size={14}/>Try again</button>}>{error}</StudioNotice>}
   </Modal>;
 }
