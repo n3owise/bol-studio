@@ -119,3 +119,23 @@ dialog.modal::backdrop { background: #10161366; backdrop-filter: blur(5px); anim
 .workspace-disconnect-row span { display: block; font-size: 11px; line-height: 1.5; color: var(--color-text-secondary); margin-top: 3px; }
 .workspace-disconnect-row .button { flex-shrink: 0; min-height: 44px; padding: 8px 12px; border-radius: 10px; font-size: 12px; gap: 7px; }
 @media (max-width: 380px) { .workspace-disconnect-row { align-items: stretch; flex-direction: column; } .workspace-disconnect-row .button { justify-content: center; } }
+.drive-panel-library { padding: 16px; margin: 0 16px 16px; border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--color-bg-panel); }
+.drive-panel-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.drive-panel-title h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; }
+.drive-panel-caption { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 1.6; color: var(--color-text-secondary); margin: 8px 0 12px; }
+.drive-panel-library .drive-project-list { max-height: 34dvh; gap: 8px; }
+.drive-panel-project.button { display: flex; align-items: center; justify-content: flex-start; gap: 9px; text-align: left; padding: 10px; width: 100%; border-radius: 11px; background: var(--color-bg-surface-raised); box-shadow: none; }
+.drive-panel-project .workspace-file-icon { flex-basis: 30px; background: transparent; }
+.drive-panel-project .workspace-file-name { font-size: 12px; overflow-wrap: anywhere; }
+.drive-panel-project small { display: block; font-size: 10px; color: var(--color-text-secondary); font-weight: 400; margin-top: 4px; }
+.drive-panel-project > svg { flex-shrink: 0; }
+.drive-panel-empty { padding: 18px 0 6px; color: var(--color-text-secondary); text-align: center; font-size: 12px; }
+.drive-panel-empty .button { min-height: 44px; font-size: 12px; gap: 6px; width: 100%; justify-content: center; }
+.media-current-project-label { padding: 4px 20px 12px; font-size: 12px; font-weight: 600; color: var(--color-text-secondary); }
+.drive-connection-state { display: flex; align-items: center; gap: 9px; font-size: 13px; margin: 14px 0 8px; }
+.drive-offline-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-text-secondary); }
+.drive-mode-control { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
+.drive-mode-control .button { justify-content: center; min-height: 44px; gap: 6px; font-size: 12px; border-radius: 10px; padding: 8px; }
+.drive-unlink-button { width: 100%; justify-content: center; gap: 8px; min-height: 44px; font-size: 12px; margin-top: 8px; }
+.drive-connection-settings .workspace-details summary { display: flex; align-items: center; gap: 7px; }
+.drive-panel-library .studio-notice { margin-top: 10px; }

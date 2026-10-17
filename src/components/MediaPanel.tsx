@@ -95,6 +95,7 @@ interface MediaPanelProps {
   onUpdateProjectAssets: (assets: MediaAsset[]) => void;
   notify: (msg: string) => void;
   onStartProjectFromUpload?: (file: File) => void;
+  projectLibrary?: React.ReactNode;
 }
 
 export function MediaPanel({
@@ -106,6 +107,7 @@ export function MediaPanel({
   onUpdateProjectAssets,
   notify,
   onStartProjectFromUpload,
+  projectLibrary,
 }: MediaPanelProps) {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -355,7 +357,9 @@ export function MediaPanel({
 
   return (
     <section className="media-panel panel" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-      <div className="editor-panel-header"><PanelHeading icon={Film} title="Media" description="Upload and manage your video, audio and images." /></div>
+      <div className="editor-panel-header"><PanelHeading icon={Film} title="Media" description="Your saved projects and media, in one place." /></div>
+      {projectLibrary}
+      {projectLibrary && <div className="media-current-project-label">{project ? "Files in this project" : "Start a new project"}</div>}
       {/* Hidden File Picker */}
       <input
         ref={fileInputRef}

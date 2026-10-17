@@ -37,7 +37,7 @@ export function ProfilePopup({ name, email, joined, verified, workspaceLabel, dr
       {joined && <div><dt>Member since</dt><dd>{new Date(joined).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}</dd></div>}
       <div><dt>Workspace</dt><dd><UserRound size={14} />{workspaceLabel || 'Temporary session'}</dd></div>
     </dl>
-    <p className="profile-note">{driveProject ? 'Wait for the saved status before leaving. Reopen your project from the workspace folder button.' : 'Export your work before closing or refreshing the editor.'}</p>
+    <p className="profile-note">{driveProject ? 'Wait for the saved status before leaving. Reopen saved projects from the Media panel. Manage Google Drive in Settings.' : 'Export your work before closing or refreshing the editor.'}</p>
     <div className="modal-actions">
       <button type="button" className="button secondary" onClick={onSettings}><Settings size={15} />Settings</button>
       <button type="button" className="button secondary" onClick={onSignOut}><LogOut size={15} />Sign out</button>

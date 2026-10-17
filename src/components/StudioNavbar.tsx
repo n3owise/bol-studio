@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Undo2, Redo2, Download, ChevronDown, Keyboard, MoreHorizontal, FolderOpen } from 'lucide-react';
+import { Undo2, Redo2, Download, ChevronDown, Keyboard, MoreHorizontal } from 'lucide-react';
 import { AnimatedThemeToggler } from '@/registry/magicui/animated-theme-toggler';
 import type { Project } from '../lib/types';
 import type { Health } from '../lib/shell';
@@ -23,8 +23,6 @@ export interface StudioNavbarProps {
   onToggleAccountMenu?: (rect: DOMRect | null) => void;
   onOpenExport: () => void;
   onOpenShortcuts?: () => void;
-  onOpenWorkspace?: () => void;
-  workspaceLabel?: string;
 }
 
 export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
@@ -46,8 +44,6 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
   onToggleAccountMenu,
   onOpenExport,
   onOpenShortcuts,
-  onOpenWorkspace,
-  workspaceLabel,
 }) => {
   const [moreOpen, setMoreOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
@@ -94,7 +90,6 @@ export const StudioNavbar: React.FC<StudioNavbarProps> = React.memo(({
       <div className="navbar-right">
         <button className="mobile-more-button icon-button" aria-label="More editor actions" aria-expanded={moreOpen} aria-controls="navbar-secondary-actions" onClick={()=>setMoreOpen(!moreOpen)}><MoreHorizontal size={20}/></button>
         <div id="navbar-secondary-actions" className={`navbar-secondary-actions ${moreOpen ? 'is-open' : ''}`} onKeyDown={e=>{if(e.key==='Escape')setMoreOpen(false);}}>
-        {onOpenWorkspace && <button type="button" className="icon-button" aria-label={workspaceLabel || 'Saved projects and storage options'} title={workspaceLabel} onClick={onOpenWorkspace}><FolderOpen size={19}/></button>}
         <div className="nav-btn-group">
           <button
             className="icon-button"

@@ -45,10 +45,11 @@ const timecode = (s: number) =>
  * browser must never hold, so it could only be a no-op.
  */
 export function SettingsPanel({
-  project, settings, updateSettings, busy, limits, onRefreshLimits,
+  project, settings, updateSettings, busy, limits, onRefreshLimits, driveSettings,
   accountEmail, accountName, authEnabled, onSignOut, onDeleteProject, onOpenExports, notify,
 }: {
   project: Project | null;
+  driveSettings?: React.ReactNode;
   settings: Settings;
   updateSettings: (update: Partial<Settings>) => void;
   busy: boolean;
@@ -165,6 +166,7 @@ export function SettingsPanel({
     <section className="style-panel panel">
       <div className="editor-panel-header"><PanelHeading icon={Scan} title="Settings" description="Your account, framing and limits." /></div>
       <div className="style-content">
+        {driveSettings}
         {/* Absent rather than greyed out when accounts are off, which is the
             local-development default. A disabled Sign out button over a blank
             email is a control that can never do anything. */}
@@ -174,7 +176,7 @@ export function SettingsPanel({
             {accountName && <p className="settings-figure">{accountName}</p>}
             <p className="settings-figure small">{accountEmail}</p>
             <p className="setting-note">
-              Signed in. Editing is temporary; export your work before closing or refreshing this page. Changed your mind
+              Signed in to Bol Studio. Manage Drive storage above, or export temporary work before leaving. Changed your mind
               about your password? Sign out and use “Forgot your password?”.
             </p>
             <button type="button" className="button secondary full" onClick={onSignOut}>

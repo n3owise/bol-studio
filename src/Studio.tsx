@@ -2,7 +2,7 @@ import { StudioNotice } from './components/StudioNotice';
 import { useStudioConfirm } from './components/useStudioConfirm';
 import { CloudUpload, ShieldCheck } from 'lucide-react';
 import './drive-storage.css';
-import { DriveProjects } from './components/DriveProjects';
+import { DriveProjectLibrary, DriveConnectionSettings } from './components/DriveProjects';
 import { driveStatus, uploadDrive, openDriveProject, saveDriveProject, exportToDrive, waitForDrive, retryDriveSave } from './lib/drive';
 import { setLocalMedia } from './lib/api';
 import { EditorResizeHandle } from './components/EditorResizeHandle';
@@ -76,7 +76,6 @@ export default function App() {
   const [driveReady, setDriveReady] = useState(false);
   const [driveCheck, setDriveCheck] = useState<'checking' | 'ready' | 'failed'>(AUTH_ENABLED ? 'checking' : 'ready');
   const [connectionAttempt, setConnectionAttempt] = useState(0);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [storageMessage, setStorageMessage] = useState('');
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploadPreviewType, setUploadPreviewType] = useState('video');
@@ -96,7 +95,7 @@ export default function App() {
     }).catch(() => { if (live) setDriveCheck('failed'); });
     const url = new URL(window.location.href);
     if (url.searchParams.has('drive')) {
-      if (url.searchParams.get('drive') === 'failed') setWorkspaceOpen(true);
+      if (url.searchParams.get('drive') === 'failed') setActiveNavPanel('settings');
       url.searchParams.delete('drive'); window.history.replaceState(null, '', url);
     }
     return () => { live = false; };
@@ -2826,27 +2825,8 @@ export default function App() {
       }}
       onOpenExport={openExport}
       onOpenShortcuts={() => setModal('shortcuts')}
-      onOpenWorkspace={AUTH_ENABLED ? () => setWorkspaceOpen(true) : undefined}
-      workspaceLabel={storageMode === 'drive' ? 'Drive workspace and saved projects' : 'Temporary mode · saved projects and storage options'}
     />
 
-    {workspaceOpen && <DriveProjects onClose={() => setWorkspaceOpen(false)} notify={notify} hasOpenProject={!!project}
-      transferBusy={uploadProgress !== null || exportDriveBusy || !!project?.cloudAudioOnly}
-      onDisconnect={async () => {
-        await flushSave();
-        if (projectRef.current) await waitForDrive(projectRef.current);
-        await request('/cloud/connection', { method: 'DELETE' });
-        setDriveReady(false); modeChosen.current = true; setStorageMode('temporary');
-        if (projectRef.current?.cloudId) setSaveStatus('Drive unlinked · reconnect to save edits');
-      }}
-      onMode={mode => { modeChosen.current = true; setStorageMode(mode); if (mode === 'drive') setDriveReady(true); }}
-      onOpen={async id => {
-        try { await flushSave(); if (projectRef.current) await waitForDrive(projectRef.current); } catch {
-          if (!await confirmUnsaved('Your latest edits haven’t finished saving. Opening another project will discard those edits in this tab.')) return;
-        }
-        const saved = await openDriveProject(id); savedDirty.current = dirtyRef.current; conflictRef.current = null; await openProject(saved);
-        setWorkspaceOpen(false); setStorageMode('drive'); setDriveReady(true);
-      }}/>}
     <div className="studio">
       <aside className="studio-nav-rail" aria-label="Main navigation panels">
         <div className="rail-nav-group">
@@ -2913,7 +2893,7 @@ export default function App() {
                 input={input}
                 storageChecking={driveCheck === 'checking'}
                 driveConnected={driveReady && storageMode === 'drive'}
-                onOpenProjects={() => setWorkspaceOpen(true)}
+                onOpenProjects={() => setActiveNavPanel('media')}
               />
             ) : (
               <PreviewStage
@@ -3127,6 +3107,13 @@ export default function App() {
           />
         ) : activeNavPanel === 'media' ? (
           <MediaPanel
+            projectLibrary={AUTH_ENABLED ? <DriveProjectLibrary connected={driveReady} checking={driveCheck === 'checking'} onSettings={() => setActiveNavPanel('settings')} onOpen={async id => {
+              try { await flushSave(); if (projectRef.current) await waitForDrive(projectRef.current); } catch {
+                if (!await confirmUnsaved('Your latest edits haven’t finished saving. Opening another project will discard those edits in this tab.')) return;
+              }
+              const saved = await openDriveProject(id); savedDirty.current = dirtyRef.current; conflictRef.current = null; await openProject(saved);
+              setStorageMode('drive'); setDriveReady(true);
+            }}/> : undefined}
             project={project}
             onSelectMediaForCanvas={handleSelectMediaForCanvas}
             onAddImageToCanvas={handleAddMediaToCanvas}
@@ -3158,6 +3145,17 @@ export default function App() {
           />
         ) : activeNavPanel === 'settings' ? (
           <SettingsPanel
+            driveSettings={AUTH_ENABLED ? <DriveConnectionSettings connected={driveReady} mode={storageMode} hasOpenProject={!!project}
+              transferBusy={uploadProgress !== null || exportDriveBusy || !!project?.cloudAudioOnly}
+              onConnectionChange={connected => { setDriveReady(connected); if (!connected) setStorageMode('temporary'); }} notify={notify}
+              onMode={mode => { modeChosen.current = true; setStorageMode(mode); }}
+              onDisconnect={async () => {
+                await flushSave();
+                if (projectRef.current) await waitForDrive(projectRef.current);
+                await request('/cloud/connection', { method: 'DELETE' });
+                setDriveReady(false); modeChosen.current = true; setStorageMode('temporary');
+                if (projectRef.current?.cloudId) setSaveStatus('Drive unlinked · reconnect to save edits');
+              }}/> : undefined}
             project={project}
             settings={settings}
             updateSettings={updateSettings}
@@ -3299,13 +3297,13 @@ export default function App() {
       <StudioNotice tone="progress" title={uploadProgress < 100 ? `Uploading · ${Math.round(uploadProgress)}%` : 'Preparing your editing session'} progress={uploadProgress}>{storageMessage || 'Getting your video ready…'}</StudioNotice>
       <p className="upload-reassurance">Preview while you wait. Keep this tab open until we’re done.</p>
     </Modal>}
-    {sessionNotice && driveCheck === 'ready' && !driveReady && !workspaceOpen && <Modal title="Your next project" icon={<ShieldCheck size={22}/>} className="session-notice-modal" onClose={dismissSessionNotice}>
+    {sessionNotice && driveCheck === 'ready' && !driveReady && activeNavPanel !== 'settings' && <Modal title="Your next project" icon={<ShieldCheck size={22}/>} className="session-notice-modal" onClose={dismissSessionNotice}>
       <p className="modal-lede">Edit once, or save it for later. Your choice.</p>
       {!AUTH_ENABLED && <p className="session-signin-note"><ShieldCheck size={15}/> Sign in to save with Google Drive.</p>}
       <div className="session-mode-note"><Clock size={19}/><div><strong>Just this session</strong><p>Media goes to our caption processor. Download before leaving; temporary edits aren’t saved to your account.</p></div></div>
       <div className="modal-actions">
         <button type="button" className="button" onClick={() => { modeChosen.current = true; setStorageMode('temporary'); dismissSessionNotice(); }}>Continue temporarily</button>
-        <button type="button" className="button primary" disabled={!AUTH_ENABLED} onClick={() => { dismissSessionNotice(); setWorkspaceOpen(true); }}>Save with Google Drive</button>
+        <button type="button" className="button primary" disabled={!AUTH_ENABLED} onClick={() => { dismissSessionNotice(); setActiveNavPanel('settings'); }}>Save with Google Drive</button>
       </div>
     </Modal>}
     {languagePrompt && project && <Modal title="Caption setup" className="caption-setup-modal" onClose={()=>setLanguagePrompt(null)}>
