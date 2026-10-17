@@ -24,7 +24,7 @@ export function DriveProjects({ onClose, onOpen, onMode, notify, hasOpenProject 
     finally { setWorking(false); }
   };
   return <Modal title="Your workspace" onClose={onClose}>
-    <p className="modal-lede">Work once, or keep projects in your own Google Drive.</p>
+    <p className="modal-lede">{status?.connected ? "Google Drive is connected to your account. Open a saved project to continue on this device." : "Work once, or keep projects in your own Google Drive."}</p>
     <div className="drive-options">
       <button className="button" disabled={working} onClick={() => { onMode('temporary'); onClose(); }}>Continue temporarily</button>
       <p>Temporary files are processed on our server and cleaned up. Download your work before leaving; this mode does not save a project to your account.</p>

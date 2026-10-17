@@ -9,3 +9,6 @@
 .drive-upload-preview { max-height:42dvh; width:100%; border-radius:10px; background:#111; }
 .drive-transfer-status { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:26; max-width:min(90vw,520px); padding:10px 14px; background:var(--panel,#fff); color:var(--text,#151515); border:1px solid var(--border,#ddd); border-radius:12px; font-size:12px; display:flex; gap:10px; align-items:center; box-shadow:0 2px 10px #0001; }
 @media(max-width:900px) { .drive-transfer-status { bottom:calc(128px + env(safe-area-inset-bottom)); } }
+.drive-connected-note { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; font-size:13px; margin:0 0 12px; color:var(--color-text-secondary); }
+.drive-connected-note span { display:inline-flex; align-items:center; gap:6px; }
+.drive-connected-note .button { font-size:12px; min-height:40px; }

@@ -1,14 +1,17 @@
 import FolderFloat from './FolderFloat';
-import { LoaderCircle } from 'lucide-react';
+import { LoaderCircle, Cloud, FolderOpen } from 'lucide-react';
 
 /** The empty-project drop zone: the folder that opens the file picker, and upload progress once a file is on its way. Drag-and-drop itself is handled by the preview stage around it. */
 export interface UploadDropzoneProps {
   isDraggingOver: boolean;
   uploadProgress: number | null;
   input: React.RefObject<HTMLInputElement | null>;
+  storageChecking?: boolean;
+  driveConnected?: boolean;
+  onOpenProjects?: () => void;
 }
 
-export function UploadDropzone({ isDraggingOver, uploadProgress, input }: UploadDropzoneProps) {
+export function UploadDropzone({ isDraggingOver, uploadProgress, input, storageChecking, driveConnected, onOpenProjects }: UploadDropzoneProps) {
   return (
     <>
               <div
@@ -19,6 +22,10 @@ export function UploadDropzone({ isDraggingOver, uploadProgress, input }: Upload
                 onClick={e => { if (uploadProgress === null && !(e.target as HTMLElement).closest('button')) input.current?.click(); }}
               >
                 <div className="upload-dropzone-inner">
+                  {storageChecking && <p className="drive-connected-note" role="status"><LoaderCircle size={16} className="spin"/> Checking your workspace…</p>}
+                  {!storageChecking && driveConnected && <div className="drive-connected-note"><span><Cloud size={16}/> Google Drive connected</span>
+                    <button type="button" className="button" onClick={onOpenProjects}><FolderOpen size={16}/> Saved projects</button>
+                  </div>}
                   {uploadProgress !== null && <div className="upload-icon-circle">
                       <LoaderCircle size={30} className="spin text-accent" />
                   </div>}

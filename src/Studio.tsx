@@ -70,6 +70,8 @@ export default function App() {
   const modeChosen = useRef(false);
   const [storageMode, setStorageMode] = useState<'temporary' | 'drive'>('temporary');
   const [driveReady, setDriveReady] = useState(false);
+  const [driveCheck, setDriveCheck] = useState<'checking' | 'ready' | 'failed'>(AUTH_ENABLED ? 'checking' : 'ready');
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [storageMessage, setStorageMessage] = useState('');
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
@@ -80,18 +82,21 @@ export default function App() {
   useEffect(() => {
     if (!AUTH_ENABLED) return;
     let live = true;
+    setDriveCheck('checking');
     void driveStatus().then(status => {
       if (!live) return;
       setDriveReady(status.connected);
+      setDriveCheck('ready');
+      if (status.connected) setSessionNotice(false);
       if (status.connected && !modeChosen.current) setStorageMode('drive');
-    }).catch(() => {});
+    }).catch(() => { if (live) setDriveCheck('failed'); });
     const url = new URL(window.location.href);
     if (url.searchParams.has('drive')) {
       if (url.searchParams.get('drive') === 'failed') setWorkspaceOpen(true);
       url.searchParams.delete('drive'); window.history.replaceState(null, '', url);
     }
     return () => { live = false; };
-  }, []);
+  }, [connectionAttempt]);
   useEffect(() => () => { if (uploadPreview) URL.revokeObjectURL(uploadPreview); }, [uploadPreview]);
 
   const projectRef = useRef<Project | null>(null);
@@ -2545,6 +2550,7 @@ export default function App() {
 
   async function importFile(file?: File) {
     if (!file || uploadProgress !== null) return;
+    if (driveCheck !== 'ready') { notify('Wait for your workspace connection check, or choose temporary mode.'); if (input.current) input.current.value = ''; return; }
     if (file.size > 1024*1024*1024) { notify('Choose a file smaller than 1 GB.'); return; }
     trackEvent('upload_started', { size_mb: Math.round(file.size / 1048576), media_type: file.type.startsWith('video/') ? 'video' : 'audio' });
     const uploadStartedAt = performance.now();
@@ -2785,7 +2791,7 @@ export default function App() {
   const retryTranscription = () => startTranscription();
 
   return <div className="app-shell">
-    <input ref={input} type="file" accept="video/*,audio/*,.mkv,.m4a,.wav,.mp3,.webm" hidden onChange={e=>void importFile(e.target.files?.[0])}/>
+    <input ref={input} disabled={driveCheck !== 'ready'} type="file" accept="video/*,audio/*,.mkv,.m4a,.wav,.mp3,.webm" hidden onChange={e=>void importFile(e.target.files?.[0])}/>
 
     <StudioNavbar
       project={project}
@@ -2822,6 +2828,11 @@ export default function App() {
     {storageMessage && !uploadPreview && <div className="drive-transfer-status" role="status">
       <span>{storageMessage}</span>
       {project?.cloudAudioOnly && storageMessage.includes('interrupted') && <button type="button" className="button" onClick={() => void retryDriveSave(project).catch(e => notify((e as Error).message))}>Retry Drive save</button>}
+    </div>}
+    {driveCheck === 'failed' && <div className="drive-transfer-status" role="alert">
+      <span>We couldn't check your saved workspace.</span>
+      <button className="button" onClick={() => setConnectionAttempt(n => n + 1)}>Retry</button>
+      <button className="button" onClick={() => { modeChosen.current = true; setStorageMode('temporary'); setDriveCheck('ready'); dismissSessionNotice(); }}>Work temporarily</button>
     </div>}
     {workspaceOpen && <DriveProjects onClose={() => setWorkspaceOpen(false)} notify={notify} hasOpenProject={!!project}
       onMode={mode => { modeChosen.current = true; setStorageMode(mode); if (mode === 'drive') setDriveReady(true); }}
@@ -2896,6 +2907,9 @@ export default function App() {
                 isDraggingOver={isDraggingOver}
                 uploadProgress={uploadProgress}
                 input={input}
+                storageChecking={driveCheck === 'checking'}
+                driveConnected={driveReady && storageMode === 'drive'}
+                onOpenProjects={() => setWorkspaceOpen(true)}
               />
             ) : (
               <PreviewStage
@@ -3276,7 +3290,7 @@ export default function App() {
       <p role="status">{storageMessage} {uploadProgress < 100 ? `${uploadProgress}%` : ''}</p>
       <p>You can preview the local file now. Keep this tab open until preparation finishes.</p>
     </Modal>}
-    {sessionNotice && <Modal title="Choose how you work" className="session-notice-modal" onClose={dismissSessionNotice}>
+    {sessionNotice && driveCheck === 'ready' && !driveReady && !workspaceOpen && <Modal title="Choose how you work" className="session-notice-modal" onClose={dismissSessionNotice}>
       <p className="modal-lede">Make a quick edit, or save projects to your own Google Drive.</p>
       {!AUTH_ENABLED && <p>Google Drive saving requires a signed-in account.</p>}
       <p>Temporary mode sends media to our processor, then cleans up its working files. Download your work before leaving; your project is not saved to your account.</p>

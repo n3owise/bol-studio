@@ -16,6 +16,11 @@ export async function saveDriveProject(p: Project) {
   p.cloudRevision = saved.revision;
 }
 export async function openDriveProject(id: string): Promise<Project> {
+  // Recover caption work when Google accepted an upload but the browser lost
+  // its response. Keep the original tab open until this canonical save succeeds.
+  const workers = await request<Project[]>('/projects');
+  const interrupted = workers.find(p => p.cloudId === id && p.cloudAudioOnly && p.status === 'ready');
+  if (interrupted) await request<Project>(`/cloud/projects/${id}/commit`, json({ workerId: interrupted.id, revision: interrupted.cloudRevision ?? 0 }));
   const p = await request<Project>(`/cloud/projects/${id}/open`, json({}));
   registerTemporaryProject(p.id);
   return p;
@@ -110,10 +115,21 @@ export async function uploadDrive(file: File, script: string, language: string,
     let originalUploaded = false;
     const finish = async (first: boolean) => {
       try {
-        const failed = first ? await videoUpload : originalUploaded ? null : (await uploadResumable(session.uploadUrl, file, n => status(`Saving original to Drive… ${n}%`)), null);
-        if (failed) throw failed;
-        originalUploaded = true;
-        status('Original saved. Preparing the export source…');
+        const failed = first ? await videoUpload : null;
+        if (!first && !originalUploaded) {
+          try {
+            const recovered = await request<Project>(`/cloud/projects/${session.id}/commit`, json({ workerId: p.id, revision: 0 }));
+            retries.delete(p.id); pendingDrive.delete(p.id); status(''); settled(recovered);
+            return recovered;
+          } catch (error) {
+            if (![404, 409].includes(Number((error as { status?: number }).status))) throw error;
+          }
+          await uploadResumable(session.uploadUrl, file, n => status(`Saving original to Drive… ${n}%`));
+        }
+        // A browser network/CORS failure is not proof the file was not saved.
+        // Only our authenticated backend's verification establishes completion.
+        originalUploaded = !failed;
+        status('Checking the saved original and preparing the export source…');
         const complete = await request<Project>(`/cloud/projects/${session.id}/commit`, json({ workerId: p.id, revision: 0 }));
         retries.delete(p.id); pendingDrive.delete(p.id);
         status(''); settled(complete);
@@ -130,8 +146,7 @@ export async function uploadDrive(file: File, script: string, language: string,
     return p;
   }
   const failed = await videoUpload;
-  if (failed) throw failed;
-  status('Original saved. Preparing your private editing session…');
+  status(failed ? 'Verifying whether Drive received your video…' : 'Original saved. Preparing your private editing session…');
   const p = await request<Project>(`/cloud/projects/${session.id}/open`, json({ script, language }));
   registerTemporaryProject(p.id); setLocalMedia(p.id, file);
   return p;
