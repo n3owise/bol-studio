@@ -122,17 +122,24 @@ export function MediaPanel({
   const bannerTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Load project media assets
-  const loadAssets = useCallback(async () => {
+  const mediaContext = useRef({ project, onUpdateProjectAssets });
+  mediaContext.current = { project, onUpdateProjectAssets };
+  // Fetch on project/source changes, never on the parent update produced by this fetch.
+  useEffect(() => {
+    let cancelled = false;
+    const { project, onUpdateProjectAssets } = mediaContext.current;
+    const loadAssets = async () => {
     if (!project) {
       setAssets([]);
       return;
     }
     try {
       const list = await fetchMediaAssets(project.id);
+      if (cancelled) return;
       setAssets(list);
       onUpdateProjectAssets(list);
     } catch {
+      if (cancelled) return;
       // Fallback: primary asset from project
       if (project.filename) {
         const primary: MediaAsset = {
@@ -153,11 +160,10 @@ export function MediaPanel({
         onUpdateProjectAssets([primary]);
       }
     }
-  }, [project, onUpdateProjectAssets]);
-
-  useEffect(() => {
+    };
     void loadAssets();
-  }, [loadAssets]);
+    return () => { cancelled = true; };
+  }, [project?.id, project?.cloudAudioOnly]);
 
   const showSuccess = (text: string) => {
     setSuccessBanner(text);

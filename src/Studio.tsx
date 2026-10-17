@@ -713,12 +713,13 @@ export default function App() {
   useEffect(() => {
     let closed = false;
     async function check() {
+      if (document.hidden) return;
       try {
         const h = await request<Health>('/health');
         if (!closed) setHealth(h);
       } catch { if (!closed) setHealth(null); }
     }
-    void check(); const timer = setInterval(check, 7000); return () => { closed = true; clearInterval(timer); };
+    void check(); const timer = setInterval(check, 60000); return () => { closed = true; clearInterval(timer); };
   }, []);
 
   useEffect(() => {
