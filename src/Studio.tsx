@@ -1,3 +1,7 @@
+import './drive-storage.css';
+import { DriveProjects } from './components/DriveProjects';
+import { driveStatus, uploadDrive, openDriveProject, saveDriveProject, exportToDrive, waitForDrive, retryDriveSave } from './lib/drive';
+import { setLocalMedia } from './lib/api';
 import { EditorResizeHandle } from './components/EditorResizeHandle';
 import { trackEvent } from './lib/telemetry';
 import { ProfilePopup } from './components/ProfilePopup';
@@ -63,6 +67,33 @@ export default function App() {
   const { theme, persistTheme, toggleTheme } = useStudioTheme();
 
   const [project, setProject] = useState<Project | null>(null);
+  const modeChosen = useRef(false);
+  const [storageMode, setStorageMode] = useState<'temporary' | 'drive'>('temporary');
+  const [driveReady, setDriveReady] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [storageMessage, setStorageMessage] = useState('');
+  const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [uploadPreviewType, setUploadPreviewType] = useState('video');
+  const exportDestinations = useRef(new Map<string, 'download' | 'drive'>());
+  const [exportDriveBusy, setExportDriveBusy] = useState(false);
+  const transferActive = useRef(false);
+  useEffect(() => {
+    if (!AUTH_ENABLED) return;
+    let live = true;
+    void driveStatus().then(status => {
+      if (!live) return;
+      setDriveReady(status.connected);
+      if (status.connected && !modeChosen.current) setStorageMode('drive');
+    }).catch(() => {});
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('drive')) {
+      if (url.searchParams.get('drive') === 'failed') setWorkspaceOpen(true);
+      url.searchParams.delete('drive'); window.history.replaceState(null, '', url);
+    }
+    return () => { live = false; };
+  }, []);
+  useEffect(() => () => { if (uploadPreview) URL.revokeObjectURL(uploadPreview); }, [uploadPreview]);
+
   const projectRef = useRef<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
@@ -71,6 +102,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  useEffect(() => { transferActive.current = uploadProgress !== null || exportDriveBusy || !!project?.cloudAudioOnly; }, [uploadProgress, exportDriveBusy, project?.cloudAudioOnly]);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const dragCounterRef = useRef(0);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
@@ -707,6 +739,8 @@ export default function App() {
             setHistory([]); setFuture([]);
             setSelectedWord(null); setSelectedWordIds(new Set());
             savedProjectRef.current = current; setSettings(current.settings);
+            setSaveStatus(current.cloudAudioOnly ? 'Original saving to Drive…' : current.cloudId ? (current.cloudSaveError ? 'Not saved — retry save' : 'Saved to your workspace') : 'Temporary session');
+            if (current.cloudSaveError) { dirtyRef.current += 1; setDirty(dirtyRef.current); }
             notify(`${current.words.length} words, ready for your finishing touch.`);
           }
         } else {
@@ -743,6 +777,15 @@ export default function App() {
       // was opened, and a download URL without one is refused — which the browser
       // shows as simply nothing happening.
       void (async () => {
+        if (exportDestinations.current.get(job.id) === 'drive') {
+          setExportDriveBusy(true);
+          try {
+            await exportToDrive(project, job.id);
+            notify('Export saved in your Bol Studio Google Drive folder.');
+          } catch (e) { notify(`${(e as Error).message} You can retry Save to Drive from Export.`); }
+          finally { setExportDriveBusy(false); }
+          return;
+        }
         await ensureMediaToken(project.id);
         const link = document.createElement('a');
         link.href = mediaUrl(`/api/projects/${project.id}/exports/${job.id}/download`);
@@ -751,7 +794,7 @@ export default function App() {
         link.click();
         document.body.removeChild(link);
         notify('Export complete! Your video download has started.');
-      })();
+      })().catch(e => notify((e as Error).message));
     } else if (job.status === 'error') {
       trackEvent('export_failed', elapsedTelemetry(exportTimingRef.current, job.id));
       setActiveExportId(null);
@@ -776,12 +819,21 @@ export default function App() {
         if (projectRef.current?.id === p.id) {
           projectRef.current = { ...projectRef.current, revision: result.revision };
           savedProjectRef.current = result;
+          if (result.cloudId) {
+            setSaveStatus('Saving to Drive workspace…');
+            await saveDriveProject(result);
+            projectRef.current = { ...projectRef.current!, cloudRevision: result.cloudRevision };
+          }
           savedDirty.current = generation;
-          setSaveStatus('Temporary session');
-          setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision } : previous);
+          setSaveStatus(result.cloudAudioOnly ? 'Original saving to Drive…' : result.cloudId ? 'Saved to your workspace' : 'Temporary session');
+          setProject(previous => previous?.id === p.id ? { ...previous, revision: result.revision, cloudRevision: result.cloudRevision } : previous);
         }
       } catch (e) {
         setSaveStatus(UNSAVED);
+        if (e instanceof ApiError && e.status === 409 && p.cloudId) {
+          notify('This Drive project changed on another device. Download your subtitles to keep a copy, then reopen the saved project from your workspace.');
+          throw e;
+        }
         if (e instanceof ApiError && e.status === 409 && projectRef.current?.id === p.id) {
           conflictRef.current = p.id;
           const remote = await request<Project>(`/projects/${p.id}`).catch(() => null);
@@ -793,7 +845,7 @@ export default function App() {
     saveChain.current = action; return action;
   }, [notify]);
   useEffect(() => { if (dirty <= savedDirty.current) return; const timer = setTimeout(() => void flushSave().catch(() => {}), 650); return () => clearTimeout(timer); }, [dirty, flushSave]);
-  useEffect(() => { const handler = (e: BeforeUnloadEvent) => { if (dirtyRef.current > savedDirty.current) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload',handler); return () => window.removeEventListener('beforeunload',handler); }, []);
+  useEffect(() => { const handler = (e: BeforeUnloadEvent) => { if (dirtyRef.current > savedDirty.current || transferActive.current) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload',handler); return () => window.removeEventListener('beforeunload',handler); }, []);
 
   /**
    * End the session, dropping every media token before the token that minted
@@ -2497,19 +2549,36 @@ export default function App() {
     trackEvent('upload_started', { size_mb: Math.round(file.size / 1048576), media_type: file.type.startsWith('video/') ? 'video' : 'audio' });
     const uploadStartedAt = performance.now();
     setUploadProgress(0); setPlaying(false); media.current?.pause();
+    setUploadPreview(URL.createObjectURL(file)); setUploadPreviewType(file.type.startsWith('audio/') ? 'audio' : 'video');
+    setStorageMessage(storageMode === 'drive' ? 'Saving to your Google Drive…' : 'Uploading temporary processing file…');
     try {
       await flushSave();
-      const result = await upload(file,script,language,setUploadProgress);
+      if (projectRef.current) await waitForDrive(projectRef.current);
+      const result = storageMode === 'drive'
+        ? await uploadDrive(file, script, language, setUploadProgress, setStorageMessage, (complete, error) => {
+          if (error) { notify(error.message); setSaveStatus('Drive save interrupted'); return; }
+          if (!complete) return;
+          const metadata = { cloudAudioOnly: false, cloudRevision: complete.cloudRevision, mediaType: complete.mediaType,
+            filename: complete.filename, width: complete.width, height: complete.height };
+          if (projectRef.current?.id === complete.id) {
+            projectRef.current = { ...projectRef.current, ...metadata };
+            setProject(current => current?.id === complete.id ? { ...current, ...metadata } : current);
+            setSaveStatus(complete.cloudSaveError ? 'Not saved — retry save' : complete.cloudRevision === 0 ? 'Original saved · captions processing' : 'Saved to your workspace');
+          }
+        })
+        : await upload(file,script,language,setUploadProgress);
+      setLocalMedia(result.id, file);
       result.name = file.name || result.filename || result.name;
       result.settings = result.settings || defaults;
-      setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setCaptionToolsOpen(false); setSaveStatus('Temporary session');
+      setProject(result); projectRef.current=result; setSettings(result.settings); setTime(0); setSelectedWord(null); setSelectedWordIds(new Set()); setHistory([]); setFuture([]); setCaptionToolsOpen(false); setSaveStatus(result.cloudAudioOnly ? 'Original saving to Drive…' : result.cloudId ? 'Saved to your workspace' : 'Temporary session');
+      savedProjectRef.current = result; savedDirty.current = dirtyRef.current;
            setProjects(list=>[result,...list.filter(p=>p.id!==result.id)]);
       setImportAutoHighlight(result.settings.autoHighlight !== false);
       setLanguagePrompt('open');
       trackEvent('upload_completed', { elapsed_seconds: Math.round((performance.now() - uploadStartedAt) / 1000) });
       void refreshLimits();
     } catch(e) { trackEvent('upload_failed'); notify((e as Error).message); }
-    finally { setUploadProgress(null); if(input.current) input.current.value=''; }
+    finally { setUploadProgress(null); setUploadPreview(null); if (!projectRef.current?.cloudAudioOnly) setStorageMessage(''); if(input.current) input.current.value=''; }
   }
 
   const { handleDragEnter, handleDragLeave, handleDragOver, handleDrop } = stageFileDropHandlers({
@@ -2518,7 +2587,10 @@ export default function App() {
   async function openProject(p: Project) {
     try {
       await flushSave();
+      if (projectRef.current) await waitForDrive(projectRef.current);
       const result=await request<Project>(`/projects/${p.id}`);
+      setLocalMedia(result.id); savedProjectRef.current = result; savedDirty.current = dirtyRef.current;
+      setSaveStatus(result.cloudAudioOnly ? 'Original saving to Drive…' : result.cloudId ? 'Saved to your workspace' : 'Temporary session');
       const projectScript = result.script || 'roman';
       const projectLanguage = result.language || 'auto';
       // Opening a project used to run autoDetectHighlights over it, writing
@@ -2588,7 +2660,7 @@ export default function App() {
     pauseForExport();
     setModal('export');
   }
-  async function startExport() {
+  async function startExport(destination: 'download' | 'drive' = 'download') {
     if (!project) return;
     pauseForExport();
     const currentProject = project;
@@ -2598,12 +2670,14 @@ export default function App() {
     setLastDownloadedExportId(null);
     try {
       await flushSave();
+      await waitForDrive(currentProject);
       const job = await request<ExportJob>(`/projects/${currentProject.id}/exports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: exportMode, resolution, fps: exportFps }),
       });
       if (job?.id) {
+        exportDestinations.current.set(job.id, destination);
         exportTimingRef.current.set(job.id, exportStartedAt);
         setActiveExportId(job.id);
       }
@@ -2692,6 +2766,7 @@ export default function App() {
     }
     try {
       await flushSave();
+      if (currentProject.isolateVocals) await waitForDrive(currentProject);
       captionTimingRef.current.set(currentProject.id, performance.now());
       trackEvent('captions_started');
       const result=await request<Project>(`/projects/${currentProject.id}/transcribe`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -2740,8 +2815,23 @@ export default function App() {
       }}
       onOpenExport={openExport}
       onOpenShortcuts={() => setModal('shortcuts')}
+      onOpenWorkspace={AUTH_ENABLED ? () => setWorkspaceOpen(true) : undefined}
+      workspaceLabel={storageMode === 'drive' ? 'Drive workspace and saved projects' : 'Temporary mode · saved projects and storage options'}
     />
 
+    {storageMessage && !uploadPreview && <div className="drive-transfer-status" role="status">
+      <span>{storageMessage}</span>
+      {project?.cloudAudioOnly && storageMessage.includes('interrupted') && <button type="button" className="button" onClick={() => void retryDriveSave(project).catch(e => notify((e as Error).message))}>Retry Drive save</button>}
+    </div>}
+    {workspaceOpen && <DriveProjects onClose={() => setWorkspaceOpen(false)} notify={notify} hasOpenProject={!!project}
+      onMode={mode => { modeChosen.current = true; setStorageMode(mode); if (mode === 'drive') setDriveReady(true); }}
+      onOpen={async id => {
+        try { await flushSave(); if (projectRef.current) await waitForDrive(projectRef.current); } catch {
+          if (!window.confirm('Some edits have not been saved. Opening a saved project will discard those unsaved edits in this tab. Continue?')) return;
+        }
+        const saved = await openDriveProject(id); savedDirty.current = dirtyRef.current; conflictRef.current = null; await openProject(saved);
+        setWorkspaceOpen(false); setStorageMode('drive'); setDriveReady(true);
+      }}/>}
     <div className="studio">
       <aside className="studio-nav-rail" aria-label="Main navigation panels">
         <div className="rail-nav-group">
@@ -3150,7 +3240,17 @@ export default function App() {
         overExportLimit={overExportLimit}
         duration={duration}
         maxExportSeconds={maxExportSeconds}
-        startExport={startExport}
+        startExport={() => startExport('download')}
+        driveAvailable={!!project?.cloudId && driveReady}
+        exportDriveBusy={exportDriveBusy}
+        startDriveExport={() => startExport('drive')}
+        retryDriveExport={async () => {
+          if (!project || !latestExport) return;
+          setExportDriveBusy(true);
+          try { await exportToDrive(project, latestExport.id); notify('Export saved to Google Drive.'); }
+          catch (e) { notify((e as Error).message); }
+          finally { setExportDriveBusy(false); }
+        }}
         exporting={exporting}
         lastDownloadedExportId={lastDownloadedExportId}
         downloadTranscript={downloadTranscript}
@@ -3171,15 +3271,18 @@ export default function App() {
       three-second decision into a form. They live with the rest of the
       generation options in the Captions panel.
     */}
-    {sessionNotice && <Modal title="Heads up: this session is local only" className="session-notice-modal" onClose={dismissSessionNotice}>
-      <p className="modal-lede">Your video and captions live only in this browser tab for now. Nothing is saved to your account yet.</p>
-      <ul className="session-notice-list">
-        <li>Closing or refreshing the tab clears your project.</li>
-        <li>Export your video or subtitles before you leave.</li>
-        <li>Saved projects are coming in a later update.</li>
-      </ul>
+    {uploadPreview && uploadProgress !== null && <Modal title={storageMode === 'drive' ? 'Saving your video' : 'Preparing your video'} onClose={() => {}}>
+      {uploadPreviewType === 'video' ? <video className="drive-upload-preview" src={uploadPreview} controls playsInline/> : <audio src={uploadPreview} controls/>}
+      <p role="status">{storageMessage} {uploadProgress < 100 ? `${uploadProgress}%` : ''}</p>
+      <p>You can preview the local file now. Keep this tab open until preparation finishes.</p>
+    </Modal>}
+    {sessionNotice && <Modal title="Choose how you work" className="session-notice-modal" onClose={dismissSessionNotice}>
+      <p className="modal-lede">Make a quick edit, or save projects to your own Google Drive.</p>
+      {!AUTH_ENABLED && <p>Google Drive saving requires a signed-in account.</p>}
+      <p>Temporary mode sends media to our processor, then cleans up its working files. Download your work before leaving; your project is not saved to your account.</p>
       <div className="modal-actions">
-        <button type="button" className="button primary" onClick={dismissSessionNotice}>Got it</button>
+        <button type="button" className="button" onClick={() => { modeChosen.current = true; setStorageMode('temporary'); dismissSessionNotice(); }}>Continue temporarily</button>
+        <button type="button" className="button primary" disabled={!AUTH_ENABLED} onClick={() => { dismissSessionNotice(); setWorkspaceOpen(true); }}>Save with Google Drive</button>
       </div>
     </Modal>}
     {languagePrompt && project && <Modal title="Caption setup" className="caption-setup-modal" onClose={()=>setLanguagePrompt(null)}>
@@ -3372,6 +3475,8 @@ export default function App() {
     )}
 
     {accountMenu && <ProfilePopup name={accountName} email={accountEmail}
+      driveProject={!!project?.cloudId}
+      workspaceLabel={project?.cloudId ? (project.cloudAudioOnly ? 'Saving to Google Drive' : 'Google Drive project') : 'Temporary session'}
       joined={accountJoined} verified={accountVerified} onClose={() => setAccountMenu(null)}
       onSaveName={async name => {
         if (!supabase) throw new Error('Account service is unavailable.');

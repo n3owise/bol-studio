@@ -1,0 +1,11 @@
+.drive-options { display:grid; gap:12px; margin-block:16px; }
+.drive-options p { color:var(--muted,#666); font-size:13px; line-height:1.6; margin:0 0 10px; }
+.drive-option { padding:16px; border:1px solid var(--border,#ddd); border-radius:12px; }
+.drive-option h3 { display:flex; gap:8px; align-items:center; margin:0 0 10px; }
+.drive-project-list { display:grid; gap:8px; max-height:28dvh; overflow:auto; }
+.drive-project { display:flex; gap:8px; }
+.drive-project > .button { flex:1; justify-content:flex-start; text-align:left; min-width:0; }
+.drive-project span { overflow-wrap:anywhere; } .drive-project small { display:block; color:var(--muted,#666); font-weight:400; }
+.drive-upload-preview { max-height:42dvh; width:100%; border-radius:10px; background:#111; }
+.drive-transfer-status { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:26; max-width:min(90vw,520px); padding:10px 14px; background:var(--panel,#fff); color:var(--text,#151515); border:1px solid var(--border,#ddd); border-radius:12px; font-size:12px; display:flex; gap:10px; align-items:center; box-shadow:0 2px 10px #0001; }
+@media(max-width:900px) { .drive-transfer-status { bottom:calc(128px + env(safe-area-inset-bottom)); } }

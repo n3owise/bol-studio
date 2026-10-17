@@ -446,6 +446,10 @@ def prepare_media(project: dict) -> None:
                      "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(directory / "audio.tmp.wav")], 300, project, int(project["duration"] * 32000) + 4096)
         (directory / "audio.tmp.wav").replace(directory / "audio.wav")
 
+    # Browser-extracted audio can be transcribed while the original is still
+    # uploading to Drive. The original is hydrated before any export is allowed.
+    if project.get("cloudAudioOnly"):
+        return
     playable = remux_for_playback(project)
 
     if not playable and project["mediaType"] == "video" and not (directory / "preview.mp4").is_file():
@@ -535,6 +539,16 @@ def _transcription_job(project_id: str, generation: int) -> None:
         update_transcription(project_id, generation, lambda p: p.update(**result, status="ready", progress=100, diagnostics=trace.finish(),
                       message=("Transcript ready. Review spelling and suggested emphasis." if result["words"] else "No speech was detected. Try a clip with clearer speech.")
                       + (" Vocal isolation was unavailable; the original audio was used." if result.get("isolationFallback") else "")))
+        # Save completed captions even if the browser closed during recognition.
+        if load_project(project_id).get("cloudId"):
+            try:
+                persist_drive_project(project_id)
+            except Exception:
+                LOGGER.warning("Drive caption save failed; editing session remains recoverable until its lease expires")
+                with LOCK:
+                    latest = load_project(project_id)
+                    latest["cloudSaveError"] = True
+                    write_project(latest)
         # The recogniser's copy is uncompressed 16 kHz wav and nothing reads it
         # again — a third of the stored size for a file regenerated from the
         # source in seconds if the clip is ever transcribed again.
@@ -810,7 +824,7 @@ except ValueError:
 API_KEY = os.getenv("BOL_API_KEY", "").strip()
 # The Gradio landing page and the health check stay reachable so the Space shows
 # as up without a key.
-_OPEN_PATHS = {"/api/health", "/api/docs", "/api/openapi.json"}
+_OPEN_PATHS = {"/api/health", "/api/docs", "/api/openapi.json", "/api/cloud/google/callback"}
 
 
 def _is_guarded(path: str) -> bool:
@@ -1197,6 +1211,9 @@ async def strip_foreign_cors(request: Request, call_next):
     response as it should.
     """
     response = await call_next(request)
+    if request.url.path.startswith("/api/cloud/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
     origin = request.headers.get("origin")
     if not origin or "*" in ALLOWED_ORIGINS:
         return response
@@ -1814,6 +1831,8 @@ def audio_track(project_id: str):
 
 @app.post("/api/projects/{project_id}/exports", status_code=202)
 def create_export(project_id: str, request: ExportRequest):
+    if load_project(project_id).get("cloudAudioOnly"):
+        raise HTTPException(409, "Wait for the original video to finish saving to Drive before exporting.")
     with job_slot(load_project(project_id).get("owner", "local")) as queue:
         export_id = str(uuid.uuid4())
         with LOCK:
@@ -2338,3 +2357,8 @@ def delete_asset(project_id: str, asset_id: str):
         except Exception:
             pass
     return {"status": "ok"}
+
+# Optional user-owned storage. Disabled until server credentials and SQL are installed.
+from server.drive_routes import install as install_drive_routes
+import sys as _sys
+install_drive_routes(_sys.modules[__name__])

@@ -35,3 +35,6 @@ sentence-transformers>=3,<6
 
 # Production error monitoring (disabled without BOL_SENTRY_DSN).
 sentry-sdk[fastapi]>=2,<3
+
+# Encrypt user-owned Google Drive refresh tokens at rest.
+cryptography>=43,<50

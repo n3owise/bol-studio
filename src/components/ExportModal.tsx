@@ -20,6 +20,10 @@ export interface ExportModalProps {
   duration: number;
   maxExportSeconds: number | null;
   startExport: () => Promise<void>;
+  driveAvailable: boolean;
+  startDriveExport: () => Promise<void>;
+  retryDriveExport: () => Promise<void>;
+  exportDriveBusy: boolean;
   exporting: boolean;
   lastDownloadedExportId: string | null;
   downloadTranscript: (format: "srt" | "vtt" | "json" | "txt" | "csv") => void;
@@ -27,12 +31,12 @@ export interface ExportModalProps {
   copyTranscript: () => void;
 }
 
-export function ExportModal({ setModal, exportMode, setExportMode, project, settings, resolution, setResolution, exportFps, setExportFps, hasExportRunning, latestExport, overExportLimit, duration, maxExportSeconds, startExport, exporting, lastDownloadedExportId, downloadTranscript, downloadAudioTrack, copyTranscript }: ExportModalProps) {
+export function ExportModal({ driveAvailable, startDriveExport, retryDriveExport, exportDriveBusy, setModal, exportMode, setExportMode, project, settings, resolution, setResolution, exportFps, setExportFps, hasExportRunning, latestExport, overExportLimit, duration, maxExportSeconds, startExport, exporting, lastDownloadedExportId, downloadTranscript, downloadAudioTrack, copyTranscript }: ExportModalProps) {
   return (
     <>
       <Modal title="Export video" className="export-modal" onClose={() => setModal(null)} wide>
         <p className="modal-description">
-          Choose your format, resolution, and frame rate. Your video exports and downloads automatically in one step.
+          Choose your format and where to save the finished video.
         </p>
 
         {/* Step 1: Two Main Sections (Captioned Video vs Green Screen) */}
@@ -187,7 +191,7 @@ export function ExportModal({ setModal, exportMode, setExportMode, project, sett
               />
             </div>
             <p className="export-auto-download-hint">
-              ⚡ <strong>Auto-download enabled:</strong> Your video will start downloading automatically the moment rendering completes.
+              Your video will be downloaded or saved to Drive after rendering, based on the option you selected.
             </p>
           </div>
         ) : (
@@ -200,6 +204,8 @@ export function ExportModal({ setModal, exportMode, setExportMode, project, sett
                 for the full length.
               </p>
             )}
+            {driveAvailable && <button className="button full" disabled={exporting || exportDriveBusy || !project?.words.length || overExportLimit} onClick={() => void startDriveExport()}>Render &amp; save to Google Drive</button>}
+            {driveAvailable && latestExport && ['ready', 'complete'].includes(latestExport.status) && <button className="button full" disabled={exportDriveBusy} onClick={() => void retryDriveExport()}>{exportDriveBusy ? 'Saving to Drive…' : 'Save last export to Drive'}</button>}
             <button
               className="button primary full export-submit-btn"
               onClick={() => void startExport()}

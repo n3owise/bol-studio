@@ -42,6 +42,18 @@ const localWorkspaceId = crypto.randomUUID();
 
 // This registry exists only in the current page. Never restore an old upload.
 const temporaryProjects = new Set<string>();
+export function registerTemporaryProject(id: string) { temporaryProjects.add(id); }
+const localMedia = new Map<string, string>();
+export function discardLocalMedia(id: string): boolean {
+  const url = localMedia.get(id);
+  if (!url) return false;
+  URL.revokeObjectURL(url); localMedia.delete(id); return true;
+}
+export function setLocalMedia(id: string, file?: File) {
+  for (const url of localMedia.values()) URL.revokeObjectURL(url);
+  localMedia.clear();
+  if (file) localMedia.set(id, URL.createObjectURL(file));
+}
 function renewTemporaryProjects(closing = false) {
   for (const id of temporaryProjects) {
     // Same-origin keepalive avoids starting a cross-origin preflight while the
@@ -96,6 +108,8 @@ export function authHeaders(extra?: Record<string, string>): Record<string, stri
 export function mediaUrl(path: string): string {
   const route = unsignedMediaPath(path);
   if (!route) return '';
+  const local = localMedia.get(projectIdIn(route));
+  if (local && /\/media$/.test(route)) return local;
   const base = `${API}${route}`;
   const query = new URLSearchParams();
   if (API_KEY) query.set('key', API_KEY);
@@ -139,7 +153,7 @@ export async function ensureMediaToken(projectId: string): Promise<string> {
   return AUTH_ENABLED ? mediaCredentials.ensure(projectId) : '';
 }
 /** Sign-out also invalidates mint requests that have not finished. */
-export function forgetMediaTokens(): void { mediaCredentials.clear(); }
+export function forgetMediaTokens(): void { mediaCredentials.clear(); setLocalMedia(''); }
 /** Share authentication and one-shot session refresh between JSON and file requests. */
 async function apiResponse(path: string, options?: RequestInit): Promise<Response> {
   return fetchProtectedResource(`${path.startsWith('/admin/') ? '' : API}/api${path}`, options, {

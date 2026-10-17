@@ -158,6 +158,10 @@ export type CanvasVisualElement = {
   zIndex?: number;
 };
 export type Project = {
+  cloudId?: string;
+  cloudRevision?: number;
+  cloudSaveError?: boolean;
+  cloudAudioOnly?: boolean;
   id: string;
   name: string;
   filename: string;

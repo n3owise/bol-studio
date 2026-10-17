@@ -2,7 +2,7 @@ import { canvasKeyboardChange, isBrowserZoomKey } from '../lib/frontend-reliabil
 import { assetMediaPath } from '../lib/media-credentials';
 import React from 'react';
 import { AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowUp, Move, AudioLines, LoaderCircle, Minus, RotateCcw, Trash2, UploadCloud, Wand2, X } from 'lucide-react';
-import { mediaUrl } from '../lib/api';
+import { mediaUrl, discardLocalMedia } from '../lib/api';
 import { Player, type PlayerRef } from '@remotion/player';
 import { CaptionTrack } from '../remotion/CaptionTrack';
 import { CAPTION_FPS } from '../remotion/Root';
@@ -79,7 +79,7 @@ export function PreviewStage({ preview, hasVideoLayer, videoEnabled, size, media
                 <video
                   ref={media}
                   className={`${project.mediaType === 'audio' || (hasVideoLayer && !videoEnabled) ? 'audio-media' : ''} ${(activeMediaAsset ? activeMediaAsset.greenScreen : project.greenScreen)?.enabled ? 'video-keyed' : ''}`}
-                  key={`${project.id}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}-${activeMediaAsset?.id || 'primary'}`}
+                  key={`${project.id}-${project.cloudAudioOnly ? 'uploading' : 'original'}-${busy ? 'processing' : 'ready'}-${videoEnabled ? 'video' : 'audio'}-${activeMediaAsset?.id || 'primary'}`}
                   src={busy ? undefined : (mediaUrl(assetMediaPath(project.id, activeMediaAsset?.id ?? 'primary')) || undefined)}
                   playsInline
                   preload="metadata"
@@ -100,7 +100,14 @@ export function PreviewStage({ preview, hasVideoLayer, videoEnabled, size, media
                   onPause={() => setPlaying(false)}
                   onEnded={() => setPlaying(false)}
                   onSeeked={() => setTime(media.current?.currentTime ?? 0)}
-                  onError={() => notify('The preview could not load. The file may still be processing.')}
+                  onError={() => {
+                    if (!activeMediaAsset && discardLocalMedia(project.id)) {
+                      if (project.cloudAudioOnly) { notify('This format needs a prepared preview. It will be available once the original finishes uploading.'); return; }
+                      const fallback = mediaUrl(assetMediaPath(project.id, 'primary'));
+                      if (media.current && fallback) { media.current.src = fallback; media.current.load(); return; }
+                    }
+                    notify('The preview could not load. The file may still be processing.');
+                  }}
                 />
                 {project.mediaType === 'audio' && (
                   <div className="audio-backdrop">
