@@ -107,6 +107,18 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [modal, setModal] = useState<'export' | 'projects' | 'help' | 'search-replace' | 'shortcuts' | null>(null);
   const [showTour, setShowTour] = useState(false);
+  /**
+   * The local-session notice: projects live only in this tab for now, so say
+   * so once per visit, before anyone puts work in. Session storage rather than
+   * local, so a new visit is reminded again while the warning is still true.
+   */
+  const [sessionNotice, setSessionNotice] = useState(() => {
+    try { return sessionStorage.getItem('bol_local_notice_seen') !== '1'; } catch { return true; }
+  });
+  const dismissSessionNotice = () => {
+    setSessionNotice(false);
+    try { sessionStorage.setItem('bol_local_notice_seen', '1'); } catch { /* private window */ }
+  };
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [accountEmail, setAccountEmail] = useState('');
   /** What sign-up asked for, when it was asked. Blank for accounts made before
@@ -3159,6 +3171,17 @@ export default function App() {
       three-second decision into a form. They live with the rest of the
       generation options in the Captions panel.
     */}
+    {sessionNotice && <Modal title="Heads up: this session is local only" className="session-notice-modal" onClose={dismissSessionNotice}>
+      <p className="modal-lede">Your video and captions live only in this browser tab for now. Nothing is saved to your account yet.</p>
+      <ul className="session-notice-list">
+        <li>Closing or refreshing the tab clears your project.</li>
+        <li>Export your video or subtitles before you leave.</li>
+        <li>Saved projects are coming in a later update.</li>
+      </ul>
+      <div className="modal-actions">
+        <button type="button" className="button primary" onClick={dismissSessionNotice}>Got it</button>
+      </div>
+    </Modal>}
     {languagePrompt && project && <Modal title="Caption setup" className="caption-setup-modal" onClose={()=>setLanguagePrompt(null)}>
       <p className="modal-lede">Choose how your captions look.</p>
 

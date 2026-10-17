@@ -11904,3 +11904,6 @@ kbd {
 .profile-popup .button:focus-visible,.profile-popup input:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
 .profile-popup .profile-note { margin:12px 0 0; padding:0; background:transparent; border-radius:0; text-align:left; font-size:11px; line-height:1.6; }
 .profile-popup .modal-actions { margin-top:14px; padding-top:14px; }
+
+/* The local-session notice. */
+.session-notice-list { margin: 4px 0 20px; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.5; color: var(--color-text-secondary); }
